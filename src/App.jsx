@@ -781,8 +781,8 @@ function ObraCard({ obra, onClick, onEditar, onEliminar, onOpenTab, onToggleDia 
 
       {/* Parte superior */}
       <div style={{ display: 'flex', gap: 13, padding: '15px 16px 13px' }}>
-        {/* Iniciales ancla */}
-        <div style={{ width: 44, height: 44, borderRadius: 8, flexShrink: 0, background: '#1C1C1A', color: '#F2F1ED', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 500, letterSpacing: '0.04em' }}>{iniciales}</div>
+        {/* Iniciales ancla — degradat amb el color de l'estat, per identificar-lo d'un cop d'ull */}
+        <div style={{ width: 44, height: 44, borderRadius: 10, flexShrink: 0, background: `linear-gradient(135deg, ${accentColor}, ${accentColor}CC)`, boxShadow: `0 3px 10px ${accentColor}40`, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 600, letterSpacing: '0.04em' }}>{iniciales}</div>
 
         {/* Texto */}
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -793,8 +793,11 @@ function ObraCard({ obra, onClick, onEditar, onEliminar, onOpenTab, onToggleDia 
               {obra.direccion && <div style={{ fontSize: 11.5, color: '#A5A5A0', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{obra.direccion}</div>}
             </div>
             {/* Estado + menú */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-              <span style={{ fontSize: 9.5, color: accentColor, fontWeight: 600, whiteSpace: 'nowrap', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{e.label}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9.5, color: accentColor, fontWeight: 600, whiteSpace: 'nowrap', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: accentColor, flexShrink: 0 }} />
+                {e.label}
+              </span>
               <div style={{ position: 'relative' }}>
                 <button onClick={ev => { ev.stopPropagation(); setMenu(m => !m); }}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#A5A5A0', fontSize: 18, lineHeight: 1, padding: '0 2px' }}>⋮</button>
@@ -8501,18 +8504,25 @@ export default function App() {
                     {/* Resumen con tarjetas animadas */}
                     <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 10, marginBottom: 18 }}>
                       {[
-                        { n: obras.length, l: 'Obras totales', c: '#141412', s: 's1' },
-                        { n: obras.filter(o => o.estado === 'en_curso').length, l: 'En curso', c: '#C47610', s: 's2' },
-                        { n: obras.filter(o => o.estado === 'acabada').length, l: 'Acabadas', c: '#2D5E10', s: 's3' },
-                        { n: stats.alertas, l: 'Con alertas', c: '#8A1F1F', s: 's4' },
+                        { n: obras.length, l: 'Obras totales', c: '#141412', bg: '#F0EFEA', s: 's1', icon: 'M3 17V8l5-3 5 3v9 M7 17v-4h2v4' },
+                        { n: obras.filter(o => o.estado === 'en_curso').length, l: 'En curso', c: '#C47610', bg: '#FEF3DB', s: 's2', icon: 'M10 5.5v4.5l3 2.2 M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14z' },
+                        { n: obras.filter(o => o.estado === 'acabada').length, l: 'Acabadas', c: '#2D5E10', bg: '#E8F5E0', s: 's3', icon: 'M6 10.5l2.5 2.5L14 7 M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14z' },
+                        { n: stats.alertas, l: 'Con alertas', c: '#8A1F1F', bg: '#FDECEC', s: 's4', icon: 'M10 4a3 3 0 0 0-3 3c0 4-1.5 5-2 6h10c-.5-1-2-2-2-6a3 3 0 0 0-3-3Z M8.5 16a1.5 1.5 0 0 0 3 0' },
                       ].map(st => (
-                        <div key={st.l} className={`stat-card ${st.s}`} style={{ background: '#fff', borderRadius: 16, boxShadow: '0 1px 2px rgba(0,0,0,0.04), 0 3px 12px rgba(0,0,0,0.04)', padding: isMobile ? '14px 16px' : '18px 20px' }}>
-                          <div style={{ fontSize: isMobile ? 26 : 32, fontWeight: 700, color: st.c, lineHeight: 1, letterSpacing: '-0.03em' }}>{st.n}</div>
-                          <div style={{ fontSize: 11.5, color: '#9B9B97', marginTop: 7, fontWeight: 500, letterSpacing: '0.02em' }}>{st.l}</div>
+                        <div key={st.l} className={`stat-card ${st.s}`} style={{ background: '#fff', borderRadius: 16, boxShadow: '0 1px 2px rgba(0,0,0,0.04), 0 3px 12px rgba(0,0,0,0.04)', padding: isMobile ? '14px 16px' : '16px 20px', display: 'flex', alignItems: 'center', gap: isMobile ? 12 : 14 }}>
+                          <div style={{ width: isMobile ? 36 : 42, height: isMobile ? 36 : 42, borderRadius: 10, background: st.bg, color: st.c, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <svg width={isMobile ? 16 : 18} height={isMobile ? 16 : 18} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                              {st.icon.split(' M').map((seg, i) => <path key={i} d={i === 0 ? seg : 'M' + seg} />)}
+                            </svg>
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: isMobile ? 22 : 26, fontWeight: 700, color: st.c, lineHeight: 1, letterSpacing: '-0.03em' }}>{st.n}</div>
+                            <div style={{ fontSize: 11.5, color: '#9B9B97', marginTop: 4, fontWeight: 500, letterSpacing: '0.02em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{st.l}</div>
+                          </div>
                         </div>
                       ))}
                     </div>
-                    <div className="list-in" style={{ display: isMobile ? 'flex' : 'grid', flexDirection: isMobile ? 'column' : undefined, gridTemplateColumns: isMobile ? undefined : 'repeat(2, 1fr)', gap: 10 }}>
+                    <div className="list-in" style={{ display: isMobile ? 'flex' : 'grid', flexDirection: isMobile ? 'column' : undefined, gridTemplateColumns: isMobile ? undefined : 'repeat(2, 1fr)', gap: 12 }}>
                       {obras.map(o => <ObraCard key={o.id} obra={o} onClick={() => {
                         // Si _cargando, espera Fase 2 — busca la versió completa
                         const completa = obras.find(x => x.id === o.id && !x._cargando);
