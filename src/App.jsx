@@ -5974,6 +5974,7 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
     plazosEsenciales:   esCA ? 'TERMINIS ESSENCIALS' : 'PLAZOS ESENCIALES',
     plazosIntermedios:  esCA ? 'TERMINIS INTERMEDIS' : 'PLAZOS INTERMEDIOS',
     planning:    'PLANNING CONTRACTUAL',
+    fechaPrevista: esCA ? 'DATA PREVISTA' : 'FECHA PREVISTA',
     fechaReal:   esCA ? 'DATA REAL' : 'FECHA REAL',
     retrasoDias: esCA ? 'RETARD (DIES)' : 'RETRASO (DÍAS)',
     contrataciones: esCA ? 'SEGUIMENT CONTRACTACIONS' : 'SEGUIMIENTO CONTRATACIONES',
@@ -6747,28 +6748,30 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
   const hitos = vo.hitos || { esenciales: [], intermedios: [] };
   if ((hitos.esenciales||[]).length > 0 || (hitos.intermedios||[]).length > 0) {
     const c6H = 5.5;
-    const c6Cod=14, c6Desc=64, cFP=32, cFR=32, cRD=CW-c6Cod-c6Desc-cFP-cFR;
+    const c6Cod=14, c6Desc=64, cPlan=26, cFP=25, cFR=25, cRD=CW-c6Cod-c6Desc-cPlan-cFP-cFR;
     const totalItems = (hitos.esenciales||[]).length + (hitos.intermedios||[]).length;
     const alt6 = c6H + 10 + totalItems * 5.5 + 6;
     if (y + alt6 > PH - MB - 12) { doc.addPage(); pagActual++; dibuixarCapçalera(false); dibuixarPeu(); }
 
     // Fila títol — igual patró que la taula de temes: codi+títol a l'esquerra, capçaleres a la dreta.
-    // "Planning contractual" ja NO es posa encaixat al final de la columna de títol (hi xocava
-    // quan el títol era llarg) — ara viu dins la seva pròpia columna, igual que Fecha real/Retard.
+    // 4 columnes de capçalera (Planning contractual / Fecha prevista / Fecha real / Retraso), cap
+    // d'elles encaixada al final de la columna de títol (hi xocava quan el títol era llarg).
     doc.setFillColor(...GRIS15);
     doc.rect(ML, y, CW, c6H, 'F');
     doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(0,0,0);
     doc.text(numHitos, ML + 2, y + c6H/2, { baseline:'middle' });
     doc.text(T.hitosContractuales, ML + 2 + 3 + doc.getTextWidth(numHitos), y + c6H/2, { baseline:'middle' });
-    // "Planning contractual" és el text més llarg de les 3 capçaleres de columna — si no hi
-    // cap a la seva columna (cFP) a 6.5pt, es redueix perquè mai desbordi cap a la veïna.
+    // "Planning contractual" és el text més llarg de les 4 capçaleres — si no hi cap a la seva
+    // columna a 6.5pt es redueix, i s'aplica la MATEIXA mida a les altres 3 perquè totes quatre
+    // quedin visualment iguals (abans només "planning" sortia més petita que la resta).
     doc.setFontSize(6.5);
-    const midaPlanning = doc.getTextWidth(T.planning) > cFP - 4 ? 5.3 : 6.5;
-    doc.setFontSize(midaPlanning);
-    doc.text(T.planning, ML+c6Cod+c6Desc+cFP/2, y + c6H/2, { align:'center', baseline:'middle' });
-    doc.setFontSize(6.5);
-    doc.text(T.fechaReal, ML+c6Cod+c6Desc+cFP+cFR/2, y + c6H/2, { align:'center', baseline:'middle' });
-    doc.text(T.retrasoDias, ML+c6Cod+c6Desc+cFP+cFR+cRD/2, y + c6H/2, { align:'center', baseline:'middle' });
+    const midaCapc = doc.getTextWidth(T.planning) > cPlan - 4 ? 5.3 : 6.5;
+    doc.setFontSize(midaCapc);
+    [[ML+c6Cod+c6Desc, cPlan, T.planning],
+     [ML+c6Cod+c6Desc+cPlan, cFP, T.fechaPrevista],
+     [ML+c6Cod+c6Desc+cPlan+cFP, cFR, T.fechaReal],
+     [ML+c6Cod+c6Desc+cPlan+cFP+cFR, cRD, T.retrasoDias]]
+      .forEach(([x,w,t]) => doc.text(t, x+w/2, y + c6H/2, { align:'center', baseline:'middle' }));
     y += c6H + 5;
 
     let contadorHito = 1;
@@ -6786,15 +6789,15 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
         contadorHito++;
         doc.setFont('helvetica','normal');
         doc.text(doc.splitTextToSize(it.descripcion||'', c6Desc-3)[0]||'', ML+c6Cod+2, y+rh/2, { baseline:'middle' });
-        doc.text(it.fechaPrevista ? fmtFechaCorta(it.fechaPrevista) : '', ML+c6Cod+c6Desc+cFP/2, y+rh/2, { align:'center', baseline:'middle' });
-        doc.text(it.fechaReal ? fmtFechaCorta(it.fechaReal) : '', ML+c6Cod+c6Desc+cFP+cFR/2, y+rh/2, { align:'center', baseline:'middle' });
+        doc.text(it.fechaPrevista ? fmtFechaCorta(it.fechaPrevista) : '', ML+c6Cod+c6Desc+cPlan+cFP/2, y+rh/2, { align:'center', baseline:'middle' });
+        doc.text(it.fechaReal ? fmtFechaCorta(it.fechaReal) : '', ML+c6Cod+c6Desc+cPlan+cFP+cFR/2, y+rh/2, { align:'center', baseline:'middle' });
         let retard = '';
         if (it.fechaPrevista && it.fechaReal) {
           const d = Math.round((new Date(it.fechaReal) - new Date(it.fechaPrevista)) / 86400000);
           retard = d > 0 ? `+${d}` : `${d}`;
         }
         doc.setTextColor(...(retard.startsWith('+') ? [138,31,31] : [0,0,0]));
-        doc.text(retard, ML+c6Cod+c6Desc+cFP+cFR+cRD/2, y+rh/2, { align:'center', baseline:'middle' });
+        doc.text(retard, ML+c6Cod+c6Desc+cPlan+cFP+cFR+cRD/2, y+rh/2, { align:'center', baseline:'middle' });
         doc.setTextColor(0,0,0);
         setLW(LW_THIN); doc.line(ML, y+rh, ML+CW, y+rh);
         y += rh;
