@@ -6980,7 +6980,7 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
           doc.setTextColor(0,0,0);
           doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
           doc.text(fechaInicio ? fmtFechaCorta(fechaInicio) : '', ML+cNum+cDesc+cEs+cIni/2, topTema, { align:'center', baseline:'middle' });
-          doc.text((fechaFin && entradesOrdenades.length>1) ? fmtFechaCorta(fechaFin) : '', ML+cNum+cDesc+cEs+cIni+cFi/2, topTema, { align:'center', baseline:'middle' });
+          doc.text((fechaFin && estatMostrat==='R') ? fmtFechaCorta(fechaFin) : '', ML+cNum+cDesc+cEs+cIni+cFi/2, topTema, { align:'center', baseline:'middle' });
           doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
           let respY = topTema;
           respsArr.forEach(r => { doc.text(r, ML+cNum+cDesc+cEs+cIni+cFi+cRes/2, respY, { align:'center', baseline:'middle' }); respY += respLH; });
