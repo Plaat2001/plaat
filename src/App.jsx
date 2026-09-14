@@ -486,10 +486,10 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
           await new Promise((res, rej) => {
             const link = document.createElement('link');
             link.rel = 'stylesheet';
-            link.href = 'https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/3.6.2/maplibre-gl.min.css';
+            link.href = 'https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.2/dist/maplibre-gl.css';
             document.head.appendChild(link);
             const s = document.createElement('script');
-            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/3.6.2/maplibre-gl.min.js';
+            s.src = 'https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.2/dist/maplibre-gl.js';
             s.onload = res; s.onerror = () => rej(new Error('No se pudo cargar el motor del mapa'));
             document.head.appendChild(s);
           });
@@ -509,22 +509,7 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
 
       map.on('load', () => {
         if (cancelat) return;
-        // Edificis en 3D — s'afegeix sobre la capa "building" dels tiles OpenMapTiles
-        try {
-          map.addLayer({
-            id: 'plaat-3d-buildings',
-            source: 'openmaptiles',
-            'source-layer': 'building',
-            type: 'fill-extrusion',
-            minzoom: 13,
-            paint: {
-              'fill-extrusion-color': '#b9b3a3',
-              'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 6],
-              'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
-              'fill-extrusion-opacity': 0.9,
-            },
-          });
-        } catch (e) { console.warn('No se ha podido añadir la capa 3D de edificios:', e); }
+        // L'estil "liberty" ja porta una capa "building-3d" (fill-extrusion) pròpia — no cal afegir-ne una altra
         setCargando(false);
         colocarMarcadores(map);
       });
