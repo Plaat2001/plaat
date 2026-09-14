@@ -4521,7 +4521,7 @@ function ModuloActaVO({ obra, onSave }) {
 
   // 6 — Hitos contractuales
   function addHito(grupo) {
-    const item = { id: uid(), descripcion: '', fechaPrevista: '', fechaReal: '' };
+    const item = { id: uid(), descripcion: '', fechaPlanning: '', fechaPrevista: '', fechaReal: '' };
     guardarVO({ ...vo, hitos: { ...(vo.hitos||{esenciales:[],intermedios:[]}), [grupo]: [...((vo.hitos||{})[grupo]||[]), item] } });
   }
   function updHito(grupo, id, campo, val) {
@@ -4970,10 +4970,12 @@ function ModuloActaVO({ obra, onSave }) {
               <div key={h.id} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 5, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
                 <input value={h.descripcion||''} onChange={e => updHito(grupo, h.id, 'descripcion', e.target.value)}
                   placeholder="Descripció del hito..." style={{ flex: 1, minWidth: isMobile?'100%':120, fontSize: 12.5 }} />
+                <input type="date" value={h.fechaPlanning||''} onChange={e => updHito(grupo, h.id, 'fechaPlanning', e.target.value)}
+                  title="Planning contractual" style={{ width: isMobile?'31%':110, fontSize: 11.5, flexShrink: 0 }} />
                 <input type="date" value={h.fechaPrevista||''} onChange={e => updHito(grupo, h.id, 'fechaPrevista', e.target.value)}
-                  title="Data prevista" style={{ width: isMobile?'48%':130, fontSize: 11.5, flexShrink: 0 }} />
+                  title="Data prevista" style={{ width: isMobile?'31%':110, fontSize: 11.5, flexShrink: 0 }} />
                 <input type="date" value={h.fechaReal||''} onChange={e => updHito(grupo, h.id, 'fechaReal', e.target.value)}
-                  title="Data real" style={{ width: isMobile?'48%':130, fontSize: 11.5, flexShrink: 0 }} />
+                  title="Data real" style={{ width: isMobile?'31%':110, fontSize: 11.5, flexShrink: 0 }} />
                 <button onClick={() => delHito(grupo, h.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#D4D3CE', fontSize:15, lineHeight:1, flexShrink:0 }}>×</button>
               </div>
             ))}
@@ -6789,6 +6791,7 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
         contadorHito++;
         doc.setFont('helvetica','normal');
         doc.text(doc.splitTextToSize(it.descripcion||'', c6Desc-3)[0]||'', ML+c6Cod+2, y+rh/2, { baseline:'middle' });
+        doc.text(it.fechaPlanning ? fmtFechaCorta(it.fechaPlanning) : '', ML+c6Cod+c6Desc+cPlan/2, y+rh/2, { align:'center', baseline:'middle' });
         doc.text(it.fechaPrevista ? fmtFechaCorta(it.fechaPrevista) : '', ML+c6Cod+c6Desc+cPlan+cFP/2, y+rh/2, { align:'center', baseline:'middle' });
         doc.text(it.fechaReal ? fmtFechaCorta(it.fechaReal) : '', ML+c6Cod+c6Desc+cPlan+cFP+cFR/2, y+rh/2, { align:'center', baseline:'middle' });
         let retard = '';
