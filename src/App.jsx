@@ -431,6 +431,157 @@ function MapaClimaModal({ latInicial, lonInicial, onConfirmar, onCancelar }) {
   );
 }
 
+// ── Mapa 3D de totes les obres (MapLibre GL JS + OpenFreeMap, sense clau ni compte) ──
+function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
+  const mapRef = useRef(null);
+  const mapInstance = useRef(null);
+  const markersRef = useRef({});
+  const [cargando, setCargando] = useState(true);
+  const [errorMapa, setErrorMapa] = useState('');
+  const [obraSel, setObraSel] = useState(null);
+
+  async function geocodificar(direccion) {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(direccion)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (!data?.[0]) return null;
+    return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+  }
+
+  async function colocarMarcadores(map) {
+    const maplibregl = window.maplibregl;
+    const bounds = new maplibregl.LngLatBounds();
+    let alguna = false;
+    for (const obra of obras) {
+      if (!obra.direccion) continue;
+      let coords = (obra.geoLat !== undefined && obra.geoLon !== undefined && obra.geoLat !== null)
+        ? { lat: obra.geoLat, lon: obra.geoLon } : null;
+      if (!coords) {
+        try {
+          coords = await geocodificar(obra.direccion + ', España');
+          if (coords) onUpdateObra?.({ ...obra, geoLat: coords.lat, geoLon: coords.lon });
+          // Respecta el límit d'1 petició/segon de Nominatim (servei gratuït sense clau)
+          await new Promise(r => setTimeout(r, 1100));
+        } catch (e) { console.warn('No se pudo geocodificar', obra.nombre, e); }
+      }
+      if (!coords) continue;
+      alguna = true;
+      bounds.extend([coords.lon, coords.lat]);
+
+      const accent = STATUS_ACCENT[obra.estado] || STATUS_ACCENT.en_curso;
+      const el = document.createElement('div');
+      el.style.cssText = `width:16px;height:16px;border-radius:50%;background:${accent};border:2.5px solid #fff;box-shadow:0 0 0 4px ${accent}55,0 2px 8px rgba(0,0,0,.35);cursor:pointer;`;
+      el.addEventListener('click', () => setObraSel(obra));
+      const marker = new maplibregl.Marker({ element: el }).setLngLat([coords.lon, coords.lat]).addTo(map);
+      markersRef.current[obra.id] = marker;
+    }
+    if (alguna) map.fitBounds(bounds, { padding: 90, maxZoom: 16, duration: 1200 });
+  }
+
+  useEffect(() => {
+    let cancelat = false;
+    async function cargarMapa() {
+      if (!window.maplibregl) {
+        try {
+          await new Promise((res, rej) => {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = 'https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/3.6.2/maplibre-gl.min.css';
+            document.head.appendChild(link);
+            const s = document.createElement('script');
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/3.6.2/maplibre-gl.min.js';
+            s.onload = res; s.onerror = () => rej(new Error('No se pudo cargar el motor del mapa'));
+            document.head.appendChild(s);
+          });
+        } catch (e) { if (!cancelat) setErrorMapa(e.message); return; }
+      }
+      if (cancelat || !mapRef.current) return;
+      const maplibregl = window.maplibregl;
+      const map = new maplibregl.Map({
+        container: mapRef.current,
+        style: 'https://tiles.openfreemap.org/styles/liberty',
+        center: [2.1686, 41.3874], // Barcelona, per defecte
+        zoom: 12, pitch: 55, bearing: -12,
+        antialias: true,
+      });
+      map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+      mapInstance.current = map;
+
+      map.on('load', () => {
+        if (cancelat) return;
+        // Edificis en 3D — s'afegeix sobre la capa "building" dels tiles OpenMapTiles
+        try {
+          map.addLayer({
+            id: 'plaat-3d-buildings',
+            source: 'openmaptiles',
+            'source-layer': 'building',
+            type: 'fill-extrusion',
+            minzoom: 13,
+            paint: {
+              'fill-extrusion-color': '#b9b3a3',
+              'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 6],
+              'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
+              'fill-extrusion-opacity': 0.9,
+            },
+          });
+        } catch (e) { console.warn('No se ha podido añadir la capa 3D de edificios:', e); }
+        setCargando(false);
+        colocarMarcadores(map);
+      });
+      map.on('error', e => console.error('Error de mapa:', e?.error || e));
+    }
+    cargarMapa();
+    return () => {
+      cancelat = true;
+      Object.values(markersRef.current).forEach(m => m.remove());
+      if (mapInstance.current) { mapInstance.current.remove(); mapInstance.current = null; }
+    };
+    // eslint-disable-next-line
+  }, []);
+
+  const est = obraSel ? (ESTADOS_OBRA[obraSel.estado] || ESTADOS_OBRA.en_curso) : null;
+  const accentSel = obraSel ? (STATUS_ACCENT[obraSel.estado] || STATUS_ACCENT.en_curso) : null;
+
+  return createPortal(
+    <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: '#141412' }}>
+      <div ref={mapRef} style={{ position: 'absolute', inset: 0 }} />
+
+      {cargando && !errorMapa && (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#141412', color: 'rgba(255,255,255,.5)', fontSize: 13 }}>
+          Cargando mapa…
+        </div>
+      )}
+      {errorMapa && (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#141412', color: 'rgba(255,255,255,.6)', fontSize: 13, padding: 30, textAlign: 'center' }}>
+          {errorMapa}
+        </div>
+      )}
+
+      {/* Top-right queda per als controls propis de MapLibre (zoom/brúixola) — els nostres van a l'esquerra */}
+      <div style={{ position: 'absolute', top: 16, left: 16, zIndex: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button onClick={onClose} title="Cerrar"
+          style={{ width: 36, height: 36, flexShrink: 0, borderRadius: '50%', border: '1px solid rgba(255,255,255,.2)', background: 'rgba(20,20,18,.75)', color: '#fff', fontSize: 18, lineHeight: 1, cursor: 'pointer', backdropFilter: 'blur(8px)' }}>×</button>
+        <div style={{ background: 'rgba(20,20,18,.75)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 10, padding: '8px 14px', color: '#fff', fontSize: 12.5, backdropFilter: 'blur(8px)', whiteSpace: 'nowrap' }}>
+          🗺️ Mapa 3D de obras
+        </div>
+      </div>
+
+      {obraSel && (
+        <div onClick={ev => ev.stopPropagation()}
+          style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 2, background: '#fff', borderRadius: 14, padding: '14px 18px', minWidth: 240, maxWidth: '90vw', boxShadow: '0 20px 50px rgba(0,0,0,.35)' }}>
+          <button onClick={() => setObraSel(null)} style={{ position: 'absolute', top: 8, right: 10, background: 'none', border: 'none', fontSize: 15, color: '#A5A5A0', cursor: 'pointer', lineHeight: 1 }}>×</button>
+          <div style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase', color: accentSel, marginBottom: 5 }}>{est.label}</div>
+          <div style={{ fontSize: 14.5, fontWeight: 600, color: '#141412' }}>{obraSel.nombre}</div>
+          <div style={{ fontSize: 12, color: '#6B6B66', marginTop: 2 }}>{obraSel.cliente}</div>
+          <div style={{ fontSize: 11.5, color: '#A5A5A0', marginTop: 2 }}>{obraSel.direccion}</div>
+          <div style={{ marginTop: 10 }}><Btn primary sm full onClick={() => onSelectObra(obraSel)}>Abrir obra</Btn></div>
+        </div>
+      )}
+    </div>,
+    document.body
+  );
+}
+
 function Field({ label, children, hint }) {
   return (
     <div style={{ marginBottom: 13 }}>
@@ -7801,6 +7952,7 @@ export default function App() {
   const [obraEditar,   setObraEditar]   = useState(null);
   const [obraEliminar, setObraEliminar] = useState(null);
   const [showBackup,   setShowBackup]   = useState(false);
+  const [showMapaObras, setShowMapaObras] = useState(false);
   const [splash,       setSplash]       = useState(true);   // pantalla de bienvenida
   const [splashOut,    setSplashOut]    = useState(false);  // fase de desvanecido
 
@@ -7984,6 +8136,7 @@ export default function App() {
         fases: o.fases, disciplinas: o.disciplinas, lotes: o.lotes,
         creadaEn: o.creadaEn,
         climaLat: o.climaLat, climaLon: o.climaLon,
+        geoLat: o.geoLat, geoLon: o.geoLon,
       },
       updated_at: now(),
     };
@@ -8003,6 +8156,7 @@ export default function App() {
       fases: d.fases || [], disciplinas: d.disciplinas || [],
       lotes: d.lotes || [], creadaEn: d.creadaEn,
       climaLat: d.climaLat, climaLon: d.climaLon,
+      geoLat: d.geoLat, geoLon: d.geoLon,
       incidencias: (modulos?.incidencias || []).map(r => r.data),
       actaVO: modulos?.actas_vo?.[0]?.data || null,
       actasInsp: (modulos?.actas_insp || []).map(r => r.data),
@@ -8480,7 +8634,12 @@ export default function App() {
                   </div>
                   {obras.length > 0 && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 3 }}>{obras.filter(o => o.estado === 'en_curso').length} en curso · {obras.length} en total</div>}
                 </div>
-                <div style={{ position: 'relative', zIndex: 2 }}>
+                <div style={{ position: 'relative', zIndex: 2, display: 'flex', gap: 8 }}>
+                  {obras.length > 0 && (
+                    <button onClick={() => setShowMapaObras(true)} className="tap" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1.5px solid rgba(138,168,138,0.4)', background: 'rgba(138,168,138,0.1)', color: '#8AA88A', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      🗺️ Mapa 3D
+                    </button>
+                  )}
                   <button onClick={() => setShowNueva(true)} className="shimmer-btn tap" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 16px', borderRadius: 8, border: '1.5px solid #7A9D7A', background: '#5A7D5A', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                     + Nueva obra
                   </button>
@@ -8552,6 +8711,16 @@ export default function App() {
 
       {showNueva && <ModalNuevaObra onClose={() => setShowNueva(false)} onCreate={crearObra} />}
       {obraEditar && <ModalNuevaObra obra={obraEditar} onClose={() => setObraEditar(null)} onCreate={guardarEdicion} />}
+      {showMapaObras && (
+        <MapaObrasModal obras={obras} onClose={() => setShowMapaObras(false)}
+          onUpdateObra={actualizarObra}
+          onSelectObra={o => {
+            setShowMapaObras(false);
+            const completa = obras.find(x => x.id === o.id && !x._cargando);
+            setTabInicialObra(null);
+            setObraActiva(completa || o);
+          }} />
+      )}
 
       {/* Confirmar eliminación */}
       {obraEliminar && (
