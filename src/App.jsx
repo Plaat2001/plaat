@@ -448,8 +448,6 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const markersRef = useRef({});
-  const autoRotateRef = useRef(true);
-  const rafRef = useRef(null);
   const [cargando, setCargando] = useState(true);
   const [errorMapa, setErrorMapa] = useState('');
   const [obraSel, setObraSel] = useState(null);
@@ -514,8 +512,13 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
         .setLngLat([coords.lon, coords.lat]).addTo(map);
       markersRef.current[obra.id] = marker;
       setProgreso(p => ({ ...p, hecho: p.hecho + 1 }));
-      // Ajusta la càmera progressivament — no cal esperar que acabin totes per veure-hi res
-      map.fitBounds(bounds, { padding: 90, maxZoom: 16, duration: 900 });
+      // Ajusta la càmera progressivament — no cal esperar que acabin totes per veure-hi res.
+      // fitBounds sol podia deixar el zoom molt baix si les obres estan disperses, i per sota
+      // de zoom 14 els edificis 3D de l'estil no es dibuixen (es veu pla, "sense 3D"). Forcem
+      // un zoom mínim perquè sempre es vegin els edificis, encara que això deixi alguna obra
+      // llunyana fora de quadre (es pot buscar manualment fent zoom out).
+      const cam = map.cameraForBounds(bounds, { padding: 90, maxZoom: 16 });
+      if (cam) map.easeTo({ center: cam.center, zoom: Math.max(cam.zoom, 15), duration: 900 });
     }
   }
 
@@ -548,37 +551,21 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
       map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
       mapInstance.current = map;
 
-      // Pausa la rotació ambient quan l'usuari interactua amb el mapa, la represa als 2s d'inactivitat
-      let idleTimer = null;
-      map.on('movestart', e => { if (e.originalEvent) autoRotateRef.current = false; });
-      map.on('moveend', e => {
-        if (!e.originalEvent) return;
-        clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => { autoRotateRef.current = true; }, 2000);
-      });
-
       map.on('load', () => {
         if (cancelat) return;
         // L'estil "liberty" ja porta una capa "building-3d" (fill-extrusion) pròpia — no cal afegir-ne una altra
         setCargando(false);
-        // Revelat dramàtic: entra pla i puja a vista inclinada
+        // Revelat dramàtic (només un cop, a l'entrar): comença pla i puja a vista inclinada.
+        // NO hi ha rotació ambiental contínua després d'això — feia semblar que "els pins es
+        // movien sols" quan en realitat era tot el mapa girant de fons.
         map.flyTo({ pitch: 58, bearing: -14, zoom: 13.2, duration: 2400, curve: 1.25 });
         colocarMarcadores(map);
-
-        function rotarAmbient() {
-          if (!cancelat) {
-            if (autoRotateRef.current) map.setBearing(map.getBearing() + 0.035);
-            rafRef.current = requestAnimationFrame(rotarAmbient);
-          }
-        }
-        rafRef.current = requestAnimationFrame(rotarAmbient);
       });
       map.on('error', e => console.error('Error de mapa:', e?.error || e));
     }
     cargarMapa();
     return () => {
       cancelat = true;
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
       Object.values(markersRef.current).forEach(m => m.remove());
       if (mapInstance.current) { mapInstance.current.remove(); mapInstance.current = null; }
     };
@@ -590,7 +577,6 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
 
   function recentrar() {
     if (!mapInstance.current) return;
-    autoRotateRef.current = true;
     mapInstance.current.flyTo({ center: [2.1686, 41.3874], zoom: 13.2, pitch: 58, bearing: -14, duration: 1500 });
   }
 
