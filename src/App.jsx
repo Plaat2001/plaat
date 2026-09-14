@@ -6741,7 +6741,7 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
   }
 
   // Seccions de temes tractats
-  const cNum=14, cEs=14, cIni=20, cFi=20, cRes=14, cDesc=CW-cNum-cEs-cIni-cFi-cRes;
+  const cNum=14, cEs=9, cIni=15, cFi=15, cRes=10, cDesc=CW-cNum-cEs-cIni-cFi-cRes;
   const LW_THIN = 0.25; // línies horitzontals a la meitat de 0.5pt
 
   (vo.secciones||[]).forEach(sec => {
