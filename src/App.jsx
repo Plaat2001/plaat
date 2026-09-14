@@ -1944,7 +1944,11 @@ function EditorFoto({ foto, obraId, onSave, onClose }) {
     const ctx = overlayRef.current.getContext('2d');
     ctx.clearRect(0, 0, overlayRef.current.width, overlayRef.current.height);
     if (tool === 'pen') {
-      if (puntsLlapis.current.length > 1) setStrokes(s => [...s, { tool: 'pen', color, grossor, punts: puntsLlapis.current }]);
+      // Capturem l'array ABANS de buidar el ref: si passéssim puntsLlapis.current
+      // directament dins l'updater de setStrokes, per quan React l'executa (no és
+      // immediat) ja s'hauria buidat i el traç es desaria sense punts (invisible).
+      const punts = puntsLlapis.current;
+      if (punts.length > 1) setStrokes(s => [...s, { tool: 'pen', color, grossor, punts }]);
       puntsLlapis.current = [];
     } else {
       const p = coordCanvas(e);
