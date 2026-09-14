@@ -1728,6 +1728,16 @@ const ESTADOS_VO = {
 // es veuen massa semblants entre ells.
 const DOT_COLOR_VO = { P: '#F0A02B', R: '#2FA84F', I: '#3B82C4' };
 const RESP_VO = ['EC', 'DO', 'DEO', 'PR', 'DOE', 'DOI', 'CSS', 'INT'];
+// Editor de fotos de l'Acta VO — colors i eines de marcatge disponibles
+const COLORS_EDITOR_FOTO = ['#E53935', '#FDD835', '#1E88E5', '#43A047', '#FFFFFF', '#111111'];
+const EINES_EDITOR_FOTO = [
+  { id: 'pen',    label: '✏️',  title: 'Llapis' },
+  { id: 'line',   label: '╱',  title: 'Línia' },
+  { id: 'arrow',  label: '↗',  title: 'Fletxa' },
+  { id: 'rect',   label: '▭',  title: 'Rectangle' },
+  { id: 'circle', label: '◯',  title: 'Cercle' },
+];
+const GROSSORS_EDITOR_FOTO = [3, 6, 11];
 // Rols possibles al quadre de firmes — l'usuari tria quins hi apareixen (no totes les obres tenen els mateixos signants)
 const ROLES_FIRMA = [
   { id: 'promotor', label_es: 'PROMOTOR',                  label_ca: 'PROMOTOR',                 clau: 'promotor' },
@@ -1828,6 +1838,175 @@ function pickFiles(accept, cb, obraId) {
 function fotoSrc(foto) {
   if (!foto) return '';
   return foto.url || foto.data || '';
+}
+
+// ── EditorFoto ───────────────────────────────────────────────────────────────
+// Marcatge sobre fotos (Acta VO): dibuixar formes/línies a mà per destacar algun
+// punt. Desar SUBSTITUEIX la foto original (mateix id → mateix path a Storage).
+function EditorFoto({ foto, obraId, onSave, onClose }) {
+  const isMobile = useIsMobile();
+  const baseRef = useRef(null);
+  const overlayRef = useRef(null);
+  const imgRef = useRef(null);
+  const [tool, setTool] = useState('pen');
+  const [color, setColor] = useState(COLORS_EDITOR_FOTO[0]);
+  const [grossor, setGrossor] = useState(GROSSORS_EDITOR_FOTO[1]);
+  const [strokes, setStrokes] = useState([]);
+  const [dibuixant, setDibuixant] = useState(false);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  const [cargant, setCargant] = useState(true);
+  const [errorCarrega, setErrorCarrega] = useState(false);
+  const [desant, setDesant] = useState(false);
+  const puntInicial = useRef(null);
+  const puntsLlapis = useRef([]);
+
+  useEffect(() => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => { imgRef.current = img; setSize({ w: img.naturalWidth, h: img.naturalHeight }); setCargant(false); };
+    img.onerror = () => { setCargant(false); setErrorCarrega(true); };
+    img.src = fotoSrc(foto);
+  }, [foto]);
+
+  function dibuixaForma(ctx, s) {
+    ctx.strokeStyle = s.color; ctx.fillStyle = s.color;
+    ctx.lineWidth = s.grossor; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    if (s.tool === 'pen') {
+      if (s.punts.length < 2) return;
+      ctx.beginPath();
+      ctx.moveTo(s.punts[0].x, s.punts[0].y);
+      s.punts.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.stroke();
+    } else if (s.tool === 'line' || s.tool === 'arrow') {
+      ctx.beginPath(); ctx.moveTo(s.x1, s.y1); ctx.lineTo(s.x2, s.y2); ctx.stroke();
+      if (s.tool === 'arrow') {
+        const ang = Math.atan2(s.y2 - s.y1, s.x2 - s.x1);
+        const mida = Math.max(16, s.grossor * 3);
+        ctx.beginPath();
+        ctx.moveTo(s.x2, s.y2);
+        ctx.lineTo(s.x2 - mida * Math.cos(ang - Math.PI / 6), s.y2 - mida * Math.sin(ang - Math.PI / 6));
+        ctx.lineTo(s.x2 - mida * Math.cos(ang + Math.PI / 6), s.y2 - mida * Math.sin(ang + Math.PI / 6));
+        ctx.closePath(); ctx.fill();
+      }
+    } else if (s.tool === 'rect') {
+      ctx.strokeRect(Math.min(s.x1, s.x2), Math.min(s.y1, s.y2), Math.abs(s.x2 - s.x1), Math.abs(s.y2 - s.y1));
+    } else if (s.tool === 'circle') {
+      const rx = Math.abs(s.x2 - s.x1) / 2, ry = Math.abs(s.y2 - s.y1) / 2;
+      ctx.beginPath();
+      ctx.ellipse((s.x1 + s.x2) / 2, (s.y1 + s.y2) / 2, rx || 0.01, ry || 0.01, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  // Redibuixa el canvas base (imatge + traços confirmats) quan canvien els traços
+  useEffect(() => {
+    if (!size.w || !baseRef.current || !imgRef.current) return;
+    const c = baseRef.current;
+    c.width = size.w; c.height = size.h;
+    if (overlayRef.current) { overlayRef.current.width = size.w; overlayRef.current.height = size.h; }
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.drawImage(imgRef.current, 0, 0, c.width, c.height);
+    strokes.forEach(s => dibuixaForma(ctx, s));
+  }, [strokes, size]);
+
+  function coordCanvas(e) {
+    const c = overlayRef.current;
+    const rect = c.getBoundingClientRect();
+    return { x: (e.clientX - rect.left) * (c.width / rect.width), y: (e.clientY - rect.top) * (c.height / rect.height) };
+  }
+  function onPointerDown(e) {
+    e.preventDefault();
+    overlayRef.current.setPointerCapture(e.pointerId);
+    const p = coordCanvas(e);
+    setDibuixant(true);
+    if (tool === 'pen') puntsLlapis.current = [p]; else puntInicial.current = p;
+  }
+  function onPointerMove(e) {
+    if (!dibuixant) return;
+    e.preventDefault();
+    const p = coordCanvas(e);
+    const ctx = overlayRef.current.getContext('2d');
+    ctx.clearRect(0, 0, overlayRef.current.width, overlayRef.current.height);
+    if (tool === 'pen') { puntsLlapis.current.push(p); dibuixaForma(ctx, { tool: 'pen', color, grossor, punts: puntsLlapis.current }); }
+    else dibuixaForma(ctx, { tool, color, grossor, x1: puntInicial.current.x, y1: puntInicial.current.y, x2: p.x, y2: p.y });
+  }
+  function onPointerUp(e) {
+    if (!dibuixant) return;
+    setDibuixant(false);
+    const ctx = overlayRef.current.getContext('2d');
+    ctx.clearRect(0, 0, overlayRef.current.width, overlayRef.current.height);
+    if (tool === 'pen') {
+      if (puntsLlapis.current.length > 1) setStrokes(s => [...s, { tool: 'pen', color, grossor, punts: puntsLlapis.current }]);
+      puntsLlapis.current = [];
+    } else {
+      const p = coordCanvas(e);
+      const nova = { tool, color, grossor, x1: puntInicial.current.x, y1: puntInicial.current.y, x2: p.x, y2: p.y };
+      if (Math.hypot(nova.x2 - nova.x1, nova.y2 - nova.y1) > 4) setStrokes(s => [...s, nova]);
+      puntInicial.current = null;
+    }
+  }
+
+  async function guardar() {
+    if (!strokes.length) { onClose(); return; }
+    setDesant(true);
+    const base64 = baseRef.current.toDataURL('image/jpeg', 0.85);
+    const pujat = await subirFotoStorage(obraId, foto.id, base64);
+    const url = pujat.url ? `${pujat.url}${pujat.url.includes('?') ? '&' : '?'}v=${Date.now()}` : pujat.url;
+    onSave({ ...foto, ...pujat, url });
+  }
+
+  const btnEina = (actiu) => ({ width: 34, height: 34, borderRadius: 8, border: `1px solid ${actiu ? '#fff' : 'rgba(255,255,255,.18)'}`, background: actiu ? 'rgba(255,255,255,.16)' : 'transparent', color: '#fff', fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 });
+
+  return createPortal(
+    <div style={{ position: 'fixed', inset: 0, background: '#141412', zIndex: 10000, display: 'flex', flexDirection: 'column' }}>
+      {/* Barra d'eines */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isMobile ? '9px 10px' : '10px 16px', flexWrap: 'wrap', borderBottom: '1px solid rgba(255,255,255,.1)', flexShrink: 0 }}>
+        {EINES_EDITOR_FOTO.map(e => (
+          <button key={e.id} title={e.title} onClick={() => setTool(e.id)} style={btnEina(tool === e.id)}>{e.label}</button>
+        ))}
+        <div style={{ width: 1, alignSelf: 'stretch', background: 'rgba(255,255,255,.12)', margin: '0 4px' }} />
+        {COLORS_EDITOR_FOTO.map(c => (
+          <button key={c} title={c} onClick={() => setColor(c)}
+            style={{ width: 24, height: 24, borderRadius: '50%', background: c, border: color === c ? '2px solid #fff' : '2px solid rgba(255,255,255,.25)', cursor: 'pointer', flexShrink: 0, boxShadow: color === c ? '0 0 0 2px rgba(255,255,255,.25)' : 'none' }} />
+        ))}
+        <div style={{ width: 1, alignSelf: 'stretch', background: 'rgba(255,255,255,.12)', margin: '0 4px' }} />
+        {GROSSORS_EDITOR_FOTO.map(g => (
+          <button key={g} title={`Gruix ${g}`} onClick={() => setGrossor(g)} style={btnEina(grossor === g)}>
+            <span style={{ width: g, height: g, borderRadius: '50%', background: '#fff', display: 'block' }} />
+          </button>
+        ))}
+        <div style={{ flex: 1, minWidth: 8 }} />
+        <button onClick={() => setStrokes(s => s.slice(0, -1))} disabled={!strokes.length}
+          style={{ ...btnEina(false), width: 'auto', padding: '0 10px', opacity: strokes.length ? 1 : 0.35 }}>↺ Desfer</button>
+        <button onClick={() => setStrokes([])} disabled={!strokes.length}
+          style={{ ...btnEina(false), width: 'auto', padding: '0 10px', opacity: strokes.length ? 1 : 0.35 }}>Netejar</button>
+      </div>
+
+      {/* Àrea de dibuix */}
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: 12, position: 'relative' }}>
+        {cargant && <div style={{ color: 'rgba(255,255,255,.5)', fontSize: 13 }}>Carregant foto…</div>}
+        {errorCarrega && <div style={{ color: 'rgba(255,255,255,.5)', fontSize: 13 }}>No s'ha pogut carregar la foto.</div>}
+        {!cargant && !errorCarrega && (
+          <div style={{ position: 'relative', maxWidth: '100%', maxHeight: '100%', aspectRatio: `${size.w} / ${size.h}` }}>
+            <canvas ref={baseRef} style={{ width: '100%', height: '100%', display: 'block', borderRadius: 4 }} />
+            <canvas ref={overlayRef}
+              onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', touchAction: 'none', cursor: 'crosshair' }} />
+          </div>
+        )}
+      </div>
+
+      {/* Peu */}
+      <div style={{ display: 'flex', gap: 10, padding: isMobile ? '10px 12px calc(10px + env(safe-area-inset-bottom))' : '12px 16px', borderTop: '1px solid rgba(255,255,255,.1)', flexShrink: 0 }}>
+        <button onClick={onClose} disabled={desant}
+          style={{ flex: 1, padding: '11px', borderRadius: 9, border: '1px solid rgba(255,255,255,.2)', background: 'transparent', color: '#fff', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>Cancel·lar</button>
+        <button onClick={guardar} disabled={desant || cargant || errorCarrega}
+          style={{ flex: 1, padding: '11px', borderRadius: 9, border: 'none', background: '#fff', color: '#141412', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: desant ? 0.6 : 1 }}>{desant ? 'Desant…' : 'Desar'}</button>
+      </div>
+    </div>,
+    document.body
+  );
 }
 function IncCard({ inc, esVisitaHoy, onClick, onRevisar }) {
   const isMobile = useIsMobile();
@@ -4090,7 +4269,6 @@ function ModuloActaVO({ obra, onSave }) {
   const isMobile = useIsMobile();
   const [voLocal, setVoLocal] = useState(null);
   const [cargandoVO, setCargandoVO] = useState(false);
-  const [climaSetmana, setClimaSetmana] = useState(today());
   const [climaCarregant, setClimaCarregant] = useState(false);
   const [climaError, setClimaError] = useState('');
   const [showMapaClima, setShowMapaClima] = useState(false);
@@ -4244,6 +4422,9 @@ function ModuloActaVO({ obra, onSave }) {
   function delFotoEntrada(secId, temaId, entId, fotoId) {
     guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: s.temas.map(t => t.id !== temaId ? t : { ...t, entradas: t.entradas.map(e => e.id !== entId ? e : { ...e, fotos: (e.fotos||[]).filter(ft => ft.id !== fotoId) }) }) }) });
   }
+  function updFotoEntrada(secId, temaId, entId, fotoNova) {
+    guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: s.temas.map(t => t.id !== temaId ? t : { ...t, entradas: t.entradas.map(e => e.id !== entId ? e : { ...e, fotos: (e.fotos||[]).map(ft => ft.id === fotoNova.id ? fotoNova : ft) }) }) }) });
+  }
   function delEntrada(secId, temaId, entId) {
     guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: s.temas.map(t => t.id !== temaId ? t : { ...t, entradas: t.entradas.filter(e => e.id !== entId) }) }) });
   }
@@ -4311,6 +4492,10 @@ function ModuloActaVO({ obra, onSave }) {
     guardarVO({ ...vo, estadoObra: { ...(vo.estadoObra||{}),
       ubicacions: (vo.estadoObra.ubicacions||[]).map(u => u.id===ubId ? {...u, fotos:(u.fotos||[]).filter(f=>f.id!==fotoId)} : u) } });
   }
+  function updFotoUbicacio(ubId, fotoNova) {
+    guardarVO({ ...vo, estadoObra: { ...(vo.estadoObra||{}),
+      ubicacions: (vo.estadoObra.ubicacions||[]).map(u => u.id===ubId ? {...u, fotos:(u.fotos||[]).map(f=>f.id===fotoNova.id?fotoNova:f)} : u) } });
+  }
 
   // B — Trabajos en curso
   function addTrabajo() {
@@ -4347,11 +4532,14 @@ function ModuloActaVO({ obra, onSave }) {
   }
 
   // 8 — Clima: es generen sempre 7 dies consecutius a partir d'una única data d'inici
+  // (sempre la data de l'acta — vegeu l'useEffect que la sincronitza)
   function generarDiesClima(dataFiStr) {
     if (!dataFiStr) return;
+    const existents = vo.clima || [];
+    // Ja hi ha exactament aquests 7 dies generats: no cal tornar a escriure
+    if (existents.length === 7 && existents[6]?.fecha === dataFiStr) return;
     // Els 7 dies són sempre ELS ANTERIORS a la data triada, acabant en aquesta (inclosa)
     const fi = new Date(dataFiStr + 'T00:00:00');
-    const existents = vo.clima || [];
     const nous = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date(fi); d.setDate(d.getDate() - i);
@@ -4388,12 +4576,12 @@ function ModuloActaVO({ obra, onSave }) {
       setClimaError('Primer marca la ubicació de l\'obra al mapa.');
       return;
     }
-    if (!climaSetmana) { setClimaError('Tria una data.'); return; }
+    const climaSetmana = vo.fechaActa || today();
     setClimaCarregant(true);
     try {
       const lat = obra.climaLat, lon = obra.climaLon;
 
-      // La data triada és sempre l'ÚLTIM dia del període — els 7 dies són ella + els 6 anteriors
+      // La data de l'acta és sempre l'ÚLTIM dia del període — els 7 dies són ella + els 6 anteriors
       const fi = new Date(climaSetmana + 'T00:00:00');
       const inici = new Date(fi); inici.setDate(inici.getDate() - 6);
       const fmt = fmtDataLocal;
@@ -4452,6 +4640,17 @@ function ModuloActaVO({ obra, onSave }) {
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [seccColapsades, setSeccColapsades] = useState({});
   const [buscarTema, setBuscarTema] = useState('');
+  const [editandoFoto, setEditandoFoto] = useState(null); // { foto, onSave }
+
+  // El clima sempre acaba el mateix dia que la data de l'acta — abans calia triar-la
+  // dues vegades (a "Data de l'acta" i a "Fins al dia" del clima) i es desincronitzaven.
+  // Guards: voLocal (mentre l'acta real encara es carrega de Supabase, vo és un esquelet
+  // buit — no volem escriure'l i sobreescriure les dades reals) i vistaVO (només cal
+  // generar-ho quan l'usuari mira la pestanya Dades, no cada vegada que s'obre l'acta).
+  useEffect(() => {
+    if (!voLocal || vistaVO !== 'dades') return;
+    generarDiesClima(vo.fechaActa || today());
+  }, [vo.fechaActa, !!voLocal, vistaVO]);
 
   async function exportar(idioma) {
     setShowIdioma(false);
@@ -4709,7 +4908,8 @@ function ModuloActaVO({ obra, onSave }) {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {(ub.fotos||[]).map(f => (
                 <div key={f.id} style={{ position: 'relative', width: isMobile ? 72 : 100, height: isMobile ? 54 : 72 }}>
-                  <img src={fotoSrc(f)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+                  <img src={fotoSrc(f)} alt="" onClick={() => setEditandoFoto({ foto: f, onSave: fn => updFotoUbicacio(ub.id, fn) })}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 6, display: 'block', cursor: 'pointer' }} />
                   <button onClick={() => delFotoUbicacio(ub.id, f.id)} style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', borderRadius: '50%', width: 16, height: 16, cursor: 'pointer', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
                 </div>
               ))}
@@ -4825,8 +5025,8 @@ function ModuloActaVO({ obra, onSave }) {
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', background: '#FAFAF8', borderRadius: 9, padding: 8 }}>
           <span style={{ fontSize: 11.5, color: '#6B6B66', flexShrink: 0 }}>Fins al dia</span>
-          <input type="date" value={climaSetmana} onChange={e => { setClimaSetmana(e.target.value); generarDiesClima(e.target.value); }}
-            style={{ width: 140, fontSize: 11.5, flexShrink: 0 }} />
+          {/* Sempre la data de l'acta (camp de dalt) — ja no es tria per separat, veure useEffect de sincronització */}
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: '#141412', flexShrink: 0 }}>{fmtDate(vo.fechaActa || today())}</span>
           <Btn sm primary onClick={carregarSetmanaClima} disabled={climaCarregant}>
             {climaCarregant ? 'Carregant…' : 'Carregar automàticament'}
           </Btn>
@@ -4937,6 +5137,7 @@ function ModuloActaVO({ obra, onSave }) {
                       onAddEntrada={(tId,txt) => addEntrada(sec.id, tId, txt)}
                       onAddFoto={(tId,eId) => addFotoEntrada(sec.id, tId, eId)}
                       onDelFoto={(tId,eId,fId) => delFotoEntrada(sec.id, tId, eId, fId)}
+                      onEditFoto={(tId,eId,f) => setEditandoFoto({ foto: f, onSave: fn => updFotoEntrada(sec.id, tId, eId, fn) })}
                       onDelEntrada={(tId,eId) => delEntrada(sec.id, tId, eId)}
                       onMover={(secDestId) => moverTema(sec.id, t.id, secDestId)}
                       onReordenar={(dir) => reordenarTema(sec.id, t.id, dir)}
@@ -4996,12 +5197,17 @@ function ModuloActaVO({ obra, onSave }) {
         onSi={() => borrar.tipo === 'seccion' ? delSeccion(borrar.id) : delTema(borrar.secId, borrar.id)}
         onNo={() => setBorrar(null)} />}
       {confirmacion && <ConfirmMini titulo={confirmacion.titulo} texto={confirmacion.texto} onSi={confirmacion.onSi} onNo={() => setConfirmacion(null)} />}
+      {editandoFoto && (
+        <EditorFoto foto={editandoFoto.foto} obraId={obra?.id}
+          onSave={fn => { editandoFoto.onSave(fn); setEditandoFoto(null); }}
+          onClose={() => setEditandoFoto(null)} />
+      )}
     </div>
   );
 }
 
 // Componente de un tema (para evitar closures stale en los selects)
-function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpdTema, onAddEntrada, onAddFoto, onDelFoto, onDelEntrada, onMover, onReordenar, onDel }) {
+function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpdTema, onAddEntrada, onAddFoto, onDelFoto, onEditFoto, onDelEntrada, onMover, onReordenar, onDel }) {
   const isMobile = useIsMobile();
   const [abierto, setAbierto] = useState(false);
   const [editEnt, setEditEnt] = useState(null);
@@ -5175,7 +5381,8 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8 }}>
                       {(en.fotos||[]).map(ft => (
                         <div key={ft.id} style={{ position: 'relative', width: 68, height: 51 }}>
-                          <img src={fotoSrc(ft)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 5, display: 'block' }} />
+                          <img src={fotoSrc(ft)} alt="" onClick={() => onEditFoto(t.id, en.id, ft)}
+                            style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 5, display: 'block', cursor: 'pointer' }} />
                           <button onClick={() => setConfirmFoto({ eId: en.id, fId: ft.id })}
                             style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,.55)', color: '#fff', border: 'none', borderRadius: '50%', width: 15, height: 15, cursor: 'pointer', fontSize: 9, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
                         </div>
@@ -5234,6 +5441,7 @@ function QuickAddTema({ secciones, obraId, onAdd, onCancel }) {
   const [resp, setResp] = useState([]);
   const [fotos, setFotos] = useState([]);
   const [pujantFoto, setPujantFoto] = useState(false);
+  const [editandoFoto, setEditandoFoto] = useState(null);
 
   function afegirFotos() {
     setPujantFoto(true);
@@ -5299,7 +5507,8 @@ function QuickAddTema({ secciones, obraId, onAdd, onCancel }) {
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {fotos.map(f => (
             <div key={f.id} style={{ position: 'relative', width: 68, height: 51 }}>
-              <img src={fotoSrc(f)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+              <img src={fotoSrc(f)} alt="" onClick={() => setEditandoFoto(f)}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 6, display: 'block', cursor: 'pointer' }} />
               <button onClick={() => treureFoto(f.id)}
                 style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,.55)', color: '#fff', border: 'none', borderRadius: '50%', width: 16, height: 16, cursor: 'pointer', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
             </div>
@@ -5309,6 +5518,11 @@ function QuickAddTema({ secciones, obraId, onAdd, onCancel }) {
             {pujantFoto ? '…' : '+ foto'}
           </button>
         </div>
+        {editandoFoto && (
+          <EditorFoto foto={editandoFoto} obraId={obraId}
+            onSave={fn => { setFotos(prev => prev.map(f => f.id === fn.id ? fn : f)); setEditandoFoto(null); }}
+            onClose={() => setEditandoFoto(null)} />
+        )}
       </div>
     </Modal>
   );
