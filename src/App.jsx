@@ -280,6 +280,18 @@ textarea { resize: vertical; min-height: 72px; line-height: 1.5; }
 .dia-toggle:hover { transform: scale(1.15); box-shadow: 0 2px 5px rgba(0,0,0,0.18); }
 .no-scrollbar::-webkit-scrollbar { display: none; height: 0; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ── Mapa 3D d'obres: recoloració nocturna del mapa real + pins amb feix i pulsació ── */
+.plaat-mapa3d canvas.maplibregl-canvas { filter: brightness(.6) contrast(1.28) saturate(1.35) hue-rotate(-6deg); }
+@keyframes pinPulse { 0%,100% { transform: scale(1); opacity: .55; } 50% { transform: scale(1.9); opacity: 0; } }
+@keyframes beamFlicker { 0%,100% { opacity: .55; } 50% { opacity: .85; } }
+.plaat-pin { position: relative; width: 16px; height: 16px; }
+.plaat-pin .core { position: absolute; inset: 0; border-radius: 50%; border: 2.5px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+.plaat-pin .ring { position: absolute; inset: 0; border-radius: 50%; animation: pinPulse 1.8s ease-out infinite; }
+.plaat-pin .beam { position: absolute; left: 50%; bottom: 100%; width: 2px; height: 46px; transform: translateX(-50%); background: linear-gradient(to top, currentColor, transparent); animation: beamFlicker 2.4s ease-in-out infinite; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .plaat-pin .ring, .plaat-pin .beam { animation: none !important; }
+}
 `;
 
 // Detecta móvil: pantalla estrecha Y en vertical. En horizontal usa la interfaz de ordenador.
@@ -436,9 +448,12 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const markersRef = useRef({});
+  const autoRotateRef = useRef(true);
+  const rafRef = useRef(null);
   const [cargando, setCargando] = useState(true);
   const [errorMapa, setErrorMapa] = useState('');
   const [obraSel, setObraSel] = useState(null);
+  const [progreso, setProgreso] = useState({ hecho: 0, total: 0 });
 
   async function geocodificar(direccion) {
     const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(direccion)}`;
@@ -448,34 +463,60 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
     return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
   }
 
+  function crearPinEl(color, obra, fallback) {
+    const el = document.createElement('div');
+    el.className = 'plaat-pin';
+    el.title = obra.nombre;
+    el.style.cursor = 'pointer';
+    el.innerHTML = fallback
+      ? `<span class="ring" style="background:${color}"></span>
+         <span class="core" style="background:#6B6B66;border-style:dashed;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;font-weight:700;">?</span>`
+      : `<span class="ring" style="background:${color}"></span>
+         <span class="core" style="background:${color}"></span>
+         <span class="beam" style="background:linear-gradient(to top, ${color}, transparent)"></span>`;
+    el.addEventListener('click', () => setObraSel(obra));
+    return el;
+  }
+
+  // Punt base per repartir les obres sense direcció localitzable — Barcelona amb una mica de dispersió
+  function puntFallback(i) {
+    const ang = i * 2.399963; // angle auri: reparteix els punts sense que quedin en línia
+    const r = 0.012 + (i % 4) * 0.006;
+    return { lat: 41.3874 + Math.sin(ang) * r, lon: 2.1686 + Math.cos(ang) * r };
+  }
+
   async function colocarMarcadores(map) {
     const maplibregl = window.maplibregl;
     const bounds = new maplibregl.LngLatBounds();
-    let alguna = false;
-    for (const obra of obras) {
-      if (!obra.direccion) continue;
-      let coords = (obra.geoLat !== undefined && obra.geoLon !== undefined && obra.geoLat !== null)
+    let huboFallback = 0;
+    // TOTES les obres, tinguin o no direcció — cap es queda fora del mapa
+    setProgreso({ hecho: 0, total: obras.length });
+
+    for (let i = 0; i < obras.length; i++) {
+      const obra = obras[i];
+      let coords = (obra.geoLat !== undefined && obra.geoLat !== null && obra.geoLon !== undefined)
         ? { lat: obra.geoLat, lon: obra.geoLon } : null;
-      if (!coords) {
+      let fallback = obra.geoLat === null; // ja es va intentar abans i va fallar — no tornar a picar l'API
+      if (!coords && !fallback && obra.direccion) {
         try {
           coords = await geocodificar(obra.direccion + ', España');
           if (coords) onUpdateObra?.({ ...obra, geoLat: coords.lat, geoLon: coords.lon });
+          else { fallback = true; onUpdateObra?.({ ...obra, geoLat: null, geoLon: null }); }
           // Respecta el límit d'1 petició/segon de Nominatim (servei gratuït sense clau)
-          await new Promise(r => setTimeout(r, 1100));
-        } catch (e) { console.warn('No se pudo geocodificar', obra.nombre, e); }
+          await new Promise(r => setTimeout(r, 1000));
+        } catch (e) { console.warn('No se pudo geocodificar', obra.nombre, e); fallback = true; }
       }
-      if (!coords) continue;
-      alguna = true;
-      bounds.extend([coords.lon, coords.lat]);
+      if (!coords) { coords = puntFallback(huboFallback); huboFallback++; fallback = true; }
 
+      bounds.extend([coords.lon, coords.lat]);
       const accent = STATUS_ACCENT[obra.estado] || STATUS_ACCENT.en_curso;
-      const el = document.createElement('div');
-      el.style.cssText = `width:16px;height:16px;border-radius:50%;background:${accent};border:2.5px solid #fff;box-shadow:0 0 0 4px ${accent}55,0 2px 8px rgba(0,0,0,.35);cursor:pointer;`;
-      el.addEventListener('click', () => setObraSel(obra));
-      const marker = new maplibregl.Marker({ element: el }).setLngLat([coords.lon, coords.lat]).addTo(map);
+      const marker = new maplibregl.Marker({ element: crearPinEl(accent, obra, fallback) })
+        .setLngLat([coords.lon, coords.lat]).addTo(map);
       markersRef.current[obra.id] = marker;
+      setProgreso(p => ({ ...p, hecho: p.hecho + 1 }));
+      // Ajusta la càmera progressivament — no cal esperar que acabin totes per veure-hi res
+      map.fitBounds(bounds, { padding: 90, maxZoom: 16, duration: 900 });
     }
-    if (alguna) map.fitBounds(bounds, { padding: 90, maxZoom: 16, duration: 1200 });
   }
 
   useEffect(() => {
@@ -501,23 +542,43 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
         container: mapRef.current,
         style: 'https://tiles.openfreemap.org/styles/liberty',
         center: [2.1686, 41.3874], // Barcelona, per defecte
-        zoom: 12, pitch: 55, bearing: -12,
-        antialias: true,
+        zoom: 12.3, pitch: 0, bearing: 0,
+        antialias: false, // més fluid en rotar/inclinar, sobretot amb els edificis 3D
       });
       map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
       mapInstance.current = map;
+
+      // Pausa la rotació ambient quan l'usuari interactua amb el mapa, la represa als 2s d'inactivitat
+      let idleTimer = null;
+      map.on('movestart', e => { if (e.originalEvent) autoRotateRef.current = false; });
+      map.on('moveend', e => {
+        if (!e.originalEvent) return;
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => { autoRotateRef.current = true; }, 2000);
+      });
 
       map.on('load', () => {
         if (cancelat) return;
         // L'estil "liberty" ja porta una capa "building-3d" (fill-extrusion) pròpia — no cal afegir-ne una altra
         setCargando(false);
+        // Revelat dramàtic: entra pla i puja a vista inclinada
+        map.flyTo({ pitch: 58, bearing: -14, zoom: 13.2, duration: 2400, curve: 1.25 });
         colocarMarcadores(map);
+
+        function rotarAmbient() {
+          if (!cancelat) {
+            if (autoRotateRef.current) map.setBearing(map.getBearing() + 0.035);
+            rafRef.current = requestAnimationFrame(rotarAmbient);
+          }
+        }
+        rafRef.current = requestAnimationFrame(rotarAmbient);
       });
       map.on('error', e => console.error('Error de mapa:', e?.error || e));
     }
     cargarMapa();
     return () => {
       cancelat = true;
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
       Object.values(markersRef.current).forEach(m => m.remove());
       if (mapInstance.current) { mapInstance.current.remove(); mapInstance.current = null; }
     };
@@ -528,12 +589,17 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
   const accentSel = obraSel ? (STATUS_ACCENT[obraSel.estado] || STATUS_ACCENT.en_curso) : null;
 
   return createPortal(
-    <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: '#141412' }}>
+    <div className="plaat-mapa3d" style={{ position: 'fixed', inset: 0, zIndex: 10000, background: '#08090A' }}>
       <div ref={mapRef} style={{ position: 'absolute', inset: 0 }} />
 
       {cargando && !errorMapa && (
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#141412', color: 'rgba(255,255,255,.5)', fontSize: 13 }}>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#08090A', color: 'rgba(255,255,255,.5)', fontSize: 13 }}>
           Cargando mapa…
+        </div>
+      )}
+      {!cargando && !errorMapa && progreso.total > 0 && progreso.hecho < progreso.total && (
+        <div style={{ position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 2, background: 'rgba(20,20,18,.8)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 20, padding: '7px 16px', color: 'rgba(255,255,255,.75)', fontSize: 11.5, backdropFilter: 'blur(8px)', ...{ fontVariantNumeric: 'tabular-nums' } }}>
+          Ubicando obras… {progreso.hecho}/{progreso.total}
         </div>
       )}
       {errorMapa && (
@@ -558,7 +624,10 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
           <div style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase', color: accentSel, marginBottom: 5 }}>{est.label}</div>
           <div style={{ fontSize: 14.5, fontWeight: 600, color: '#141412' }}>{obraSel.nombre}</div>
           <div style={{ fontSize: 12, color: '#6B6B66', marginTop: 2 }}>{obraSel.cliente}</div>
-          <div style={{ fontSize: 11.5, color: '#A5A5A0', marginTop: 2 }}>{obraSel.direccion}</div>
+          <div style={{ fontSize: 11.5, color: '#A5A5A0', marginTop: 2 }}>{obraSel.direccion || 'Sin dirección'}</div>
+          {(!obraSel.direccion || obraSel.geoLat === null) && (
+            <div style={{ fontSize: 10.5, color: '#C47610', marginTop: 4 }}>⚠ Ubicación aproximada — no se ha podido localizar la dirección exacta</div>
+          )}
           <div style={{ marginTop: 10 }}><Btn primary sm full onClick={() => onSelectObra(obraSel)}>Abrir obra</Btn></div>
         </div>
       )}
