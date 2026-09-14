@@ -5973,8 +5973,7 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
     hitosContractuales: esCA ? 'SEGUIMENT FITES CONTRACTUALS' : 'SEGUIMIENTO HITOS CONTRACTUALES',
     plazosEsenciales:   esCA ? 'TERMINIS ESSENCIALS' : 'PLAZOS ESENCIALES',
     plazosIntermedios:  esCA ? 'TERMINIS INTERMEDIS' : 'PLAZOS INTERMEDIOS',
-    planning:    'PLANNING',
-    fechaPrevista: esCA ? 'DATA PREVISTA' : 'FECHA PREVISTA',
+    planning:    'PLANNING CONTRACTUAL',
     fechaReal:   esCA ? 'DATA REAL' : 'FECHA REAL',
     retrasoDias: esCA ? 'RETARD (DIES)' : 'RETRASO (DÍAS)',
     contrataciones: esCA ? 'SEGUIMENT CONTRACTACIONS' : 'SEGUIMIENTO CONTRATACIONES',
@@ -6753,17 +6752,23 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
     const alt6 = c6H + 10 + totalItems * 5.5 + 6;
     if (y + alt6 > PH - MB - 12) { doc.addPage(); pagActual++; dibuixarCapçalera(false); dibuixarPeu(); }
 
-    // Fila títol — igual patró que la taula de temes: codi+títol a l'esquerra, capçaleres a la dreta, MATEIXA fila
+    // Fila títol — igual patró que la taula de temes: codi+títol a l'esquerra, capçaleres a la dreta.
+    // "Planning contractual" ja NO es posa encaixat al final de la columna de títol (hi xocava
+    // quan el títol era llarg) — ara viu dins la seva pròpia columna, igual que Fecha real/Retard.
     doc.setFillColor(...GRIS15);
     doc.rect(ML, y, CW, c6H, 'F');
     doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(0,0,0);
     doc.text(numHitos, ML + 2, y + c6H/2, { baseline:'middle' });
     doc.text(T.hitosContractuales, ML + 2 + 3 + doc.getTextWidth(numHitos), y + c6H/2, { baseline:'middle' });
+    // "Planning contractual" és el text més llarg de les 3 capçaleres de columna — si no hi
+    // cap a la seva columna (cFP) a 6.5pt, es redueix perquè mai desbordi cap a la veïna.
     doc.setFontSize(6.5);
-    doc.text(T.planning, ML+c6Cod+c6Desc-2, y + c6H/2, { align:'right', baseline:'middle' });
-    [[ML+c6Cod+c6Desc, cFP, T.fechaPrevista],[ML+c6Cod+c6Desc+cFP, cFR, T.fechaReal],
-     [ML+c6Cod+c6Desc+cFP+cFR, cRD, T.retrasoDias]]
-      .forEach(([x,w,t]) => doc.text(t, x+w/2, y + c6H/2, { align:'center', baseline:'middle' }));
+    const midaPlanning = doc.getTextWidth(T.planning) > cFP - 4 ? 5.3 : 6.5;
+    doc.setFontSize(midaPlanning);
+    doc.text(T.planning, ML+c6Cod+c6Desc+cFP/2, y + c6H/2, { align:'center', baseline:'middle' });
+    doc.setFontSize(6.5);
+    doc.text(T.fechaReal, ML+c6Cod+c6Desc+cFP+cFR/2, y + c6H/2, { align:'center', baseline:'middle' });
+    doc.text(T.retrasoDias, ML+c6Cod+c6Desc+cFP+cFR+cRD/2, y + c6H/2, { align:'center', baseline:'middle' });
     y += c6H + 5;
 
     let contadorHito = 1;
