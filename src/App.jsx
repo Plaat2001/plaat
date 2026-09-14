@@ -1852,13 +1852,16 @@ function EditorFoto({ foto, obraId, onSave, onClose }) {
   const [color, setColor] = useState(COLORS_EDITOR_FOTO[0]);
   const [grossor, setGrossor] = useState(GROSSORS_EDITOR_FOTO[1]);
   const [strokes, setStrokes] = useState([]);
-  const [dibuixant, setDibuixant] = useState(false);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [cargant, setCargant] = useState(true);
   const [errorCarrega, setErrorCarrega] = useState(false);
   const [desant, setDesant] = useState(false);
   const puntInicial = useRef(null);
   const puntsLlapis = useRef([]);
+  // Ref (no state): cal llegir-lo de manera immediata dins de pointermove/up sense
+  // esperar un re-render — amb useState el primer moviment arribava a vegades abans
+  // que React apliqués el "true" de pointerdown i el traç es descartava a l'instant.
+  const dibuixantRef = useRef(false);
 
   useEffect(() => {
     const img = new Image();
@@ -1877,17 +1880,21 @@ function EditorFoto({ foto, obraId, onSave, onClose }) {
       ctx.moveTo(s.punts[0].x, s.punts[0].y);
       s.punts.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
       ctx.stroke();
-    } else if (s.tool === 'line' || s.tool === 'arrow') {
+    } else if (s.tool === 'arrow') {
+      const ang = Math.atan2(s.y2 - s.y1, s.x2 - s.x1);
+      const mida = Math.max(16, s.grossor * 3);
+      // Escurcem la línia perquè el cap rodó no sobresurti per davant de la punta —
+      // acaba per sota del triangle, no exactament a (x2,y2)
+      const xLinia = s.x2 - mida * 0.6 * Math.cos(ang);
+      const yLinia = s.y2 - mida * 0.6 * Math.sin(ang);
+      ctx.beginPath(); ctx.moveTo(s.x1, s.y1); ctx.lineTo(xLinia, yLinia); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(s.x2, s.y2);
+      ctx.lineTo(s.x2 - mida * Math.cos(ang - Math.PI / 6), s.y2 - mida * Math.sin(ang - Math.PI / 6));
+      ctx.lineTo(s.x2 - mida * Math.cos(ang + Math.PI / 6), s.y2 - mida * Math.sin(ang + Math.PI / 6));
+      ctx.closePath(); ctx.fill();
+    } else if (s.tool === 'line') {
       ctx.beginPath(); ctx.moveTo(s.x1, s.y1); ctx.lineTo(s.x2, s.y2); ctx.stroke();
-      if (s.tool === 'arrow') {
-        const ang = Math.atan2(s.y2 - s.y1, s.x2 - s.x1);
-        const mida = Math.max(16, s.grossor * 3);
-        ctx.beginPath();
-        ctx.moveTo(s.x2, s.y2);
-        ctx.lineTo(s.x2 - mida * Math.cos(ang - Math.PI / 6), s.y2 - mida * Math.sin(ang - Math.PI / 6));
-        ctx.lineTo(s.x2 - mida * Math.cos(ang + Math.PI / 6), s.y2 - mida * Math.sin(ang + Math.PI / 6));
-        ctx.closePath(); ctx.fill();
-      }
     } else if (s.tool === 'rect') {
       ctx.strokeRect(Math.min(s.x1, s.x2), Math.min(s.y1, s.y2), Math.abs(s.x2 - s.x1), Math.abs(s.y2 - s.y1));
     } else if (s.tool === 'circle') {
@@ -1919,11 +1926,11 @@ function EditorFoto({ foto, obraId, onSave, onClose }) {
     e.preventDefault();
     overlayRef.current.setPointerCapture(e.pointerId);
     const p = coordCanvas(e);
-    setDibuixant(true);
+    dibuixantRef.current = true;
     if (tool === 'pen') puntsLlapis.current = [p]; else puntInicial.current = p;
   }
   function onPointerMove(e) {
-    if (!dibuixant) return;
+    if (!dibuixantRef.current) return;
     e.preventDefault();
     const p = coordCanvas(e);
     const ctx = overlayRef.current.getContext('2d');
@@ -1932,8 +1939,8 @@ function EditorFoto({ foto, obraId, onSave, onClose }) {
     else dibuixaForma(ctx, { tool, color, grossor, x1: puntInicial.current.x, y1: puntInicial.current.y, x2: p.x, y2: p.y });
   }
   function onPointerUp(e) {
-    if (!dibuixant) return;
-    setDibuixant(false);
+    if (!dibuixantRef.current) return;
+    dibuixantRef.current = false;
     const ctx = overlayRef.current.getContext('2d');
     ctx.clearRect(0, 0, overlayRef.current.width, overlayRef.current.height);
     if (tool === 'pen') {
