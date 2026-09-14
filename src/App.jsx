@@ -45,7 +45,7 @@ const now      = () => new Date().toISOString();
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 html { -webkit-text-size-adjust: 100%; }
 body { font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif; background: #F7F6F3; color: #16160F; font-size: 14px; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
@@ -588,18 +588,40 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
   const est = obraSel ? (ESTADOS_OBRA[obraSel.estado] || ESTADOS_OBRA.en_curso) : null;
   const accentSel = obraSel ? (STATUS_ACCENT[obraSel.estado] || STATUS_ACCENT.en_curso) : null;
 
+  function recentrar() {
+    if (!mapInstance.current) return;
+    autoRotateRef.current = true;
+    mapInstance.current.flyTo({ center: [2.1686, 41.3874], zoom: 13.2, pitch: 58, bearing: -14, duration: 1500 });
+  }
+
+  const porEstado = {};
+  obras.forEach(o => { porEstado[o.estado] = (porEstado[o.estado] || 0) + 1; });
+  // Partícules ambientals — mateix patró que la pantalla de benvinguda, per coherència de marca
+  const particulas = Array.from({ length: 10 }, (_, i) => ({
+    left: (i * 9 + (i % 3) * 5) % 100, delay: (i % 5) * 0.6, dur: 5 + (i % 4), size: 2 + (i % 3),
+  }));
+
+  const MONO = { fontFamily: "'JetBrains Mono', ui-monospace, monospace" };
+
   return createPortal(
-    <div className="plaat-mapa3d" style={{ position: 'fixed', inset: 0, zIndex: 10000, background: '#08090A' }}>
+    <div className="plaat-mapa3d" style={{ position: 'fixed', inset: 0, zIndex: 10000, background: '#08090A', overflow: 'hidden' }}>
       <div ref={mapRef} style={{ position: 'absolute', inset: 0 }} />
+
+      {/* Atmosfera decorativa — reaprofita els motius de marca (graella, escaneig, partícules) */}
+      {!cargando && !errorMapa && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 1, pointerEvents: 'none' }}>
+          <div className="arch-grid" style={{ opacity: .1 }} />
+          <div className="scan" style={{ top: 0 }} />
+          {particulas.map((p, i) => (
+            <div key={i} className="spl-particle" style={{ left: p.left + '%', width: p.size, height: p.size, animation: `particleRise ${p.dur}s linear ${p.delay}s infinite` }} />
+          ))}
+          <div style={{ position: 'absolute', inset: 0, boxShadow: 'inset 0 0 160px 50px rgba(0,0,0,.6)' }} />
+        </div>
+      )}
 
       {cargando && !errorMapa && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#08090A', color: 'rgba(255,255,255,.5)', fontSize: 13 }}>
           Cargando mapa…
-        </div>
-      )}
-      {!cargando && !errorMapa && progreso.total > 0 && progreso.hecho < progreso.total && (
-        <div style={{ position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 2, background: 'rgba(20,20,18,.8)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 20, padding: '7px 16px', color: 'rgba(255,255,255,.75)', fontSize: 11.5, backdropFilter: 'blur(8px)', ...{ fontVariantNumeric: 'tabular-nums' } }}>
-          Ubicando obras… {progreso.hecho}/{progreso.total}
         </div>
       )}
       {errorMapa && (
@@ -608,18 +630,66 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
         </div>
       )}
 
-      {/* Top-right queda per als controls propis de MapLibre (zoom/brúixola) — els nostres van a l'esquerra */}
-      <div style={{ position: 'absolute', top: 16, left: 16, zIndex: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <button onClick={onClose} title="Cerrar"
-          style={{ width: 36, height: 36, flexShrink: 0, borderRadius: '50%', border: '1px solid rgba(255,255,255,.2)', background: 'rgba(20,20,18,.75)', color: '#fff', fontSize: 18, lineHeight: 1, cursor: 'pointer', backdropFilter: 'blur(8px)' }}>×</button>
-        <div style={{ background: 'rgba(20,20,18,.75)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 10, padding: '8px 14px', color: '#fff', fontSize: 12.5, backdropFilter: 'blur(8px)', whiteSpace: 'nowrap' }}>
-          🗺️ Mapa 3D de obras
-        </div>
-      </div>
+      {!cargando && !errorMapa && (
+        <>
+          {/* Títol — dalt a l'esquerra */}
+          <div style={{ position: 'absolute', top: 16, left: 16, zIndex: 3, display: 'flex', alignItems: 'center', gap: 10, maxWidth: 280 }}>
+            <button onClick={onClose} title="Cerrar"
+              style={{ width: 36, height: 36, flexShrink: 0, borderRadius: '50%', border: '1px solid rgba(255,255,255,.2)', background: 'rgba(20,20,18,.75)', color: '#fff', fontSize: 18, lineHeight: 1, cursor: 'pointer', backdropFilter: 'blur(8px)' }}>×</button>
+            <div>
+              <div style={{ ...MONO, fontSize: 9.5, letterSpacing: '.16em', textTransform: 'uppercase', color: '#8AA88A' }}>Tablero · PLAAT</div>
+              <div style={{ fontSize: 16.5, fontWeight: 700, color: '#F2F1ED', letterSpacing: '-.01em' }}>Ciudad de Obras</div>
+            </div>
+          </div>
+
+          {/* Recompte per estat — dalt al centre */}
+          <div style={{ position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 3, display: 'flex', gap: 1, background: 'rgba(255,255,255,.1)', borderRadius: 12, overflow: 'hidden', border: '1px solid rgba(255,255,255,.12)', backdropFilter: 'blur(10px)' }}>
+            {[
+              { l: 'TOTAL', n: obras.length, c: '#F2F1ED' },
+              { l: 'CURSO', n: porEstado.en_curso || 0, c: STATUS_ACCENT.en_curso },
+              { l: 'ACAB.', n: porEstado.acabada || 0, c: STATUS_ACCENT.acabada },
+              { l: 'ALERTA', n: porEstado.paralizada || 0, c: STATUS_ACCENT.paralizada },
+            ].map(s => (
+              <div key={s.l} style={{ background: 'rgba(20,20,18,.7)', padding: '7px 14px', textAlign: 'center', minWidth: 58 }}>
+                <div style={{ ...MONO, fontSize: 15, fontWeight: 600, color: s.c }}>{s.n}</div>
+                <div style={{ ...MONO, fontSize: 8.5, color: 'rgba(255,255,255,.4)', letterSpacing: '.06em', marginTop: 1 }}>{s.l}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Llegenda d'estats — dalt a la dreta, per sota dels controls propis de MapLibre */}
+          <div style={{ position: 'absolute', top: 72, right: 16, zIndex: 3, background: 'rgba(20,20,18,.75)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 10, padding: '10px 13px', backdropFilter: 'blur(8px)' }}>
+            {Object.entries(ESTADOS_OBRA).map(([k, e]) => (
+              <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, color: 'rgba(255,255,255,.75)', padding: '2px 0', whiteSpace: 'nowrap' }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: STATUS_ACCENT[k], flexShrink: 0, boxShadow: `0 0 6px ${STATUS_ACCENT[k]}` }} />
+                {e.label}
+              </div>
+            ))}
+          </div>
+
+          {progreso.total > 0 && progreso.hecho < progreso.total && (
+            <div style={{ position: 'absolute', top: 68, left: '50%', transform: 'translateX(-50%)', zIndex: 3, background: 'rgba(20,20,18,.8)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 20, padding: '6px 14px', color: 'rgba(255,255,255,.7)', fontSize: 11, backdropFilter: 'blur(8px)', ...MONO, ...{ fontVariantNumeric: 'tabular-nums' } }}>
+              Ubicando obras… {progreso.hecho}/{progreso.total}
+            </div>
+          )}
+
+          {!obraSel && (
+            <div style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 3, ...MONO, fontSize: 10.5, color: 'rgba(255,255,255,.4)', letterSpacing: '.03em', display: 'flex', gap: 16, whiteSpace: 'nowrap' }}>
+              <span><b style={{ color: 'rgba(255,255,255,.65)' }}>Arrastra</b> orbitar</span>
+              <span><b style={{ color: 'rgba(255,255,255,.65)' }}>Rueda</b> zoom</span>
+              <span><b style={{ color: 'rgba(255,255,255,.65)' }}>Toca un pin</b> ver obra</span>
+            </div>
+          )}
+          <div onClick={recentrar} title="Centrar vista"
+            style={{ position: 'absolute', bottom: 20, right: 16, zIndex: 3, background: 'rgba(20,20,18,.75)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 20, padding: '7px 14px', color: 'rgba(255,255,255,.7)', fontSize: 11, cursor: 'pointer', backdropFilter: 'blur(8px)', ...MONO }}>
+            ⟲ Centrar
+          </div>
+        </>
+      )}
 
       {obraSel && (
         <div onClick={ev => ev.stopPropagation()}
-          style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 2, background: '#fff', borderRadius: 14, padding: '14px 18px', minWidth: 240, maxWidth: '90vw', boxShadow: '0 20px 50px rgba(0,0,0,.35)' }}>
+          style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 3, background: '#fff', borderRadius: 14, padding: '14px 18px', minWidth: 240, maxWidth: '90vw', boxShadow: '0 20px 50px rgba(0,0,0,.35)' }}>
           <button onClick={() => setObraSel(null)} style={{ position: 'absolute', top: 8, right: 10, background: 'none', border: 'none', fontSize: 15, color: '#A5A5A0', cursor: 'pointer', lineHeight: 1 }}>×</button>
           <div style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase', color: accentSel, marginBottom: 5 }}>{est.label}</div>
           <div style={{ fontSize: 14.5, fontWeight: 600, color: '#141412' }}>{obraSel.nombre}</div>
