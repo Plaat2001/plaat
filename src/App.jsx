@@ -6853,6 +6853,7 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
 
       const ed = entradesOrdenades.map((en, pi) => {
         const esNova = !!en.nueva;
+        const resps = Array.isArray(en.resp) ? en.resp : (en.resp ? [en.resp] : []);
         // Prefix de data: totes les entrades EXCEPTE la primera (la data inicial ja surt a INICI)
         const prefix = pi > 0 && en.fecha ? `${fmtFechaCorta(en.fecha)}  ` : '';
         // Cal fixar el pes de la font (negreta/normal) ABANS de mesurar/embolicar el text: si es
@@ -6877,23 +6878,14 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
           fotoRows.push({pair,dims,rh}); fotosH+=rh+GAP;
         }
         const h = textH + fotosH + (fotos.length > 0 ? GAP : 0);
-        return{en,esNova,lines,textH,fotoRows,h,lh:lh85};
+        return{en,esNova,resps,lines,textH,fotoRows,h,lh:lh85};
       });
 
       // Número i títol del tema, i dades compartides per tot el bloc (independents de si es parteix o no)
       const titolTema = t.titulo || '';
       const tituloLH = 8.5*0.3528+0.6;
       const fechaInicio = entradesOrdenades[0]?.fecha;
-      const fechaFin     = ultima.fecha;
-      // El responsable es manté fins que se n'assigna un altre: si l'última entrada no en té
-      // (p.ex. un seguiment nou afegit sense tocar el responsable), es mostra el de l'entrada
-      // més recent que sí en tingui, en lloc de deixar la columna buida.
-      let respsArr = [];
-      for (let i = entradesOrdenades.length - 1; i >= 0; i--) {
-        const r = entradesOrdenades[i].resp;
-        const arr = Array.isArray(r) ? r : (r ? [r] : []);
-        if (arr.length) { respsArr = arr; break; }
-      }
+      const fechaFin     = ultima.fin || ultima.fecha;
       const respLH = 7.5*0.3528+0.4;
       const colorEstat = estatMostrat==='R' ? [44,94,16] : estatMostrat==='I'||estatMostrat==='INF' ? [12,68,124] : estatMostrat==='N' ? [0,0,0] : [124,74,0];
       const yTopPagina = MT + 12 + 9; // y just sota la capçalera d'una pàgina nova
@@ -6961,6 +6953,12 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
             }
             ty += e.lh;
           });
+          // Responsable — independent per punt de seguiment, alineat amb la primera línia del seu propi text
+          if (e.resps.length) {
+            doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(0,0,0);
+            let respY = ey + 3 + e.lh*0.8 + titolH;
+            e.resps.forEach(r => { doc.text(r, ML+cNum+cDesc+cEs+cIni+cFi+cRes/2, respY, { align:'center', baseline:'middle' }); respY += respLH; });
+          }
           // Fotos — inline, just sota el paràgraf al qual pertanyen
           const GAP_FY = 2;
           let fy = ey + e.textH + GAP_FY;
@@ -6980,7 +6978,8 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
           ey+=e.h;
         }
 
-        // Columnes ES / INICI / FI / RES — alineades al títol del tema, només al primer troç
+        // Columnes ES / INICI / FI — alineades al títol del tema, només al primer troç (el RES es
+        // dibuixa punt per punt, dins del bucle de cada entrada, ja que cada seguiment té el seu propi)
         if (esPrimerTros) {
           const topTema = yTros + 3 + tituloLH*0.8;
           doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(...colorEstat);
@@ -6989,9 +6988,6 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
           doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
           doc.text(fechaInicio ? fmtFechaCorta(fechaInicio) : '', ML+cNum+cDesc+cEs+cIni/2, topTema, { align:'center', baseline:'middle' });
           doc.text((fechaFin && estatMostrat==='R') ? fmtFechaCorta(fechaFin) : '', ML+cNum+cDesc+cEs+cIni+cFi/2, topTema, { align:'center', baseline:'middle' });
-          doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
-          let respY = topTema;
-          respsArr.forEach(r => { doc.text(r, ML+cNum+cDesc+cEs+cIni+cFi+cRes/2, respY, { align:'center', baseline:'middle' }); respY += respLH; });
         }
 
         // SENSE línies verticals — sols línies horitzontals fines. Al primer tema d'una secció, la
