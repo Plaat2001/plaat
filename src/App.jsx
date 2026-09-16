@@ -6885,7 +6885,15 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
       const tituloLH = 8.5*0.3528+0.6;
       const fechaInicio = entradesOrdenades[0]?.fecha;
       const fechaFin     = ultima.fecha;
-      const respsArr = Array.isArray(ultima.resp) ? ultima.resp : (ultima.resp ? [ultima.resp] : []);
+      // El responsable es manté fins que se n'assigna un altre: si l'última entrada no en té
+      // (p.ex. un seguiment nou afegit sense tocar el responsable), es mostra el de l'entrada
+      // més recent que sí en tingui, en lloc de deixar la columna buida.
+      let respsArr = [];
+      for (let i = entradesOrdenades.length - 1; i >= 0; i--) {
+        const r = entradesOrdenades[i].resp;
+        const arr = Array.isArray(r) ? r : (r ? [r] : []);
+        if (arr.length) { respsArr = arr; break; }
+      }
       const respLH = 7.5*0.3528+0.4;
       const colorEstat = estatMostrat==='R' ? [44,94,16] : estatMostrat==='I'||estatMostrat==='INF' ? [12,68,124] : estatMostrat==='N' ? [0,0,0] : [124,74,0];
       const yTopPagina = MT + 12 + 9; // y just sota la capçalera d'una pàgina nova
