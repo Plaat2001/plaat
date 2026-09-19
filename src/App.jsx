@@ -4666,7 +4666,7 @@ function ModuloActaVO({ obra, onSave }) {
   function addTema(secId, titulo, texto, extra = {}) {
     if (!titulo.trim()) return;
     const entrades = (texto || extra.fotos?.length)
-      ? [{ id: uid(), texto: (texto||'').trim(), estado: extra.estado || 'P', fecha: dataVisitaRecent(), fin: '', resp: extra.resp || [], fotos: extra.fotos || [], nueva: true }]
+      ? [{ id: uid(), texto: (texto||'').trim(), estado: extra.estado || 'P', fecha: extra.fecha || dataVisitaRecent(), fin: '', resp: extra.resp || [], fotos: extra.fotos || [], nueva: extra.nueva !== undefined ? extra.nueva : true }]
       : [];
     guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: [...(s.temas||[]), { id: uid(), num: nextNum(s), titulo: titulo.trim(), resuelto: false, resueltoEnActa: null, entradas: entrades }] }) });
   }
@@ -5442,6 +5442,7 @@ function ModuloActaVO({ obra, onSave }) {
         <QuickAddTema
           secciones={vo.secciones||[]}
           obraId={obra?.id}
+          fechaDefault={dataVisitaRecent()}
           onAdd={(secId, dades) => { addTema(secId, dades.titulo, dades.texto, dades); setShowQuickAdd(false); }}
           onCancel={() => setShowQuickAdd(false)}
         />
@@ -5709,7 +5710,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
 
 // Captura ràpida: tria secció + títol, sense haver de navegar-hi
 // Formulari complet per crear un tema nou — secció, títol, text, estat, responsable i fotos
-function QuickAddTema({ secciones, obraId, onAdd, onCancel }) {
+function QuickAddTema({ secciones, obraId, fechaDefault, onAdd, onCancel }) {
   const isMobile = useIsMobile();
   const [secId, setSecId] = useState(secciones[0]?.id || '');
   const [titulo, setTitulo] = useState('');
@@ -5719,6 +5720,8 @@ function QuickAddTema({ secciones, obraId, onAdd, onCancel }) {
   const [fotos, setFotos] = useState([]);
   const [pujantFoto, setPujantFoto] = useState(false);
   const [editandoFoto, setEditandoFoto] = useState(null);
+  const [fecha, setFecha] = useState(fechaDefault || '');
+  const [esNueva, setEsNueva] = useState(true);
 
   function afegirFotos() {
     setPujantFoto(true);
@@ -5730,7 +5733,7 @@ function QuickAddTema({ secciones, obraId, onAdd, onCancel }) {
     <Modal title="Nou tema" onClose={onCancel} footer={
       <>
         <Btn onClick={onCancel}>Cancel·lar</Btn>
-        <Btn primary disabled={!titulo.trim()} onClick={() => onAdd(secId, { titulo: titulo.trim(), texto: texto.trim(), estado, resp, fotos })}>Afegir tema</Btn>
+        <Btn primary disabled={!titulo.trim()} onClick={() => onAdd(secId, { titulo: titulo.trim(), texto: texto.trim(), estado, resp, fotos, fecha, nueva: esNueva })}>Afegir tema</Btn>
       </>
     }>
       <Field label="Secció">
@@ -5748,6 +5751,20 @@ function QuickAddTema({ secciones, obraId, onAdd, onCancel }) {
         <textarea value={texto} onChange={e => setTexto(e.target.value)}
           placeholder="Què s'ha observat..." style={{ minHeight: isMobile ? 100 : 80, fontSize: 13, lineHeight: 1.6, resize: 'vertical' }} />
       </Field>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 13 }}>
+        <input type="date" value={fecha||''} onChange={e => setFecha(e.target.value)}
+          title="Data d'aquest seguiment"
+          style={{ width: 'auto', fontSize: 11, color: '#52524E', fontWeight: 500, padding: '2px 5px', borderRadius: 5, border: '1px solid #E5E4DF' }} />
+        <button onClick={() => setEsNueva(v => !v)}
+          title={esNueva ? 'Marcat com a Nova — clica per desmarcar' : 'Marcar com a Nova (sortirà en blanc i negreta al PDF)'}
+          style={{ fontSize: 9.5, padding: '1px 6px', borderRadius: 4, cursor: 'pointer',
+            border: `1px solid ${esNueva ? '#6B6B66' : '#E5E4DF'}`,
+            background: esNueva ? '#F2F1ED' : '#fff',
+            color: esNueva ? '#6B6B66' : '#C4C3BE', fontWeight: 700, letterSpacing: '.04em' }}>
+          N
+        </button>
+      </div>
 
       <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 14 : 10, marginBottom: 13 }}>
         <div style={{ flex: 1, minWidth: isMobile ? '100%' : 140 }}>
