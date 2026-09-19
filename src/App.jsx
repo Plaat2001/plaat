@@ -6160,29 +6160,41 @@ function fmtFechaCorta(iso) {
   return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getFullYear()).slice(2)}`;
 }
 
-// Dibuixa un array de línies (ja embolicades amb splitTextToSize) amb el text justificat:
-// totes les línies excepte l'última s'estiren perquè ocupin exactament `totalWidth`.
-// Si la línia té poques paraules i estirar-la crearia forats massa grans, es deixa sense
-// justificar (alineada a l'esquerra) — així es respecta l'espaiat estàndard entre paraules.
-function dibuixarLiniesJustificades(doc, lines, x, yStart, lineHeight, totalWidth) {
+// Justifica UNA línia (ja retallada amb splitTextToSize) perquè ocupi exactament `totalWidth`,
+// com un processador de textos de veritat: primer estira els espais entre paraules (fins a un
+// màxim raonable, per no obrir forats grans) i, si encara falta ample per omplir, reparteix la
+// resta com a un lleuger espaiat entre lletres (tracking) de tota la línia. Així cap línia
+// justificada es queda curta — ni es veuen buits enormes entre paraules quan n'hi ha poques.
+function justificarLinia(doc, line, x, ty, totalWidth, isLast, opts = {}) {
+  const trimmed = (line || '').trim();
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (isLast || !words.length) { doc.text(line, x, ty, opts); return; }
+
   const spaceW = doc.getTextWidth(' ');
-  const MAX_EXTRA = spaceW * 0.8; // marge màxim addicional per forat: 80% d'un espai normal
+  const MAX_WORD_EXTRA = spaceW * 0.5; // com a molt, mig espai extra entre paraules
+  const lineW = doc.getTextWidth(words.join(' '));
+  const totalExtra = totalWidth - lineW;
+  if (totalExtra <= 0.01) { doc.text(words.join(' '), x, ty, opts); return; }
+
+  const numGaps = words.length - 1;
+  const extraPerGap = numGaps > 0 ? Math.min(MAX_WORD_EXTRA, totalExtra / numGaps) : 0;
+  const restant = totalExtra - extraPerGap * numGaps;
+  const numLletres = trimmed.replace(/\s+/g, '').length;
+  const charSpace = restant > 0.01 ? restant / numLletres : 0;
+  const textOpts = charSpace > 0 ? { ...opts, charSpace } : opts;
+
+  let cx = x;
+  words.forEach((w, wi) => {
+    doc.text(w, cx, ty, textOpts);
+    cx += doc.getTextWidth(w) + charSpace * w.length + (wi < numGaps ? spaceW + extraPerGap : 0);
+  });
+}
+
+// Dibuixa un array de línies (ja embolicades amb splitTextToSize) justificant-les totes
+// excepte l'última — vegeu justificarLinia() per l'algorisme.
+function dibuixarLiniesJustificades(doc, lines, x, yStart, lineHeight, totalWidth, opts = {}) {
   lines.forEach((line, i) => {
-    const isLast = i === lines.length - 1;
-    const ty = yStart + i * lineHeight;
-    const trimmed = line.trim();
-    const words = trimmed.split(/\s+/).filter(Boolean);
-    const lineW = words.length ? doc.getTextWidth(words.join(' ')) : 0;
-    const extraSpace = words.length > 1 ? (totalWidth - lineW) / (words.length - 1) : Infinity;
-    if (isLast || words.length <= 1 || !trimmed || extraSpace > MAX_EXTRA) {
-      doc.text(line, x, ty);
-    } else {
-      let cx = x;
-      words.forEach(w => {
-        doc.text(w, cx, ty);
-        cx += doc.getTextWidth(w) + spaceW + extraSpace;
-      });
-    }
+    justificarLinia(doc, line, x, yStart + i * lineHeight, totalWidth, i === lines.length - 1, opts);
   });
 }
 
@@ -6945,20 +6957,7 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
           e.lines.forEach(l => {
             if (ty < ey + e.h - 1) {
               const isLastLine = l === e.lines[e.lines.length - 1];
-              const words = l.trim().split(/\s+/).filter(Boolean);
-              const spaceW = doc.getTextWidth(' ');
-              const maxExtra = spaceW * 0.8;
-              const lineW = words.length ? doc.getTextWidth(words.join(' ')) : 0;
-              const extraSpace = words.length > 1 ? (cDesc-3 - lineW) / (words.length - 1) : Infinity;
-              if (isLastLine || words.length <= 1 || extraSpace > maxExtra) {
-                doc.text(l, ML+cNum+2, ty, {baseline:'middle'});
-              } else {
-                let cx = ML+cNum+2;
-                words.forEach(w => {
-                  doc.text(w, cx, ty, {baseline:'middle'});
-                  cx += doc.getTextWidth(w) + spaceW + extraSpace;
-                });
-              }
+              justificarLinia(doc, l, ML+cNum+2, ty, cDesc-3, isLastLine, {baseline:'middle'});
             }
             ty += e.lh;
           });
