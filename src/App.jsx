@@ -314,6 +314,54 @@ function useIsMobile() {
   return m;
 }
 
+// Esborranys de text a localStorage: si el mòbil apaga la pantalla, canvia de pestanya o passa
+// molta estona en segon pla, el sistema operatiu pot matar la pàgina i, en tornar-hi, es
+// recarrega des de zero — es perd tot l'estat de React que encara no s'hagués desat. Els
+// formularis curts (afegir un comentari, editar un text...) només viuen en estat local fins que
+// es prem "Desar", així que sense això el text s'esborraria sense remei.
+function llegirEsborrany(key) {
+  try { return window.localStorage.getItem(`esborrany:${key}`); } catch { return null; }
+}
+function desarEsborrany(key, valor) {
+  try {
+    if (valor) window.localStorage.setItem(`esborrany:${key}`, valor);
+    else window.localStorage.removeItem(`esborrany:${key}`);
+  } catch {}
+}
+function esborrarEsborrany(key) {
+  try { window.localStorage.removeItem(`esborrany:${key}`); } catch {}
+}
+
+// Com useState, però desa l'esborrany a localStorage mentre s'escriu (vegeu més amunt) i el
+// recupera automàticament en muntar-se o en canviar `key` (p.ex. comences a editar una altra
+// entrada dins del mateix component). `key` identifica de forma única aquest esborrany (p.ex.
+// incloent l'id de l'obra i de l'entitat que s'edita); si `key` és null/buit no es desa res.
+function useDraftState(key, initial) {
+  const [value, setValue] = useState(() => {
+    if (!key) return initial;
+    const desat = llegirEsborrany(key);
+    return desat !== null ? desat : initial;
+  });
+  const keyRef = useRef(key);
+  useEffect(() => {
+    if (keyRef.current === key) return;
+    keyRef.current = key;
+    const desat = key ? llegirEsborrany(key) : null;
+    setValue(desat !== null ? desat : initial);
+    // Només quan canvia la key — `initial` es llegeix del tancament d'aquest mateix render,
+    // no cal que sigui una dependència.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  function set(v) {
+    setValue(v);
+    if (key) desarEsborrany(key, v);
+  }
+  function clear() {
+    if (key) esborrarEsborrany(key);
+  }
+  return [value, set, clear];
+}
+
 // ─── Átomos ───────────────────────────────────────────────────────────────────
 
 function Pill({ label, bg, color }) {
@@ -2347,8 +2395,8 @@ function IncCard({ inc, esVisitaHoy, onClick, onRevisar }) {
 // ── Formulario nueva incidencia ───────────────────────────────────────────────
 function FormNuevaIncidencia({ onClose, onCrear, obraId }) {
   const [fotos,  setFotos]  = useState([]);
-  const [titulo, setTitulo] = useState('');
-  const [nota,   setNota]   = useState('');
+  const [titulo, setTitulo, clearTitulo] = useDraftState(`incNovaTitulo:${obraId}`, '');
+  const [nota,   setNota,   clearNota]   = useDraftState(`incNovaNota:${obraId}`, '');
   const [estado, setEstado] = useState('detectada');
 
   function crear() {
@@ -2361,6 +2409,7 @@ function FormNuevaIncidencia({ onClose, onCrear, obraId }) {
       fechaCreacion: ahora, ultimaActualizacion: ahora,
     };
     onCrear(inc);
+    clearTitulo(); clearNota();
   }
 
   return (
@@ -2415,14 +2464,14 @@ function FormNuevaIncidencia({ onClose, onCrear, obraId }) {
 
 // ── Detalle de incidencia ─────────────────────────────────────────────────────
 function DetalleIncidencia({ inc, onClose, onActualizar, onEliminar, obraId }) {
-  const [nota,       setNota]       = useState('');
+  const [nota,       setNota, clearNota] = useDraftState(`incNota:${inc.id}`, '');
   const [adjuntos,   setAdjuntos]   = useState([]);
   const [estado,     setEstado]     = useState(inc.estado);
   const [preview,    setPreview]    = useState(null);
   const [menu,       setMenu]       = useState(false);
   const [confirmar,  setConfirmar]  = useState(false);
   const [editTitulo, setEditTitulo] = useState(false);
-  const [titulo,     setTitulo]     = useState(inc.titulo);
+  const [titulo,     setTitulo, clearTitulo] = useDraftState(`incTitulo:${inc.id}`, inc.titulo);
   const [editH,      setEditH]      = useState(null); // id de entrada del historial en edición
 
   function guardar() {
@@ -2430,12 +2479,13 @@ function DetalleIncidencia({ inc, onClose, onActualizar, onEliminar, obraId }) {
     const estadoCambio = estado !== inc.estado;
     const entrada = { id: uid(), tipo: estadoCambio ? 'cambio_estado' : 'nota', estado, nota: nota.trim(), adjuntos, fecha: now() };
     onActualizar({ ...inc, titulo, estado, historial: [...(inc.historial || []), entrada], ultimaActualizacion: now() });
-    setNota(''); setAdjuntos([]);
+    clearNota(); setAdjuntos([]);
   }
 
   function guardarTitulo() {
     if (!titulo.trim()) return;
     onActualizar({ ...inc, titulo: titulo.trim(), ultimaActualizacion: now() });
+    clearTitulo();
     setEditTitulo(false);
   }
 
@@ -2590,7 +2640,7 @@ function DetalleIncidencia({ inc, onClose, onActualizar, onEliminar, obraId }) {
 
 // ── Editor inline de entrada del historial ────────────────────────────────────
 function EntradaEditor({ entrada, obraId, onGuardar, onCancelar }) {
-  const [nota,     setNota]     = useState(entrada.nota || '');
+  const [nota,     setNota, clearNota] = useDraftState(`incEntEdit:${entrada.id}`, entrada.nota || '');
   const [adjuntos, setAdjuntos] = useState(entrada.adjuntos || []);
 
   return (
@@ -2613,7 +2663,7 @@ function EntradaEditor({ entrada, obraId, onGuardar, onCancelar }) {
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
         <Btn sm onClick={onCancelar} full>Cancelar</Btn>
-        <Btn sm primary onClick={() => onGuardar(nota, adjuntos)} full>Guardar cambios</Btn>
+        <Btn sm primary onClick={() => { onGuardar(nota, adjuntos); clearNota(); }} full>Guardar cambios</Btn>
       </div>
     </div>
   );
@@ -2623,7 +2673,7 @@ function EntradaEditor({ entrada, obraId, onGuardar, onCancelar }) {
 function ModalRevision({ inc, onSinCambios, onConCambios, onClose, obraId }) {
   const [fase,     setFase]     = useState('pregunta'); // pregunta | cambios
   const [estado,   setEstado]   = useState(inc.estado);
-  const [comentario, setComentario] = useState('');
+  const [comentario, setComentario, clearComentario] = useDraftState(`incRevision:${inc.id}`, '');
   const [adjuntos, setAdjuntos] = useState([]);
 
   return (
@@ -2695,7 +2745,7 @@ function ModalRevision({ inc, onSinCambios, onConCambios, onClose, obraId }) {
 
               <div style={{ display: 'flex', gap: 8 }}>
                 <Btn onClick={() => setFase('pregunta')} full>← Atrás</Btn>
-                <Btn primary full onClick={() => onConCambios(inc.id, estado, comentario, adjuntos)} disabled={estado === inc.estado && !comentario.trim()}>
+                <Btn primary full onClick={() => { onConCambios(inc.id, estado, comentario, adjuntos); clearComentario(); }} disabled={estado === inc.estado && !comentario.trim()}>
                   Guardar
                 </Btn>
               </div>
@@ -2910,22 +2960,24 @@ function ModuloApuntes({ obra, onSave }) {
   const apuntes = obra.apuntes || [];
   const [filtro,   setFiltro]   = useState('todo');
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ tipo: 'tarea', texto: '', categoria: 'Otros', fechaLimite: '' });
+  const [form, setForm] = useState({ tipo: 'tarea', categoria: 'Otros', fechaLimite: '' });
+  const [texto, setTexto, clearTexto] = useDraftState(`apunteNou:${obra.id}`, '');
   const [confirmacion, setConfirmacion] = useState(null);
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   function guardar() {
-    if (!form.texto.trim()) return;
+    if (!texto.trim()) return;
     const item = {
       id: uid(), tipo: form.tipo,
-      texto: form.texto.trim(),
+      texto: texto.trim(),
       categoria: form.categoria,
       fechaLimite: form.tipo === 'tarea' ? form.fechaLimite : '',
       hecha: false,
       creadaEn: now(),
     };
     onSave({ ...obra, apuntes: [item, ...apuntes] });
-    setForm({ tipo: 'tarea', texto: '', categoria: 'Otros', fechaLimite: '' });
+    setForm({ tipo: 'tarea', categoria: 'Otros', fechaLimite: '' });
+    clearTexto();
     setShowForm(false);
   }
 
@@ -3008,7 +3060,7 @@ function ModuloApuntes({ obra, onSave }) {
           </div>
 
           <div style={{ marginBottom: 10 }}>
-            <textarea autoFocus placeholder={form.tipo === 'tarea' ? 'Descripción de la tarea...' : 'Escribe tu nota...'} value={form.texto} onChange={e => upd('texto', e.target.value)} style={{ minHeight: 70 }} />
+            <textarea autoFocus placeholder={form.tipo === 'tarea' ? 'Descripción de la tarea...' : 'Escribe tu nota...'} value={texto} onChange={e => setTexto(e.target.value)} style={{ minHeight: 70 }} />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: form.tipo === 'tarea' ? '1fr 1fr' : '1fr', gap: 10, marginBottom: 12 }}>
@@ -3028,7 +3080,7 @@ function ModuloApuntes({ obra, onSave }) {
 
           <div style={{ display: 'flex', gap: 8 }}>
             <Btn onClick={() => setShowForm(false)} full>Cancelar</Btn>
-            <Btn primary onClick={guardar} disabled={!form.texto.trim()} full>
+            <Btn primary onClick={guardar} disabled={!texto.trim()} full>
               {form.tipo === 'tarea' ? 'Añadir tarea' : 'Añadir nota'}
             </Btn>
           </div>
@@ -3068,8 +3120,8 @@ function ModuloApuntes({ obra, onSave }) {
 function ApunteItem({ item, vencida, onToggleHecha, onEditarTexto, onAddComentario, onConfirmar, onDelComentario, onEliminar }) {
   const [abierto, setAbierto] = useState(false);
   const [editando, setEditando] = useState(false);
-  const [txt, setTxt] = useState(item.texto);
-  const [coment, setComent] = useState('');
+  const [txt, setTxt, clearTxt] = useDraftState(`apunteEdit:${item.id}`, item.texto);
+  const [coment, setComent, clearComent] = useDraftState(`apunteComent:${item.id}`, '');
   const comentarios = item.comentarios || [];
 
   return (
@@ -3089,7 +3141,7 @@ function ApunteItem({ item, vencida, onToggleHecha, onEditarTexto, onAddComentar
             <div style={{ marginBottom: 6 }}>
               <textarea autoFocus value={txt} onChange={e => setTxt(e.target.value)} style={{ minHeight: 60, marginBottom: 6 }} />
               <div style={{ display: 'flex', gap: 6 }}>
-                <Btn sm primary disabled={!txt.trim()} onClick={() => { onEditarTexto(txt.trim()); setEditando(false); }}>Guardar</Btn>
+                <Btn sm primary disabled={!txt.trim()} onClick={() => { onEditarTexto(txt.trim()); clearTxt(); setEditando(false); }}>Guardar</Btn>
                 <Btn sm onClick={() => { setTxt(item.texto); setEditando(false); }}>✕</Btn>
               </div>
             </div>
@@ -3130,8 +3182,8 @@ function ApunteItem({ item, vencida, onToggleHecha, onEditarTexto, onAddComentar
             </div>
           ))}
           <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-            <input placeholder="Añadir seguimiento..." value={coment} onChange={e => setComent(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && coment.trim()) { onAddComentario(coment); setComent(''); } }} style={{ flex: 1, fontSize: 12 }} />
-            <Btn sm primary disabled={!coment.trim()} onClick={() => { onAddComentario(coment); setComent(''); }}>Añadir</Btn>
+            <input placeholder="Añadir seguimiento..." value={coment} onChange={e => setComent(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && coment.trim()) { onAddComentario(coment); clearComent(); } }} style={{ flex: 1, fontSize: 12 }} />
+            <Btn sm primary disabled={!coment.trim()} onClick={() => { onAddComentario(coment); clearComent(); }}>Añadir</Btn>
           </div>
         </div>
       )}
@@ -3458,12 +3510,18 @@ function UnidadesNombradas({ ensayo, onUpdate, onPreview }) {
   function abrir(u) {
     setEditId(u.id);
     setResultado(u.marca?.resultado || 'apto');
-    setComentario(u.marca?.comentario || '');
+    const draft = llegirEsborrany(`ensUnitComent:${u.id}`);
+    setComentario(draft !== null ? draft : (u.marca?.comentario || ''));
     setAdjuntos(u.marca?.adjuntos || []);
+  }
+  function canviarComentari(v) {
+    setComentario(v);
+    desarEsborrany(`ensUnitComent:${editId}`, v);
   }
   function guardar() {
     const marca = { resultado, comentario: comentario.trim(), adjuntos, fecha: now() };
     onUpdate(e => ({ ...e, unidades: e.unidades.map(u => u.id === editId ? { ...u, marca } : u) }));
+    esborrarEsborrany(`ensUnitComent:${editId}`);
     setEditId(null);
   }
   function quitar(id) {
@@ -3496,7 +3554,7 @@ function UnidadesNombradas({ ensayo, onUpdate, onPreview }) {
                     <button key={k} onClick={() => setResultado(k)} style={{ padding: '6px 12px', borderRadius: 20, border: `1.5px solid ${resultado === k ? v.color : '#E0DFD9'}`, background: resultado === k ? v.bg : 'transparent', color: resultado === k ? v.color : '#6B6B66', fontSize: 12, cursor: 'pointer', fontWeight: resultado === k ? 600 : 400 }}>{v.label}</button>
                   ))}
                 </div>
-                <textarea placeholder="Comentario, nº de acta, observaciones..." value={comentario} onChange={e => setComentario(e.target.value)} style={{ marginBottom: 8, minHeight: 48 }} />
+                <textarea placeholder="Comentario, nº de acta, observaciones..." value={comentario} onChange={e => canviarComentari(e.target.value)} style={{ marginBottom: 8, minHeight: 48 }} />
                 {adjuntos.length > 0 && (
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
                     {adjuntos.map(a => (
@@ -3529,7 +3587,7 @@ function UnidadesNombradas({ ensayo, onUpdate, onPreview }) {
 function RegistrosLibres({ ensayo, onUpdate, onPreview }) {
   const [show, setShow]               = useState(false);
   const [resultado, setResultado]     = useState('apto');
-  const [comentario, setComentario]   = useState('');
+  const [comentario, setComentario, clearComentario] = useDraftState(`ensRegistreNou:${ensayo.id}`, '');
   const [adjuntos, setAdjuntos]       = useState([]);
   const [confirmacion, setConfirmacion] = useState(null);
   const registros = ensayo.registros || [];
@@ -3544,7 +3602,7 @@ function RegistrosLibres({ ensayo, onUpdate, onPreview }) {
   function guardar() {
     const reg = { id: uid(), fecha: now(), resultado, comentario: comentario.trim(), adjuntos };
     onUpdate(e => ({ ...e, registros: [...(e.registros || []), reg] }));
-    setResultado('apto'); setComentario(''); setAdjuntos([]); setShow(false);
+    setResultado('apto'); clearComentario(); setAdjuntos([]); setShow(false);
   }
   function borrar(rid) {
     onUpdate(e => ({ ...e, registros: (e.registros || []).filter(r => r.id !== rid) }));
@@ -5618,7 +5676,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
                       </button>
 
                       <span style={{ marginLeft: 'auto', display: 'flex', gap: 2, flexShrink: 0 }}>
-                        <button onClick={() => { setEditEnt(en.id); setTxtEdit(en.texto); }} title="Editar text"
+                        <button onClick={() => { setEditEnt(en.id); const draft = llegirEsborrany(`voEntText:${en.id}`); setTxtEdit(draft !== null ? draft : en.texto); }} title="Editar text"
                           style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C3BE', fontSize:12, padding:'2px 4px' }}>✏️</button>
                         <button onClick={() => onDelEntrada(t.id, en.id)} title="Eliminar seguiment"
                           style={{ background:'none', border:'none', cursor:'pointer', color:'#D4D3CE', fontSize:15, lineHeight:1, padding:'0 3px' }}>×</button>
@@ -5642,10 +5700,10 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
                     {/* Text del seguiment — el contingut mana */}
                     {editant ? (
                       <div>
-                        <textarea autoFocus value={txtEdit} onChange={ev => setTxtEdit(ev.target.value)}
+                        <textarea autoFocus value={txtEdit} onChange={ev => { setTxtEdit(ev.target.value); desarEsborrany(`voEntText:${en.id}`, ev.target.value); }}
                           style={{ minHeight: isMobile ? 120 : 96, fontSize: 13, lineHeight: 1.65, resize: 'vertical', marginBottom: 7 }} />
                         <div style={{ display: 'flex', gap: 6 }}>
-                          <Btn sm primary onClick={() => { onUpdEntrada(t.id, en.id, 'texto', txtEdit.trim()); setEditEnt(null); }}>Desar</Btn>
+                          <Btn sm primary onClick={() => { onUpdEntrada(t.id, en.id, 'texto', txtEdit.trim()); esborrarEsborrany(`voEntText:${en.id}`); setEditEnt(null); }}>Desar</Btn>
                           <Btn sm onClick={() => setEditEnt(null)}>Cancel·lar</Btn>
                         </div>
                       </div>
@@ -5673,7 +5731,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
               );
             })}
 
-            <NuevaEntrada onAdd={txt => onAddEntrada(t.id, txt)} />
+            <NuevaEntrada onAdd={txt => onAddEntrada(t.id, txt)} draftKey={t.id} />
           </div>
 
           {/* ── Peu administratiu — poc freqüent, discret ──────────── */}
@@ -5713,8 +5771,8 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
 function QuickAddTema({ secciones, obraId, fechaDefault, onAdd, onCancel }) {
   const isMobile = useIsMobile();
   const [secId, setSecId] = useState(secciones[0]?.id || '');
-  const [titulo, setTitulo] = useState('');
-  const [texto, setTexto] = useState('');
+  const [titulo, setTitulo, clearTitulo] = useDraftState(`quickAddTemaTitulo:${obraId}`, '');
+  const [texto, setTexto, clearTexto] = useDraftState(`quickAddTemaTexto:${obraId}`, '');
   const [estado, setEstado] = useState('P');
   const [resp, setResp] = useState([]);
   const [fotos, setFotos] = useState([]);
@@ -5733,7 +5791,7 @@ function QuickAddTema({ secciones, obraId, fechaDefault, onAdd, onCancel }) {
     <Modal title="Nou tema" onClose={onCancel} footer={
       <>
         <Btn onClick={onCancel}>Cancel·lar</Btn>
-        <Btn primary disabled={!titulo.trim()} onClick={() => onAdd(secId, { titulo: titulo.trim(), texto: texto.trim(), estado, resp, fotos, fecha, nueva: esNueva })}>Afegir tema</Btn>
+        <Btn primary disabled={!titulo.trim()} onClick={() => { onAdd(secId, { titulo: titulo.trim(), texto: texto.trim(), estado, resp, fotos, fecha, nueva: esNueva }); clearTitulo(); clearTexto(); }}>Afegir tema</Btn>
       </>
     }>
       <Field label="Secció">
@@ -5821,10 +5879,10 @@ function QuickAddTema({ secciones, obraId, fechaDefault, onAdd, onCancel }) {
     </Modal>
   );
 }
-function NuevaEntrada({ onAdd }) {
+function NuevaEntrada({ onAdd, draftKey }) {
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
-  const [txt, setTxt] = useState('');
+  const [txt, setTxt, clearTxt] = useDraftState(draftKey ? `voNovaEntrada:${draftKey}` : null, '');
   if (!open) return (
     <button onClick={() => setOpen(true)}
       style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', marginBottom: 12, padding: '9px 11px', fontSize: 12.5, color: '#6B6B66', background: '#FAFAF8', border: '1.5px dashed #E5E4DF', borderRadius: 8, cursor: 'pointer' }}>
@@ -5840,8 +5898,8 @@ function NuevaEntrada({ onAdd }) {
           placeholder="Què s'ha tractat en aquesta visita…"
           style={{ minHeight: isMobile ? 120 : 96, fontSize: 13, lineHeight: 1.65, resize: 'vertical', marginBottom: 7 }} />
         <div style={{ display: 'flex', gap: 6 }}>
-          <Btn sm primary disabled={!txt.trim()} onClick={() => { onAdd(txt); setTxt(''); setOpen(false); }}>Afegir seguiment</Btn>
-          <Btn sm onClick={() => { setTxt(''); setOpen(false); }}>Cancel·lar</Btn>
+          <Btn sm primary disabled={!txt.trim()} onClick={() => { onAdd(txt); clearTxt(); setOpen(false); }}>Afegir seguiment</Btn>
+          <Btn sm onClick={() => { clearTxt(); setOpen(false); }}>Cancel·lar</Btn>
         </div>
       </div>
     </div>
@@ -7658,13 +7716,14 @@ function FormSeguimiento({ punto, obras, nextNum, onGuardar, onCerrar, isMobile 
     responsable: '', fecha: today(), fechaLimite: '', fechaResolucion: '',
     estado: 'En curso', tematica: 'OTROS', via: 'VT',
   });
+  const [tema, setTema] = useDraftState(`puntoSeguimientoTema:${punto?.id || 'nou'}`, f.tema);
   const upd = (k,v) => setF(prev => ({ ...prev, [k]: v }));
 
   useEffect(() => {
     if (!punto) upd('num', nextNum(f.obraId));
   }, [f.obraId]);
 
-  const canSave = f.tema?.trim();
+  const canSave = tema?.trim();
 
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100%', background:'#F7F6F3', borderRadius: isMobile?0:16, overflow:'hidden' }}>
@@ -7675,7 +7734,7 @@ function FormSeguimiento({ punto, obras, nextNum, onGuardar, onCerrar, isMobile 
           <div style={{ fontSize:15, fontWeight:700, color:'#F2F1ED' }}>{punto ? 'Editar punto' : 'Nuevo punto'}</div>
           <div style={{ fontSize:11, color:'rgba(255,255,255,0.4)', marginTop:1 }}>Seguimiento de obra</div>
         </div>
-        <button onClick={() => canSave && onGuardar(f)} style={{ padding:'9px 20px', borderRadius:11, border:'none', background: canSave?'#5A7D5A':'#3A3A38', color:'#fff', fontSize:14, fontWeight:700, cursor: canSave?'pointer':'not-allowed', opacity: canSave?1:0.5 }}>
+        <button onClick={() => { if (!canSave) return; onGuardar({ ...f, tema }); esborrarEsborrany(`puntoSeguimientoTema:${punto?.id || 'nou'}`); }} style={{ padding:'9px 20px', borderRadius:11, border:'none', background: canSave?'#5A7D5A':'#3A3A38', color:'#fff', fontSize:14, fontWeight:700, cursor: canSave?'pointer':'not-allowed', opacity: canSave?1:0.5 }}>
           Guardar
         </button>
       </div>
@@ -7685,7 +7744,7 @@ function FormSeguimiento({ punto, obras, nextNum, onGuardar, onCerrar, isMobile 
 
         {/* TEMA — lo más importante, primero y grande */}
         <Field label="Tema tratado *">
-          <textarea value={f.tema} onChange={e => upd('tema', e.target.value)}
+          <textarea value={tema} onChange={e => setTema(e.target.value)}
             placeholder="Describe el punto de acción o tema tratado..."
             style={{ minHeight: isMobile?120:100, fontSize: isMobile?15:14 }} autoFocus />
         </Field>
