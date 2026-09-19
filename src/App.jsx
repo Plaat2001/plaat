@@ -6909,10 +6909,19 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
         }
 
         const yTros = y;
-        // Fons de color ÚNIC per a tot el troç del tema (número + contingut) que hi ha en aquesta pàgina
-        if (fillTema) {
-          doc.setFillColor(...fillTema);
-          doc.rect(ML, yTros, CW, trosH, 'F');
+        // Fons de color independent per cada punt de seguiment: en blanc (sense fill) si el punt
+        // és nou, o el color de l'estat del tema si no ho és — així un punt nou dins d'un tema ja
+        // existent ressalta en blanc igual que un tema totalment nou, sense pintar els punts vells.
+        {
+          let fillY = yTros;
+          for (let pi = idxEntrada; pi < finTros; pi++) {
+            const e = ed[pi];
+            if (!e.esNova && fillTema) {
+              doc.setFillColor(...fillTema);
+              doc.rect(ML, fillY, CW, e.h, 'F');
+            }
+            fillY += e.h;
+          }
         }
 
         // Número i títol — només al primer troç (a la resta el tema ja s'identifica per continuïtat)
