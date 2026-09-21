@@ -5143,10 +5143,10 @@ function ModuloActaVO({ obra, onSave }) {
               );
 
               return <>
-                {grups.map(g => {
+                {grups.map((g, gi) => {
                   const rols = equip.filter(r => (r.grupo||'') === g);
                   return (
-                    <div key={g} style={{ marginBottom: 8 }}>
+                    <div key={gi} style={{ marginBottom: 8 }}>
                       {/* Capçalera de grup — editable */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#F0EFEA', borderRadius: 6, padding: '4px 8px', marginBottom: 4 }}>
                         <input
