@@ -6243,7 +6243,7 @@ function fmtFechaCorta(iso) {
 function justificarLinia(doc, line, x, ty, totalWidth, isLast, opts = {}) {
   const trimmed = (line || '').trim();
   const words = trimmed.split(/\s+/).filter(Boolean);
-  if (isLast || !words.length) { doc.text(line, x, ty, opts); return; }
+  if (isLast || words.length <= 1 || !words.length) { doc.text(line, x, ty, opts); return; }
 
   const spaceW = doc.getTextWidth(' ');
   const MAX_WORD_EXTRA = spaceW * 0.5; // com a molt, mig espai extra entre paraules
@@ -6252,16 +6252,12 @@ function justificarLinia(doc, line, x, ty, totalWidth, isLast, opts = {}) {
   if (totalExtra <= 0.01) { doc.text(words.join(' '), x, ty, opts); return; }
 
   const numGaps = words.length - 1;
-  const extraPerGap = numGaps > 0 ? Math.min(MAX_WORD_EXTRA, totalExtra / numGaps) : 0;
-  const restant = totalExtra - extraPerGap * numGaps;
-  const numLletres = trimmed.replace(/\s+/g, '').length;
-  const charSpace = restant > 0.01 ? restant / numLletres : 0;
-  const textOpts = charSpace > 0 ? { ...opts, charSpace } : opts;
+  const extraPerGap = Math.min(MAX_WORD_EXTRA, totalExtra / numGaps);
 
   let cx = x;
   words.forEach((w, wi) => {
-    doc.text(w, cx, ty, textOpts);
-    cx += doc.getTextWidth(w) + charSpace * w.length + (wi < numGaps ? spaceW + extraPerGap : 0);
+    doc.text(w, cx, ty, opts);
+    cx += doc.getTextWidth(w) + (wi < numGaps ? spaceW + extraPerGap : 0);
   });
 }
 
