@@ -6934,6 +6934,7 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
       const estatMostrat = esNuevoTema ? 'N' : (ultima.estado || 'P');
       const fillTema = estatMostrat==='R' ? C_R : estatMostrat==='I'||estatMostrat==='INF' ? C_I : estatMostrat==='A' ? C_A : estatMostrat==='N' ? null : C_P;
 
+      const respLH = 7.5*0.3528+0.4;
       const ed = entradesOrdenades.map((en, pi) => {
         const esNova = !!en.nueva;
         const resps = Array.isArray(en.resp) ? en.resp : (en.resp ? [en.resp] : []);
@@ -6953,6 +6954,9 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
         // (vora del bloc -> títol/text): 3mm, el mateix valor que s'usa a l'inici de cada entrada.
         const PAD_TEXT_END = 3;
         const textH = lines.length*lh85 + 3 + titolOffset + PAD_TEXT_END;
+        // Alçada que ocupa la llista de responsables — hi ha punts amb tants responsables que
+        // ocupen més que el propi text, i el bloc no pot ser més baix que ells o es tallen.
+        const respsH = resps.length ? (3 + titolOffset + resps.length*respLH + PAD_TEXT_END) : 0;
         const fotos=en.fotos||[]; const fotoRows=[]; let fotosH=0;
         for(let i=0;i<fotos.length;i+=2){
           const pair=[fotos[i],fotos[i+1]].filter(Boolean);
@@ -6960,7 +6964,7 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
           const rh=Math.max(...dims.map(d=>d.h));
           fotoRows.push({pair,dims,rh}); fotosH+=rh+GAP;
         }
-        const h = textH + fotosH + (fotos.length > 0 ? GAP : 0);
+        const h = Math.max(textH, respsH) + fotosH + (fotos.length > 0 ? GAP : 0);
         return{en,esNova,resps,lines,textH,fotoRows,h,lh:lh85};
       });
 
@@ -6969,7 +6973,6 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
       const tituloLH = 8.5*0.3528+0.6;
       const fechaInicio = entradesOrdenades[0]?.fecha;
       const fechaFin     = ultima.fin || ultima.fecha;
-      const respLH = 7.5*0.3528+0.4;
       const colorEstat = estatMostrat==='R' ? [44,94,16] : estatMostrat==='I'||estatMostrat==='INF' ? [12,68,124] : estatMostrat==='N' ? [0,0,0] : [124,74,0];
       const yTopPagina = MT + 12 + 9; // y just sota la capçalera d'una pàgina nova
 
@@ -7037,6 +7040,15 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
             doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(0,0,0);
             let respY = ey + 3 + e.lh*0.8 + titolH;
             e.resps.forEach(r => { doc.text(r, ML+cNum+cDesc+cEs+cIni+cFi+cRes/2, respY, { align:'center', baseline:'middle' }); respY += respLH; });
+          }
+          // 'N' (o 'N/R' si a més ve marcat com a resolt) a la columna ES, a la línia del propi
+          // punt de seguiment nou — no dalt de tot del tema. S'omet a la primera entrada (pi===0):
+          // aquesta línia coincideix amb la capçalera del tema, que ja ocupa aquesta mateixa cel·la.
+          if (e.esNova && pi !== 0) {
+            const badgeTxt = e.en.estado === 'R' ? 'N/R' : 'N';
+            doc.setFont('helvetica','bold'); doc.setFontSize(badgeTxt==='N/R' ? 6.5 : 8.5); doc.setTextColor(0,0,0);
+            const badgeY = ey + 3 + e.lh*0.8 + titolH;
+            doc.text(badgeTxt, ML+cNum+cDesc+cEs/2, badgeY, { align:'center', baseline:'middle' });
           }
           // Fotos — inline, just sota el paràgraf al qual pertanyen
           const GAP_FY = 2;
