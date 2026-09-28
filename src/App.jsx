@@ -6927,14 +6927,12 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
     actius.forEach((t, tIdx) => {
       const fW3=(cDesc-5)/2;
       const entradesOrdenades = t.entradas || [];
+      const esNuevoTema = entradesOrdenades.length === 1 && !!entradesOrdenades[0]?.nueva;
       const ultima = entradesOrdenades[entradesOrdenades.length - 1] || {};
-      const ultimaEsNova = !!ultima.nueva;
-      // Estat mostrat: 'N' si l'última entrada és nova — tant si el tema és totalment nou com si és
-      // un punt de seguiment nou afegit a un tema ja existent. Si a més ja ve marcada com a resolta,
-      // es mostra 'N/R': el fons blanc de "nova" amagaria el verd de resolt, així queda constància.
-      const estatMostrat = ultimaEsNova ? (ultima.estado === 'R' ? 'N/R' : 'N') : (ultima.estado || 'P');
-      const esNovaOResolta = estatMostrat==='N' || estatMostrat==='N/R';
-      const fillTema = estatMostrat==='R' ? C_R : estatMostrat==='I'||estatMostrat==='INF' ? C_I : estatMostrat==='A' ? C_A : esNovaOResolta ? null : C_P;
+      // Estat mostrat: 'N' NOMÉS si el tema és totalment nou (una única entrada, d'aquesta acta)
+      // En qualsevol altre cas, l'estat real de l'última entrada (P/R/I) — igual que al Word
+      const estatMostrat = esNuevoTema ? 'N' : (ultima.estado || 'P');
+      const fillTema = estatMostrat==='R' ? C_R : estatMostrat==='I'||estatMostrat==='INF' ? C_I : estatMostrat==='A' ? C_A : estatMostrat==='N' ? null : C_P;
 
       const ed = entradesOrdenades.map((en, pi) => {
         const esNova = !!en.nueva;
@@ -6972,7 +6970,7 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
       const fechaInicio = entradesOrdenades[0]?.fecha;
       const fechaFin     = ultima.fin || ultima.fecha;
       const respLH = 7.5*0.3528+0.4;
-      const colorEstat = estatMostrat==='R' ? [44,94,16] : estatMostrat==='I'||estatMostrat==='INF' ? [12,68,124] : esNovaOResolta ? [0,0,0] : [124,74,0];
+      const colorEstat = estatMostrat==='R' ? [44,94,16] : estatMostrat==='I'||estatMostrat==='INF' ? [12,68,124] : estatMostrat==='N' ? [0,0,0] : [124,74,0];
       const yTopPagina = MT + 12 + 9; // y just sota la capçalera d'una pàgina nova
 
       // Si un tema té molts punts de seguiment, es dibuixa per trossos: quan un punt de seguiment
@@ -7063,12 +7061,12 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
         // dibuixa punt per punt, dins del bucle de cada entrada, ja que cada seguiment té el seu propi)
         if (esPrimerTros) {
           const topTema = yTros + 3 + tituloLH*0.8;
-          doc.setFont('helvetica','bold'); doc.setFontSize(estatMostrat==='N/R' ? 6.5 : 8.5); doc.setTextColor(...colorEstat);
+          doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(...colorEstat);
           doc.text(estatMostrat, ML+cNum+cDesc+cEs/2, topTema, { align:'center', baseline:'middle' });
           doc.setTextColor(0,0,0);
           doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
           doc.text(fechaInicio ? fmtFechaCorta(fechaInicio) : '', ML+cNum+cDesc+cEs+cIni/2, topTema, { align:'center', baseline:'middle' });
-          doc.text((fechaFin && ultima.estado==='R') ? fmtFechaCorta(fechaFin) : '', ML+cNum+cDesc+cEs+cIni+cFi/2, topTema, { align:'center', baseline:'middle' });
+          doc.text((fechaFin && estatMostrat==='R') ? fmtFechaCorta(fechaFin) : '', ML+cNum+cDesc+cEs+cIni+cFi/2, topTema, { align:'center', baseline:'middle' });
         }
 
         // SENSE línies verticals — sols línies horitzontals fines. Al primer tema d'una secció, la
