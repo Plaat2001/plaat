@@ -1722,7 +1722,9 @@ async function generarActaInspeccion(obra, acta) {
   const pdfBlob = doc.output('blob');
   const url = URL.createObjectURL(pdfBlob);
   window.open(url, '_blank');
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  // 10 minutos en vez de 10 segundos: si se revoca demasiado pronto, el botón "Guardar" del
+  // visor de PDF del navegador falla con un error de red porque la URL ya no existe.
+  setTimeout(() => URL.revokeObjectURL(url), 600000);
 }
 
 
@@ -7435,7 +7437,9 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
   const pdfBlob = doc.output('blob');
   const url = URL.createObjectURL(pdfBlob);
   window.open(url,'_blank');
-  setTimeout(()=>URL.revokeObjectURL(url),10000);
+  // 10 minuts en lloc de 10 segons: si es revoca massa d'hora, el botó de "Guardar" del
+  // visor de PDF del navegador falla amb un error de xarxa perquè l'URL ja no existeix.
+  setTimeout(()=>URL.revokeObjectURL(url),600000);
 }
 
 
