@@ -2039,7 +2039,7 @@ const ESTADOS_VO = {
 // perquè a 5-7px de diàmetre els colors de text (pensats per llegir sobre fons clar)
 // es veuen massa semblants entre ells.
 const DOT_COLOR_VO = { P: '#F0A02B', R: '#2FA84F', I: '#3B82C4' };
-const RESP_VO = ['EC', 'DO', 'DEO', 'PR', 'DOE', 'DOI', 'CSS', 'INT'];
+const RESP_VO = ['EC', 'DO', 'DEO', 'PR', 'DOE', 'DOI', 'CSS', 'ATE', 'INT'];
 // Editor de fotos de l'Acta VO — colors i eines de marcatge disponibles
 const COLORS_EDITOR_FOTO = ['#E53935', '#FDD835', '#1E88E5', '#43A047', '#FFFFFF', '#111111'];
 const EINES_EDITOR_FOTO = [
