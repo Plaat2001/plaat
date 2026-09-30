@@ -4656,7 +4656,33 @@ function ModuloActaVO({ obra, onSave }) {
     }
   }, [obra.actaVO]);
 
-  const vo = voLocal || migrateVO(null);
+  // Versions arxivades: còpia congelada de cada acta ja exportada (taula `actas_vo_versions`,
+  // una fila per número), totalment separada de l'acta viva — obrir-ne una per corregir-la
+  // mai toca `obra.actaVO` ni a l'inrevés.
+  const [editingVersion, setEditingVersion] = useState(null); // { id, data, corregida, corregida_en } o null
+  const [showVersions,   setShowVersions]   = useState(false);
+  const [versiones,      setVersiones]      = useState(null); // null = encara no carregades
+  const [cargandoVersiones, setCargandoVersiones] = useState(false);
+  const [colisioPendent, setColisioPendent] = useState(null); // número d'acta en col·lisió, o null
+  const versionSaveRef   = useRef(null);
+  const versionSaveTimer = useRef(null);
+
+  function scheduleGuardarVersion(payload) {
+    versionSaveRef.current = payload;
+    if (versionSaveTimer.current) clearTimeout(versionSaveTimer.current);
+    versionSaveTimer.current = setTimeout(flushVersionSave, 700);
+  }
+  function flushVersionSave() {
+    if (versionSaveTimer.current) { clearTimeout(versionSaveTimer.current); versionSaveTimer.current = null; }
+    const payload = versionSaveRef.current;
+    versionSaveRef.current = null;
+    if (!payload) return;
+    window.db.upsertModulo('actas_vo_versions', { ...payload, updated_at: now() });
+  }
+  // Assegura que no es perd cap edició pendent de la versió en tancar/sortir del mòdul
+  useEffect(() => () => { flushVersionSave(); }, []);
+
+  const vo = editingVersion ? editingVersion.data : (voLocal || migrateVO(null));
   const [showEquipo,    setShowEquipo]    = useState(false);
   const [showHistorico, setShowHistorico] = useState(false);
   const [borrar,        setBorrar]        = useState(null);
@@ -4665,8 +4691,33 @@ function ModuloActaVO({ obra, onSave }) {
   const [confirmacion,  setConfirmacion]  = useState(null); // id sección editando nombre
 
   function guardarVO(nuevo) {
+    if (editingVersion) {
+      const actualizada = { ...editingVersion, data: nuevo };
+      setEditingVersion(actualizada);
+      scheduleGuardarVersion({ id: actualizada.id, obra_id: obra.id, data: nuevo, corregida: actualizada.corregida || false, corregida_en: actualizada.corregida_en || null });
+      return;
+    }
     setVoLocal(nuevo);
     onSave({ ...obra, actaVO: nuevo });
+  }
+
+  async function abrirVersions() {
+    setShowVersions(true);
+    if (versiones !== null) return;
+    setCargandoVersiones(true);
+    try {
+      const rows = await window.db.getModulo('actas_vo_versions', obra.id);
+      setVersiones(rows || []);
+    } catch { setVersiones([]); }
+    setCargandoVersiones(false);
+  }
+  function abrirVersion(row) {
+    setEditingVersion({ id: row.id, data: migrateVO(row.data), corregida: !!row.corregida, corregida_en: row.corregida_en || null });
+    setShowVersions(false);
+  }
+  function tancarVersion() {
+    flushVersionSave();
+    setEditingVersion(null);
   }
 
   // Equipo
@@ -4990,16 +5041,43 @@ function ModuloActaVO({ obra, onSave }) {
   async function exportar(idioma) {
     setShowIdioma(false);
     setGenerando(true);
-    guardarVO({ ...vo, num: vo.num + 1 });
     try {
       // Sempre format nou PLAAT 2026 (v2)
-      await generarActaVO_v2(obra, { ...vo, num: vo.num }, idioma);
+      if (editingVersion) {
+        // Reexportar una versió arxivada: mateix número, marcar-la com a corregida.
+        await generarActaVO_v2(obra, vo, idioma);
+        if (versionSaveTimer.current) { clearTimeout(versionSaveTimer.current); versionSaveTimer.current = null; versionSaveRef.current = null; }
+        const corregidaEn = now();
+        window.db.upsertModulo('actas_vo_versions', { id: editingVersion.id, obra_id: obra.id, data: vo, corregida: true, corregida_en: corregidaEn, updated_at: corregidaEn });
+        setEditingVersion(ev => ev && { ...ev, corregida: true, corregida_en: corregidaEn });
+        setVersiones(list => list ? list.map(r => r.id === editingVersion.id ? { ...r, corregida: true, corregida_en: corregidaEn } : r) : list);
+      } else {
+        const numExportat = vo.num;
+        guardarVO({ ...vo, num: vo.num + 1 });
+        await generarActaVO_v2(obra, { ...vo, num: numExportat }, idioma);
+        const snapshot = { id: obra.id + '_vo_v' + numExportat, obra_id: obra.id, data: { ...vo, num: numExportat }, corregida: false, corregida_en: null, updated_at: now() };
+        window.db.upsertModulo('actas_vo_versions', snapshot);
+        setVersiones(list => list ? [snapshot, ...list.filter(r => r.id !== snapshot.id)] : list);
+      }
     } catch (e) {
       if (!e.message?.includes('Load failed') && !e.message?.includes('fetch')) {
         alert('Error al exportar: ' + e.message);
       }
     }
     setGenerando(false);
+  }
+
+  // Abans d'exportar en mode normal: si ja existeix una versió arxivada amb aquest número
+  // (p.ex. algú ha canviat el Nº d'acta manualment a un ja usat), avisar abans de sobreescriure-la.
+  async function iniciarExportacio() {
+    if (editingVersion) { setShowIdioma(true); return; }
+    const numActual = vo.num;
+    try {
+      const rows = await window.db.getModulo('actas_vo_versions', obra.id);
+      const existent = (rows || []).find(r => r.id === (obra.id + '_vo_v' + numActual));
+      if (existent) { setColisioPendent(numActual); return; }
+    } catch {}
+    setShowIdioma(true);
   }
 
   // Activos = no resueltos en acta anterior; resueltos = para histórico
@@ -5036,15 +5114,27 @@ function ModuloActaVO({ obra, onSave }) {
         {/* Cabecera */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 16, fontWeight: 600, color: '#141412' }}>Acta de Visita de Obra</div>
-            <div style={{ fontSize: 12, color: '#9B9B97', display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
-              Nº de acta:
-              <input type="number" min="1" value={vo.num} onChange={e => guardarVO({ ...vo, num: Math.max(1, parseInt(e.target.value || '1', 10)) })}
-                style={{ width: 60, padding: '3px 7px', fontSize: 12, fontWeight: 600, textAlign: 'center' }} />
+            <div style={{ fontSize: 16, fontWeight: 600, color: '#141412', display: 'flex', alignItems: 'center', gap: 8 }}>
+              Acta de Visita de Obra
+              {editingVersion && <span style={{ fontSize: 11, fontWeight: 700, color: '#8A6D1F', background: '#FBF0D9', padding: '2px 9px', borderRadius: 20 }}>Arxivada</span>}
             </div>
+            {editingVersion ? (
+              <button onClick={tancarVersion} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12, color: '#6B6B66', marginTop: 3 }}>
+                ← Tornar a l'acta actual en curs
+              </button>
+            ) : (
+              <div style={{ fontSize: 12, color: '#9B9B97', display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                Nº de acta:
+                <input type="number" min="1" value={vo.num} onChange={e => guardarVO({ ...vo, num: Math.max(1, parseInt(e.target.value || '1', 10)) })}
+                  style={{ width: 60, padding: '3px 7px', fontSize: 12, fontWeight: 600, textAlign: 'center' }} />
+              </div>
+            )}
           </div>
-          <Btn onClick={() => setShowHistorico(true)}>Resueltos ({todosResueltos.length})</Btn>
-          <Btn primary disabled={generando} onClick={() => setShowIdioma(true)}>{generando ? 'Generando...' : `↓ Exportar Acta Nº ${String(vo.num).padStart(2,'0')}`}</Btn>
+          {!editingVersion && <Btn onClick={abrirVersions}>Actas exportadas</Btn>}
+          {!editingVersion && <Btn onClick={() => setShowHistorico(true)}>Resueltos ({todosResueltos.length})</Btn>}
+          <Btn primary disabled={generando} onClick={iniciarExportacio}>
+            {generando ? 'Generando...' : editingVersion ? `↓ Reexportar Acta Nº ${String(vo.num).padStart(2,'0')} (corregida)` : `↓ Exportar Acta Nº ${String(vo.num).padStart(2,'0')}`}
+          </Btn>
         </div>
 
         {showIdioma && (
@@ -5054,6 +5144,40 @@ function ModuloActaVO({ obra, onSave }) {
               <Btn full onClick={() => exportar('ca')}>Català</Btn>
               <Btn primary full onClick={() => exportar('es')}>Castellano</Btn>
             </div>
+          </Modal>
+        )}
+
+        {colisioPendent !== null && createPortal(
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999, backdropFilter: 'blur(3px)' }}
+            onClick={e => { if (e.target === e.currentTarget) setColisioPendent(null); }}>
+            <div className="modal-in fade" style={{ background: '#fff', borderRadius: 14, width: 360, maxWidth: '92vw', padding: 20, border: '1px solid #E0DFD9', boxShadow: '0 16px 48px rgba(0,0,0,.15)' }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#141412', marginBottom: 8 }}>Ja existeix una Acta Nº {String(colisioPendent).padStart(2,'0')} exportada</div>
+              <div style={{ fontSize: 13, color: '#52524E', lineHeight: 1.55, marginBottom: 18 }}>
+                Si vols corregir-la, fes-ho des de "Actas exportadas" → Acta {String(colisioPendent).padStart(2,'0')} → Editar. Vols exportar-la igualment com a nova versió i sobreescriure el contingut arxivat anterior?
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Btn full onClick={() => setColisioPendent(null)}>Cancel·lar</Btn>
+                <Btn full primary onClick={() => { setColisioPendent(null); setShowIdioma(true); }}>Sobreescriure</Btn>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+        {showVersions && (
+          <Modal title="Actas exportadas" onClose={() => setShowVersions(false)}>
+            {cargandoVersiones ? <div style={{ fontSize: 13, color: '#A5A5A0' }}>Cargando...</div>
+              : !versiones?.length ? <div style={{ fontSize: 13, color: '#A5A5A0' }}>Todavía no se ha exportado ninguna acta desde que existe esta funcionalidad.</div>
+              : versiones.slice().sort((a, b) => (b.data?.num || 0) - (a.data?.num || 0)).map(r => (
+                <div key={r.id} style={{ padding: '10px 0', borderBottom: '1px solid #F2F1ED', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#18180F', width: 46, flexShrink: 0 }}>Nº {String(r.data?.num || '—').padStart(2, '0')}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, color: '#6B6B66' }}>{r.data?.fechaActa ? new Date(r.data.fechaActa).toLocaleDateString('es-ES') : ''}</div>
+                    {r.corregida && <span style={{ fontSize: 10, fontWeight: 700, color: '#8A6D1F', background: '#FBF0D9', padding: '1px 8px', borderRadius: 20 }}>Corregida{r.corregida_en ? ' · ' + new Date(r.corregida_en).toLocaleDateString('es-ES') : ''}</span>}
+                  </div>
+                  <Btn sm onClick={() => abrirVersion(r)}>Editar</Btn>
+                </div>
+              ))}
           </Modal>
         )}
 
