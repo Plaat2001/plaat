@@ -6734,27 +6734,31 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
   // isLastOfGroup: l'última persona de l'últim rol d'un grup NO té línia inferior
   // (per no solapar amb la fila grisa del grup següent)
   function dibuixaFilaRol(rol, persones, isLastOfGroup = false) {
+    // ROL — nom del rol calculat UN COP per a tot el bloc (no per persona)
+    const rolLH7 = 7.5*0.3528+0.5;
+    const rolMaxW = xEmpText - xRol - 2;
+    const rolLines7 = doc.splitTextToSize(rol.nombre||'', rolMaxW);
+    const totalRolH = rolLines7.length * rolLH7;
+    // Alçada uniforme per a TOTES les files de persona d'aquest rol: si el nom del rol
+    // necessita més espai que el bloc de files normal (RH per persona), repartim l'extra
+    // per igual entre totes — evita que només una fila es vegi més alta que la resta
+    const baseBlockH = RH * persones.length;
+    const extraPerRow = totalRolH > baseBlockH ? (totalRolH - baseBlockH) / persones.length : 0;
+    const rowH = RH + extraPerRow;
+    const blocH = rowH * persones.length;
+    const yBloc = y;
+
     persones.forEach((p, pi) => {
       const isFirst = pi === 0;
       const isLastPer = pi === persones.length - 1;
       const mateixaEmpresa = pi > 0 && (p.empresa||'') === (persones[pi-1]?.empresa||'');
-      // ROL — sempre a RH fix, si fa wrap s'escriu per sobre de la fila
-      const rolLH7 = 7.5*0.3528+0.5;
-      const rolMaxW = xEmpText - xRol - 2;
-      const rolLines7 = isFirst ? doc.splitTextToSize(rol.nombre||'', rolMaxW) : [];
-      // Si el rol fa wrap, afegir espai extra SEMPRE (no només a l'última persona)
-      // per evitar solapament entre el text del rol i la fila de sota
-      const extraH = (isFirst && rolLines7.length > 1) ? (rolLines7.length - 1) * rolLH7 : 0;
-      const rowH = RH + extraH;
       checkPage(rowH);
-      const midY = y + RH/2; // midY basat en RH fix, no en rowH
+      const midY = y + rowH/2;
 
-      // ROL — bold, sols primera persona, centrat verticalment dins de RH
+      // ROL — bold, sols primera persona, centrat verticalment dins de TOT el bloc del rol
       if (isFirst && rolLines7.length > 0) {
         doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(0,0,0);
-        // Centrar el bloc de text del rol dins de rowH
-        const totalRolH = rolLines7.length * rolLH7;
-        let ry = y + rowH/2 - totalRolH/2 + rolLH7*0.8;
+        let ry = yBloc + blocH/2 - totalRolH/2 + rolLH7*0.8;
         rolLines7.forEach(l => { if(l) { doc.text(l, xRol+2, ry, {baseline:'middle'}); ry+=rolLH7; } });
       }
 
@@ -6774,7 +6778,7 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
       const emailLines = doc.splitTextToSize(emailStr, eEmail-3);
       if (emailLines.length > 1) {
         const eLH = 7*0.3528+0.4;
-        let ey = y + RH/2 - (emailLines.length*eLH)/2 + eLH*0.8;
+        let ey = midY - (emailLines.length*eLH)/2 + eLH*0.8;
         emailLines.forEach(l => { doc.text(l, xEmail+2, ey, {baseline:'middle'}); ey+=eLH; });
       } else {
         doc.text(emailStr, xEmail+2, midY, {baseline:'middle'});
@@ -6811,11 +6815,10 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
       if (!omitirLinia) {
         setLW(LW);
         const xIniLinia = (!isFirst && mateixaEmpresa) ? xNom : xEmpText;
-        // La línia va sempre a y + RH (alçada visual de la fila), l'espai extra queda sota
-        doc.line(xIniLinia, y + RH, ML+CW, y + RH);
+        doc.line(xIniLinia, y + rowH, ML+CW, y + rowH);
       }
 
-      y += rowH; // rowH = RH + extraH si rol fa wrap i és última persona
+      y += rowH; // alçada uniforme per a totes les files d'aquest rol
     });
   }
 
