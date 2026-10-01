@@ -6761,7 +6761,9 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
       if (isFirst && rolLines7.length > 0) {
         doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(0,0,0);
         const centerH = totalRolH <= rowH ? rowH : blocH;
-        let ry = yBloc + centerH/2 - totalRolH/2 + rolLH7*0.8;
+        // rolLH7*0.5 (no 0.8): amb baseline:'middle' el punt ha de ser el centre exacte
+        // de cada línia — així amb 1 sola línia coincideix exactament amb midY (empresa/nom)
+        let ry = yBloc + centerH/2 - totalRolH/2 + rolLH7*0.5;
         rolLines7.forEach(l => { if(l) { doc.text(l, xRol+2, ry, {baseline:'middle'}); ry+=rolLH7; } });
       }
 
