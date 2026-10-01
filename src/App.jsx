@@ -7565,6 +7565,14 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
     doc.text(`${T.peuAlt}  |  ${p} de ${totalPags}`, PW - MR, peuY2, { align: 'right' });
   }
 
+  // Nom del fitxer: NomObra_ActaVO_XX_CA/ES.pdf — es guarda com a propietat del PDF
+  // (Document Properties → Title) perquè el botó "Guardar" del visor natiu del navegador
+  // (Chrome/Edge) el faci servir com a nom suggerit en lloc d'un nom genèric del blob
+  const nomObraFitxer = (obra.nombre||'Obra').replace(/[^a-zA-Z0-9À-ÿ\s\-_]/g,'').trim().replace(/\s+/g,'_');
+  const langStr = esCA ? 'CA' : 'ES';
+  const fileName = `${nomObraFitxer}_ActaVO_${num}_${langStr}.pdf`;
+  doc.setProperties({ title: fileName });
+
   // Obrir en nova pestanya (compatible iOS Safari)
   const pdfBlob = doc.output('blob');
   const url = URL.createObjectURL(pdfBlob);
