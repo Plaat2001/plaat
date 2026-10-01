@@ -6755,10 +6755,13 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
       checkPage(rowH);
       const midY = y + rowH/2;
 
-      // ROL — bold, sols primera persona, centrat verticalment dins de TOT el bloc del rol
+      // ROL — bold, sols primera persona. Si el nom cap dins l'alçada normal d'una fila,
+      // es centra en aquesta primera fila (alineat amb l'empresa/nom, com abans); només si
+      // necessita més espai del que dona una fila es centra en tot el bloc del rol.
       if (isFirst && rolLines7.length > 0) {
         doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(0,0,0);
-        let ry = yBloc + blocH/2 - totalRolH/2 + rolLH7*0.8;
+        const centerH = totalRolH <= rowH ? rowH : blocH;
+        let ry = yBloc + centerH/2 - totalRolH/2 + rolLH7*0.8;
         rolLines7.forEach(l => { if(l) { doc.text(l, xRol+2, ry, {baseline:'middle'}); ry+=rolLH7; } });
       }
 
