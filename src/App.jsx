@@ -6739,12 +6739,11 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
     const rolMaxW = xEmpText - xRol - 2;
     const rolLines7 = doc.splitTextToSize(rol.nombre||'', rolMaxW);
     const totalRolH = rolLines7.length * rolLH7;
-    // Si el nom del rol necessita més espai que una fila normal, l'extra només es dona
-    // a la 1a fila (no es reparteix entre totes ni es centra en tot el bloc) — així el rol
-    // i l'empresa/nom de la 1a persona comparteixen sempre la mateixa alçada de caixa i
-    // queden centrats exactament al mateix punt, independentment de quantes persones més
-    // tingui el rol
-    const row0H = Math.max(RH, totalRolH);
+    // La 1a línia del rol s'alinea SEMPRE al mateix punt que l'empresa/nom (midY normal,
+    // basat en RH); si hi ha més línies, simplement s'afegeixen a sota (no es centra el
+    // bloc sencer, que desplaçaria la 1a línia cap amunt). La fila només creix l'espai
+    // que calgui perquè les línies de sota no quedin tallades.
+    const row0H = Math.max(RH, RH/2 + totalRolH - rolLH7/2);
 
     persones.forEach((p, pi) => {
       const isFirst = pi === 0;
@@ -6752,13 +6751,13 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
       const mateixaEmpresa = pi > 0 && (p.empresa||'') === (persones[pi-1]?.empresa||'');
       const rowH = isFirst ? row0H : RH;
       checkPage(rowH);
-      const midY = y + rowH/2;
+      const midY = y + RH/2; // punt de referència fix, no creix amb rowH
 
-      // ROL — bold, sols primera persona, centrat dins la mateixa caixa (rowH) que l'empresa/nom
+      // ROL — bold, sols primera persona; la 1a línia comença exactament a midY
+      // (igual que l'empresa/nom) i la resta flueixen cap avall
       if (isFirst && rolLines7.length > 0) {
         doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(0,0,0);
-        // rolLH7*0.5: amb baseline:'middle' el punt ha de ser el centre exacte de cada línia
-        let ry = midY - totalRolH/2 + rolLH7*0.5;
+        let ry = midY;
         rolLines7.forEach(l => { if(l) { doc.text(l, xRol+2, ry, {baseline:'middle'}); ry+=rolLH7; } });
       }
 
