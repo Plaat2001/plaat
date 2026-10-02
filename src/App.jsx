@@ -6739,31 +6739,26 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
     const rolMaxW = xEmpText - xRol - 2;
     const rolLines7 = doc.splitTextToSize(rol.nombre||'', rolMaxW);
     const totalRolH = rolLines7.length * rolLH7;
-    // Alçada uniforme per a TOTES les files de persona d'aquest rol: si el nom del rol
-    // necessita més espai que el bloc de files normal (RH per persona), repartim l'extra
-    // per igual entre totes — evita que només una fila es vegi més alta que la resta
-    const baseBlockH = RH * persones.length;
-    const extraPerRow = totalRolH > baseBlockH ? (totalRolH - baseBlockH) / persones.length : 0;
-    const rowH = RH + extraPerRow;
-    const blocH = rowH * persones.length;
-    const yBloc = y;
+    // Si el nom del rol necessita més espai que una fila normal, l'extra només es dona
+    // a la 1a fila (no es reparteix entre totes ni es centra en tot el bloc) — així el rol
+    // i l'empresa/nom de la 1a persona comparteixen sempre la mateixa alçada de caixa i
+    // queden centrats exactament al mateix punt, independentment de quantes persones més
+    // tingui el rol
+    const row0H = Math.max(RH, totalRolH);
 
     persones.forEach((p, pi) => {
       const isFirst = pi === 0;
       const isLastPer = pi === persones.length - 1;
       const mateixaEmpresa = pi > 0 && (p.empresa||'') === (persones[pi-1]?.empresa||'');
+      const rowH = isFirst ? row0H : RH;
       checkPage(rowH);
       const midY = y + rowH/2;
 
-      // ROL — bold, sols primera persona. Si el nom cap dins l'alçada normal d'una fila,
-      // es centra en aquesta primera fila (alineat amb l'empresa/nom, com abans); només si
-      // necessita més espai del que dona una fila es centra en tot el bloc del rol.
+      // ROL — bold, sols primera persona, centrat dins la mateixa caixa (rowH) que l'empresa/nom
       if (isFirst && rolLines7.length > 0) {
         doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(0,0,0);
-        const centerH = totalRolH <= rowH ? rowH : blocH;
-        // rolLH7*0.5 (no 0.8): amb baseline:'middle' el punt ha de ser el centre exacte
-        // de cada línia — així amb 1 sola línia coincideix exactament amb midY (empresa/nom)
-        let ry = yBloc + centerH/2 - totalRolH/2 + rolLH7*0.5;
+        // rolLH7*0.5: amb baseline:'middle' el punt ha de ser el centre exacte de cada línia
+        let ry = midY - totalRolH/2 + rolLH7*0.5;
         rolLines7.forEach(l => { if(l) { doc.text(l, xRol+2, ry, {baseline:'middle'}); ry+=rolLH7; } });
       }
 
@@ -6823,7 +6818,7 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
         doc.line(xIniLinia, y + rowH, ML+CW, y + rowH);
       }
 
-      y += rowH; // alçada uniforme per a totes les files d'aquest rol
+      y += rowH;
     });
   }
 
