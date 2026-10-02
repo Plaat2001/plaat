@@ -6739,17 +6739,16 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
     const rolMaxW = xEmpText - xRol - 2;
     const rolLines7 = doc.splitTextToSize(rol.nombre||'', rolMaxW);
     const totalRolH = rolLines7.length * rolLH7;
-    // La 1a línia del rol s'alinea SEMPRE al mateix punt que l'empresa/nom (midY normal,
+    // La 1a línia del rol s'alinea SEMPRE al mateix punt que l'empresa/nom (midY fix,
     // basat en RH); si hi ha més línies, simplement s'afegeixen a sota (no es centra el
-    // bloc sencer, que desplaçaria la 1a línia cap amunt). La fila només creix l'espai
-    // que calgui perquè les línies de sota no quedin tallades.
-    const row0H = Math.max(RH, RH/2 + totalRolH - rolLH7/2);
+    // bloc sencer, que desplaçaria la 1a línia cap amunt). Si cal créixer, totes les files
+    // d'aquest rol creixen per igual (no només la 1a) perquè l'alçada es mantingui uniforme.
+    const rowH = Math.max(RH, RH/2 + totalRolH - rolLH7/2);
 
     persones.forEach((p, pi) => {
       const isFirst = pi === 0;
       const isLastPer = pi === persones.length - 1;
       const mateixaEmpresa = pi > 0 && (p.empresa||'') === (persones[pi-1]?.empresa||'');
-      const rowH = isFirst ? row0H : RH;
       checkPage(rowH);
       const midY = y + RH/2; // punt de referència fix, no creix amb rowH
 
