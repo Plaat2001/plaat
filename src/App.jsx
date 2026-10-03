@@ -3725,6 +3725,13 @@ const TIPOS_ELEMENTO = {
   },
 };
 
+// El fck ya va codificado en la designación (p.ej. "HA-25/B/20/XC2" → fck 25),
+// así que no hace falta volver a escribirlo: se deriva automáticamente.
+function fckDesdeDesignacion(designacion) {
+  const m = (designacion || '').match(/H[AM]-(\d{2,3})/i);
+  return m ? m[1] : '';
+}
+
 // Calcula la lotificación completa de un elemento según el CE
 function calcularLotificacion(tipo, volumen, superficie, conDOR, fck) {
   const t = TIPOS_ELEMENTO[tipo];
@@ -4232,7 +4239,7 @@ function extraerTablaRoturas(texto) {
 
 function extraerDatosActa(textoOriginal) {
   const t = textoOriginal.replace(/\s+/g, ' ');
-  const datos = { numActa: '', refAlbaran: '', fechaHormigonado: '', fechaRotura: '', edadDias: '', resistencia: '', designacion: '' };
+  const datos = { numActa: '', refAlbaran: '', fechaHormigonado: '', fechaRotura: '', edadDias: '', resistencia: '', designacion: '', localizacion: '' };
 
   const mDes = t.match(/HA-\d{2}\s*\/\s*[A-Z]\s*\/\s*\d{1,2}\s*\/\s*[A-Za-z0-9+]{1,6}/i)
             || t.match(/HA-\d{2}(?:\s*\/\s*[A-Za-z0-9+]{1,6}){0,3}/i);
@@ -4322,10 +4329,14 @@ function ControlHormigon({ obra, onSave }) {
   const hayAntiguos = elementosRaw.length > elementos.length;
   const [sub, setSub] = useState('lotificacion'); // lotificacion | seguimiento
   const [showNuevo, setShowNuevo] = useState(false);
-  const [expandido, setExpandido] = useState(null);
+  const [elSeleccionado, setElSeleccionado] = useState(null); // elemento activo en Seguimiento (estilo pestañas LC-x)
   const [form, setForm] = useState({ nombre: '', tipo: 'flexion', volumen: '', superficie: '', conDOR: false, designacion: '', fck: '' });
   const [confirmacion, setConfirmacion] = useState(null);
-  const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const upd = (k, v) => setForm(f => {
+    const next = { ...f, [k]: v };
+    if (k === 'designacion') { const fckAuto = fckDesdeDesignacion(v); if (fckAuto) next.fck = fckAuto; }
+    return next;
+  });
 
   // ── Bandeja de actas: arrastras/seleccionas el PDF sobre un elemento y la app
   // lo lee sola (texto del PDF → designación, nº de acta, fecha, resistencia).
@@ -4342,7 +4353,15 @@ function ControlHormigon({ obra, onSave }) {
   const preview  = calcularLotificacion(form.tipo, form.volumen, form.superficie, form.conDOR, form.fck);
 
   function actualizarElemento(elementoId, campo, valor) {
-    onSave({ ...obra, lotes: elementos.map(e => e.id === elementoId ? { ...e, [campo]: valor } : e) });
+    onSave({
+      ...obra,
+      lotes: elementos.map(e => {
+        if (e.id !== elementoId) return e;
+        const next = { ...e, [campo]: valor };
+        if (campo === 'designacion') { const fckAuto = fckDesdeDesignacion(valor); if (fckAuto) next.fck = fckAuto; }
+        return next;
+      }),
+    });
   }
 
   function asignarActa(elementoId, loteId, serieId, acta) {
@@ -4396,6 +4415,7 @@ function ControlHormigon({ obra, onSave }) {
         fechaRotura: serie.acta.fechaRotura || '',
         edadDias: serie.acta.edadDias || '',
         resistencia: serie.acta.resistencia || '',
+        localizacion: serie.acta.localizacion || '',
       },
     });
   }
@@ -4478,6 +4498,7 @@ function ControlHormigon({ obra, onSave }) {
         fechaRotura: payload.datos.fechaRotura,
         edadDias: payload.datos.edadDias,
         resistencia: payload.datos.resistencia,
+        localizacion: payload.datos.localizacion,
         cumple,
         subidoEn: now(),
       });
@@ -4498,8 +4519,10 @@ function ControlHormigon({ obra, onSave }) {
       num: i + 1,
       series: Array.from({ length: calc.seriesPorLote }, (_, j) => ({ id: uid(), num: j + 1, acta: null })),
     }));
+    const numLC = elementos.reduce((max, e) => Math.max(max, e.numLC || 0), 0) + 1;
     const elemento = {
       id: uid(),
+      numLC,
       nombre: form.nombre.trim(),
       tipo: form.tipo,
       volumen: form.volumen,
@@ -4512,10 +4535,12 @@ function ControlHormigon({ obra, onSave }) {
       lotes,
       creadoEn: now(),
     };
-    onSave({ ...obra, lotes: [elemento, ...elementos] });
+    // Se añade al final (no al principio) para que la numeración LC de los elementos
+    // ya creados no cambie nunca — es la referencia que usáis para archivar actas.
+    onSave({ ...obra, lotes: [...elementos, elemento] });
     setForm({ nombre: '', tipo: 'flexion', volumen: '', superficie: '', conDOR: false, designacion: '', fck: '' });
     setShowNuevo(false);
-    setExpandido(elemento.id);
+    setElSeleccionado(elemento.id);
   }
 
   function eliminar(id) {
@@ -4526,6 +4551,10 @@ function ControlHormigon({ obra, onSave }) {
   const totalSeriesObra  = elementos.reduce((s, e) => s + (e.numLotes || (e.lotes || []).length) * (e.seriesPorLote || 0), 0);
   const totalConActaObra = elementos.reduce((s, e) => s + (e.lotes || []).flatMap(l => l.series || []).filter(se => se.acta).length, 0);
   const totalNoCumplenObra = elementos.reduce((s, e) => s + (e.lotes || []).flatMap(l => l.series || []).filter(se => se.acta && se.acta.cumple === false).length, 0);
+  const elementoActivo = elementos.find(e => e.id === elSeleccionado) || elementos[0] || null;
+
+  const thCell = { padding: '8px 10px', fontSize: 10.5, color: '#9B9B97', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600, whiteSpace: 'nowrap', textAlign: 'left' };
+  const tdCell = { padding: '7px 10px', verticalAlign: 'middle', whiteSpace: 'nowrap' };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -4647,71 +4676,56 @@ function ControlHormigon({ obra, onSave }) {
         </div>
       )}
 
-      {/* Lista de elementos — referencia estructural (designación, fck, lotes y series), sin actas */}
+      {/* Resumen tipo hoja "lotificació" del Excel: una fila por elemento con sus referencias */}
       {elementos.length === 0 && !showNuevo ? (
         <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, padding: '40px 20px', textAlign: 'center', color: '#A5A5A0' }}>
           <div style={{ fontSize: 32, marginBottom: 10 }}>🧱</div>
           <div style={{ fontSize: 13, marginBottom: 14 }}>Sin elementos de hormigón todavía</div>
           <Btn onClick={() => setShowNuevo(true)}>+ Crear primera lotificación</Btn>
         </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {elementos.map(el => {
-            const t = TIPOS_ELEMENTO[el.tipo] || TIPOS_ELEMENTO.flexion;
-            const lotesEl = el.lotes || [];
-            const numLotes = el.numLotes || lotesEl.length;
-            const totalSeries = (numLotes || 0) * (el.seriesPorLote || 0);
-            const abierto = expandido === el.id;
-            return (
-              <div key={el.id} style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 11, overflow: 'hidden' }}>
-                <div onClick={() => setExpandido(abierto ? null : el.id)} style={{ padding: '13px 15px', cursor: 'pointer' }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: '#141412' }}>{el.nombre}</div>
-                      <div style={{ fontSize: 12, color: '#9B9B97', marginTop: 2 }}>
-                        {t.label} · {el.volumen} m³{el.superficie ? ` · ${el.superficie} m²` : ''} · {el.conDOR ? 'Con DOR' : 'Sin DOR'}
-                        {el.designacion ? ` · ${el.designacion}` : ''}{el.fck ? ` · fck ${el.fck} N/mm²` : ''}
-                      </div>
-                    </div>
-                    <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 20, background: '#EEEDE7', color: '#1C1C1A', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                      {numLotes} lote{numLotes > 1 ? 's' : ''} · {totalSeries} series
-                    </span>
-                    <button onClick={e => { e.stopPropagation(); setConfirmacion({ titulo: 'Eliminar lotificación', texto: `Vas a eliminar "${el.nombre}" y todos sus datos. Esta acción no se puede deshacer.`, onSi: () => { eliminar(el.id); setConfirmacion(null); } }); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 16, padding: '0 2px', lineHeight: 1 }}>×</button>
-                  </div>
-                  <div style={{ fontSize: 11, color: '#A5A5A0', marginTop: 8 }}>{abierto ? '▲ ocultar lotes' : '▼ ver lotes y series'}</div>
-                </div>
-                {abierto && (
-                  <div style={{ borderTop: '1px solid #F2F1ED', padding: '12px 15px', background: '#FAFAF8', display: 'flex', flexDirection: 'column', gap: 8 }} onClick={e => e.stopPropagation()}>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <div style={{ flex: 1, minWidth: 160 }}>
-                        <label style={{ fontSize: 10.5, color: '#A5A5A0', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Designación del hormigón</label>
-                        <input placeholder="p.ej. HA-25/B/20/IIa" value={el.designacion || ''} onChange={e => actualizarElemento(el.id, 'designacion', e.target.value)} style={{ fontSize: 13 }} />
-                      </div>
-                      <div style={{ width: 150 }}>
-                        <label style={{ fontSize: 10.5, color: '#A5A5A0', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>fck exigido (N/mm²)</label>
-                        <input type="number" placeholder="25" value={el.fck || ''} onChange={e => actualizarElemento(el.id, 'fck', e.target.value)} style={{ fontSize: 13 }} />
-                      </div>
-                    </div>
-                    {lotesEl.map(lote => (
-                      <div key={lote.id} style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 9, padding: '10px 12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                          <span style={{ fontSize: 13, fontWeight: 500 }}>Lote {lote.num}</span>
-                          <span style={{ fontSize: 11, color: '#A5A5A0' }}>{(lote.series || []).length} series</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          {(lote.series || []).map(serie => (
-                            <div key={serie.id} style={{ width: 30, height: 30, borderRadius: 7, border: '1.5px solid #E0DFD9', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 500, color: '#A5A5A0' }}>
-                              {serie.num}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+      ) : elementos.length > 0 && (
+        <div style={{ overflowX: 'auto', background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 720 }}>
+            <thead>
+              <tr>
+                <th style={thCell}>Ref</th>
+                <th style={thCell}>Elemento</th>
+                <th style={thCell}>Tipo</th>
+                <th style={thCell}>Volumen</th>
+                <th style={thCell}>Designación</th>
+                <th style={thCell}>fck</th>
+                <th style={thCell}>Lotes</th>
+                <th style={thCell}>Series</th>
+                <th style={thCell}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {elementos.map((el, idx) => {
+                const t = TIPOS_ELEMENTO[el.tipo] || TIPOS_ELEMENTO.flexion;
+                const numLotes = el.numLotes || (el.lotes || []).length;
+                const totalSeries = numLotes * (el.seriesPorLote || 0);
+                return (
+                  <tr key={el.id} style={{ borderTop: '1px solid #F2F1ED' }}>
+                    <td style={{ ...tdCell, color: '#9B9B97', fontWeight: 700 }}>LC{el.numLC || idx + 1}</td>
+                    <td style={{ ...tdCell, fontWeight: 600, color: '#141412', whiteSpace: 'normal', minWidth: 140 }}>{el.nombre}</td>
+                    <td style={tdCell}>{t.label}</td>
+                    <td style={tdCell}>{el.volumen} m³{el.superficie ? ` · ${el.superficie} m²` : ''}</td>
+                    <td style={tdCell}>
+                      <input placeholder="HA-25/B/20/IIa" value={el.designacion || ''} onChange={e => actualizarElemento(el.id, 'designacion', e.target.value)} style={{ fontSize: 12, padding: '4px 7px', width: 140 }} />
+                    </td>
+                    <td style={tdCell}>
+                      <input type="number" placeholder="25" value={el.fck || ''} onChange={e => actualizarElemento(el.id, 'fck', e.target.value)} style={{ fontSize: 12, padding: '4px 7px', width: 52 }} />
+                    </td>
+                    <td style={tdCell}>{numLotes}</td>
+                    <td style={tdCell}>{totalSeries}</td>
+                    <td style={tdCell}>
+                      <button onClick={() => setConfirmacion({ titulo: 'Eliminar lotificación', texto: `Vas a eliminar "${el.nombre}" y todos sus datos. Esta acción no se puede deshacer.`, onSi: () => { eliminar(el.id); setConfirmacion(null); } })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 16, padding: '0 2px', lineHeight: 1 }}>×</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
       </>)}
@@ -4728,115 +4742,117 @@ function ControlHormigon({ obra, onSave }) {
         </div>
       )}
 
-      {elementos.length === 0 ? (
+      {!elementoActivo ? (
         <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, padding: '40px 20px', textAlign: 'center', color: '#A5A5A0' }}>
           <div style={{ fontSize: 32, marginBottom: 10 }}>📎</div>
           <div style={{ fontSize: 13, marginBottom: 14 }}>Primero crea la lotificación del elemento en la otra pestaña.</div>
           <Btn onClick={() => setSub('lotificacion')}>Ir a Lotificación</Btn>
         </div>
-      ) : (
-      <>
-      <div style={{ display: 'flex', gap: 14, fontSize: 12, color: '#6B6B66' }}>
-        <span><strong style={{ color: '#141412' }}>{totalConActaObra}</strong>/{totalSeriesObra} series con acta</span>
-        {totalNoCumplenObra > 0 && <span style={{ color: '#8A1F1F' }}><strong>{totalNoCumplenObra}</strong> no cumple{totalNoCumplenObra > 1 ? 'n' : ''}</span>}
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {elementos.map(el => {
-            const t = TIPOS_ELEMENTO[el.tipo] || TIPOS_ELEMENTO.flexion;
-            const lotesEl = el.lotes || [];
-            const numLotes = el.numLotes || lotesEl.length;
-            const totalSeries = (numLotes || 0) * (el.seriesPorLote || 0);
-            const allSeries = lotesEl.flatMap(l => l.series || []);
-            const seriesRellenas = allSeries.filter(se => se.acta).length;
-            const noCumplen = allSeries.filter(se => se.acta && se.acta.cumple === false).length;
-            const abierto = expandido === el.id;
-            const arrastrando = dragOverId === el.id;
-            return (
-              <div key={el.id}
-                onDragOver={e => { e.preventDefault(); setDragOverId(el.id); }}
-                onDragLeave={() => setDragOverId(d => d === el.id ? null : d)}
-                onDrop={e => onDropElemento(e, el.id)}
-                style={{ background: arrastrando ? '#F5F4F0' : '#fff', border: `1.5px ${arrastrando ? 'dashed #18180F' : 'solid #E8E7E1'}`, borderRadius: 11, overflow: 'hidden', transition: 'border-color .15s, background .15s' }}>
-                {/* Cabecera elemento */}
-                <div onClick={() => setExpandido(abierto ? null : el.id)} style={{ padding: '13px 15px', cursor: 'pointer' }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: '#141412' }}>{el.nombre}</div>
-                      <div style={{ fontSize: 12, color: '#9B9B97', marginTop: 2 }}>
-                        {t.label} · {el.volumen} m³{el.superficie ? ` · ${el.superficie} m²` : ''} · {el.conDOR ? 'Con DOR' : 'Sin DOR'}
-                        {el.designacion ? ` · ${el.designacion}` : ''}{el.fck ? ` · fck ${el.fck} N/mm²` : ''}
-                      </div>
-                    </div>
-                    {noCumplen > 0 && <Pill label={`⚠ ${noCumplen} no cumple${noCumplen > 1 ? 'n' : ''}`} bg="#FDECEC" color="#8A1F1F" />}
-                    <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 20, background: '#EEEDE7', color: '#1C1C1A', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                      {numLotes} lote{numLotes > 1 ? 's' : ''} · {totalSeries} series
-                    </span>
-                    <button onClick={e => { e.stopPropagation(); abrirSelector(el.id, {}); }} title="Adjuntar acta(s) PDF" style={{ background: 'none', border: '1px solid #E0DFD9', borderRadius: 7, cursor: 'pointer', color: '#52524E', fontSize: 13, padding: '4px 8px', lineHeight: 1 }}>📎</button>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
-                    <div style={{ flex: 1, height: 4, background: '#ECEAE4', borderRadius: 2 }}>
-                      <div style={{ width: (totalSeries ? seriesRellenas / totalSeries * 100 : 0) + '%', height: 4, borderRadius: 2, background: '#52A124' }} />
-                    </div>
-                    <span style={{ fontSize: 11, color: '#A5A5A0' }}>{seriesRellenas}/{totalSeries} series con acta</span>
-                    <span style={{ fontSize: 11, color: '#A5A5A0' }}>{abierto ? '▲' : '▼'}</span>
+      ) : (() => {
+        const t = TIPOS_ELEMENTO[elementoActivo.tipo] || TIPOS_ELEMENTO.flexion;
+        const lotesEl = elementoActivo.lotes || [];
+        const filas = lotesEl.flatMap(lote => (lote.series || []).map(serie => ({ lote, serie })));
+        const seriesRellenas = filas.filter(f => f.serie.acta).length;
+        const arrastrando = dragOverId === elementoActivo.id;
+        return (
+          <>
+            {/* Resumen global de la obra */}
+            <div style={{ display: 'flex', gap: 14, fontSize: 12, color: '#6B6B66' }}>
+              <span><strong style={{ color: '#141412' }}>{totalConActaObra}</strong>/{totalSeriesObra} series con acta</span>
+              {totalNoCumplenObra > 0 && <span style={{ color: '#8A1F1F' }}><strong>{totalNoCumplenObra}</strong> no cumple{totalNoCumplenObra > 1 ? 'n' : ''}</span>}
+            </div>
+
+            {/* Pestañas de elementos, una por cada LC — como las hojas LC-x del Excel */}
+            <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 2 }}>
+              {elementos.map((el, idx) => {
+                const activo = elementoActivo.id === el.id;
+                const noCumplenEl = (el.lotes || []).flatMap(l => l.series || []).filter(s => s.acta && s.acta.cumple === false).length;
+                return (
+                  <button key={el.id} onClick={() => setElSeleccionado(el.id)}
+                    style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: `1.5px solid ${activo ? '#18180F' : '#E0DFD9'}`, background: activo ? '#18180F' : '#fff', color: activo ? '#fff' : '#52524E', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    LC{el.numLC || idx + 1}
+                    {noCumplenEl > 0 && <span style={{ width: 6, height: 6, borderRadius: '50%', background: activo ? '#FF9B9B' : '#C0392B' }} />}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Detalle del elemento seleccionado — tabla tipo hoja LC-x */}
+            <div
+              onDragOver={e => { e.preventDefault(); setDragOverId(elementoActivo.id); }}
+              onDragLeave={() => setDragOverId(d => d === elementoActivo.id ? null : d)}
+              onDrop={e => onDropElemento(e, elementoActivo.id)}
+              style={{ background: arrastrando ? '#F5F4F0' : '#fff', border: `1.5px ${arrastrando ? 'dashed #18180F' : 'solid #E8E7E1'}`, borderRadius: 11, padding: 14, transition: 'border-color .15s, background .15s' }}>
+
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#141412' }}>LC{elementoActivo.numLC || (elementos.indexOf(elementoActivo) + 1)} · {elementoActivo.nombre}</div>
+                  <div style={{ fontSize: 12, color: '#9B9B97', marginTop: 2 }}>
+                    {t.label} · {elementoActivo.volumen} m³{elementoActivo.superficie ? ` · ${elementoActivo.superficie} m²` : ''}
+                    {elementoActivo.designacion ? ` · ${elementoActivo.designacion}` : ''}{elementoActivo.fck ? ` · fck ${elementoActivo.fck} N/mm²` : ''}
                   </div>
                 </div>
-
-                {/* Detalle lotes y series */}
-                {abierto && (
-                  <div style={{ borderTop: '1px solid #F2F1ED', padding: '12px 15px', background: '#FAFAF8', display: 'flex', flexDirection: 'column', gap: 8 }} onClick={e => e.stopPropagation()}>
-
-                    {!el.designacion && !el.fck && (
-                      <div style={{ fontSize: 11.5, color: '#C47610', background: '#FEF3DB', borderRadius: 7, padding: '6px 10px' }}>
-                        Este elemento no tiene designación ni fck definidos — edítalos en la pestaña Lotificación para poder comprobar el cumplimiento.
-                      </div>
-                    )}
-
-                    {lotesEl.map(lote => (
-                      <div key={lote.id} style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 9, padding: '10px 12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                          <span style={{ fontSize: 13, fontWeight: 500 }}>Lote {lote.num}</span>
-                          <span style={{ fontSize: 11, color: '#A5A5A0' }}>{(lote.series || []).length} series</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          {(lote.series || []).map(serie => {
-                            const tieneActa = !!serie.acta;
-                            const cumple = serie.acta?.cumple;
-                            const color = !tieneActa ? '#E0DFD9' : cumple === false ? '#C0392B' : '#52A124';
-                            const bg    = !tieneActa ? '#fff'    : cumple === false ? '#FDECEC' : '#E8F5E0';
-                            const fg    = !tieneActa ? '#A5A5A0' : cumple === false ? '#8A1F1F' : '#2D5E10';
-                            const texto = !tieneActa ? serie.num : cumple === false ? '✕' : '✓';
-                            const titulo = !tieneActa ? 'Pendiente de acta — clic para adjuntar'
-                              : cumple === false ? 'No cumple la resistencia exigida — clic para ver'
-                              : cumple === true  ? 'Cumple la resistencia exigida — clic para ver'
-                              : 'Con acta (falta fck para comprobar) — clic para ver';
-                            return (
-                              <div key={serie.id} title={titulo}
-                                onClick={() => tieneActa ? abrirDetalleActa(el.id, lote.id, serie.id) : abrirSelector(el.id, { loteId: lote.id, serieId: serie.id })}
-                                style={{ width: 34, height: 34, borderRadius: 8, border: `1.5px solid ${color}`, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 500, color: fg, cursor: 'pointer' }}>
-                                {texto}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
-
-                    <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                      <Btn sm onClick={() => abrirSelector(el.id, {})} full>📎 Adjuntar acta(s)</Btn>
-                      <Btn sm onClick={() => descargarActasElemento(el)} full disabled={seriesRellenas === 0}>⬇ Descargar actas (.zip)</Btn>
-                    </div>
-                    <div style={{ fontSize: 11, color: '#BFBEB9', textAlign: 'center' }}>
-                      También puedes arrastrar el PDF directamente sobre este elemento
-                    </div>
-                  </div>
-                )}
+                <Btn sm onClick={() => abrirSelector(elementoActivo.id, {})}>📎 Adjuntar acta(s)</Btn>
+                <Btn sm onClick={() => descargarActasElemento(elementoActivo)} disabled={seriesRellenas === 0}>⬇ .zip</Btn>
               </div>
-            );
-          })}
-      </div>
-      </>
-      )}
+
+              {!elementoActivo.designacion && !elementoActivo.fck && (
+                <div style={{ fontSize: 11.5, color: '#C47610', background: '#FEF3DB', borderRadius: 7, padding: '6px 10px', marginBottom: 10 }}>
+                  Sin designación ni fck — edítalos en la pestaña Lotificación para poder comprobar el cumplimiento.
+                </div>
+              )}
+
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 760 }}>
+                  <thead>
+                    <tr>
+                      <th style={thCell}>Lote</th>
+                      <th style={thCell}>Serie</th>
+                      <th style={thCell}>Localización</th>
+                      <th style={thCell}>Ref. albarán</th>
+                      <th style={thCell}>F. hormig.</th>
+                      <th style={thCell}>F. rotura</th>
+                      <th style={thCell}>Resist.</th>
+                      <th style={thCell}>Estado</th>
+                      <th style={thCell}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filas.map(({ lote, serie }) => {
+                      const acta = serie.acta;
+                      const estado = !acta ? { label: 'Pendiente', bg: '#F5F4F0', color: '#9B9B97' }
+                        : acta.cumple === false ? { label: 'No cumple', bg: '#FDECEC', color: '#8A1F1F' }
+                        : acta.cumple === true  ? { label: 'Cumple', bg: '#E8F5E0', color: '#2D5E10' }
+                        : { label: 'Con acta', bg: '#EEEDE7', color: '#52524E' };
+                      return (
+                        <tr key={serie.id} style={{ borderTop: '1px solid #F2F1ED' }}>
+                          <td style={tdCell}>{lote.num}</td>
+                          <td style={tdCell}>{serie.num}</td>
+                          <td style={{ ...tdCell, whiteSpace: 'normal', maxWidth: 220 }}>{acta?.localizacion || '—'}</td>
+                          <td style={tdCell}>{acta?.refAlbaran || '—'}</td>
+                          <td style={tdCell}>{acta?.fechaHormigonado ? fmtDate(acta.fechaHormigonado) : '—'}</td>
+                          <td style={tdCell}>{acta?.fechaRotura ? fmtDate(acta.fechaRotura) : '—'}</td>
+                          <td style={tdCell}>{acta?.resistencia ? `${acta.resistencia} N/mm²` : '—'}</td>
+                          <td style={tdCell}><Pill label={estado.label} bg={estado.bg} color={estado.color} /></td>
+                          <td style={tdCell}>
+                            <button onClick={() => acta ? abrirDetalleActa(elementoActivo.id, lote.id, serie.id) : abrirSelector(elementoActivo.id, { loteId: lote.id, serieId: serie.id })}
+                              style={{ background: 'none', border: '1px solid #E0DFD9', borderRadius: 6, padding: '3px 9px', cursor: 'pointer', fontSize: 11, color: '#52524E' }}>
+                              {acta ? 'Ver' : '+ Adjuntar'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ fontSize: 11, color: '#BFBEB9', textAlign: 'center', marginTop: 8 }}>
+                También puedes arrastrar el PDF directamente aquí
+              </div>
+            </div>
+          </>
+        );
+      })()}
       </>)}
 
       {confirmacion && <ConfirmMini titulo={confirmacion.titulo} texto={confirmacion.texto} onSi={confirmacion.onSi} onNo={() => setConfirmacion(null)} />}
@@ -4863,6 +4879,7 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
   const [fechaRotura, setFechaRotura]   = useState(info.datos.fechaRotura || '');
   const [edadDias, setEdadDias]         = useState(info.datos.edadDias || '');
   const [resistencia, setResistencia]   = useState(info.datos.resistencia || '');
+  const [localizacion, setLocalizacion] = useState(info.datos.localizacion || '');
   const [serieSel, setSerieSel]         = useState(info.loteId && info.serieId ? `${info.loteId}:${info.serieId}` : '');
   const [nuevoArchivo, setNuevoArchivo] = useState(info.nuevoArchivo || null);
   const [confirmacion, setConfirmacion] = useState(null);
@@ -4898,7 +4915,7 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
       archivoAEliminar: (nuevoArchivo && info.archivoExistente?.path) ? info.archivoExistente.path : null,
       base64: nuevoArchivo?.base64 || null,
       archivoNombre: nombreArchivo,
-      datos: { numActa, refAlbaran, fechaHormigonado, fechaRotura, edadDias, resistencia },
+      datos: { numActa, refAlbaran, fechaHormigonado, fechaRotura, edadDias, resistencia, localizacion },
     });
   }
 
@@ -4962,6 +4979,11 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
           <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Resistencia obtenida (N/mm²)</label>
           <input type="number" value={resistencia} onChange={e => setResistencia(e.target.value)} />
         </div>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Localización de la muestra</label>
+        <input placeholder="p.ej. Zapata grúa y zapata pilar D12" value={localizacion} onChange={e => setLocalizacion(e.target.value)} />
       </div>
 
       {cumpleCalc !== null && (
