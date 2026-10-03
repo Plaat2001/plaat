@@ -4202,21 +4202,24 @@ function normalizarFechaActa(s) {
   return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
 }
 
-// Suma días a una fecha ISO (yyyy-mm-dd)
+// Suma días a una fecha ISO (yyyy-mm-dd). Trabaja en UTC de principio a fin — con hora
+// local + toISOString() un usuario en España (UTC+1) se encontraba la fecha desplazada
+// un día hacia atrás (medianoche local cae en el día anterior en UTC).
 function sumarDiasISO(iso, dias) {
   if (!iso || !Number.isFinite(dias)) return '';
-  const d = new Date(iso + 'T00:00:00');
-  if (isNaN(d)) return '';
-  d.setDate(d.getDate() + dias);
-  return d.toISOString().slice(0, 10);
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return '';
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + dias);
+  return dt.toISOString().slice(0, 10);
 }
 
 // Extrae la tabla "Probeta / Edad / Fecha de ensayo / Carga de rotura / Tensión de rotura"
-// que llevan las actas de ruptura de probetas (normativa UNE EN 12390). Al contrario que
-// buscar el último valor "N/mm²" del documento (poco fiable si hay varias edades, p.ej.
-// 7/28/63 días), aquí agrupamos las filas por edad y promediamos las de 28 días — que es
-// la edad determinante para el cumplimiento del fck — calculando la media nosotros mismos
-// en vez de fiarnos de dónde cae en el texto el valor "Tensión media" ya impreso en el PDF.
+// que llevan las actas de ruptura de probetas (normativa UNE EN 12390), y la reparte en las
+// mismas columnas fijas que lleváis en el Excel: una resistencia a 7 días, dos probetas a
+// 28 días (la edad determinante del cumplimiento) y una a 56 días. En vez de fiarnos de dónde
+// cae en el texto el valor "Tensión media" ya impreso en el PDF, agrupamos por edad y
+// calculamos nosotros mismos la media de cada grupo.
 function extraerTablaRoturas(texto) {
   const idxNotas = texto.search(/notas/i);
   const zona = idxNotas >= 0 ? texto.slice(idxNotas) : texto;
@@ -4230,16 +4233,31 @@ function extraerTablaRoturas(texto) {
 
   const grupos = {};
   filas.forEach(f => { (grupos[f.edad] = grupos[f.edad] || []).push(f); });
-  const edades = Object.keys(grupos).map(Number);
-  const edadElegida = edades.includes(28) ? 28 : edades.reduce((a, b) => Math.abs(b - 28) < Math.abs(a - 28) ? b : a);
-  const grupo = grupos[edadElegida];
-  const media = grupo.reduce((s, f) => s + f.tension, 0) / grupo.length;
-  return { edadDias: String(edadElegida), fecha: grupo[0].fecha, resistencia: media.toFixed(2) };
+  const edades = Object.keys(grupos).map(Number).sort((a, b) => a - b);
+  const media = arr => (arr.reduce((s, f) => s + f.tension, 0) / arr.length).toFixed(2);
+
+  const edad28 = edades.includes(28) ? 28 : edades.find(e => e > 15 && e < 40);
+  const grupo28 = edad28 ? grupos[edad28] : null;
+  const restantes = edades.filter(e => e !== edad28);
+  const edad7 = restantes.find(e => e <= 15);
+  const edadLarga = restantes.filter(e => e > (edad28 || 28)).sort((a, b) => b - a)[0];
+
+  const grupoBase = grupo28 || (edad7 && grupos[edad7]) || (edadLarga && grupos[edadLarga]);
+  const edadBase = edad28 || edad7 || edadLarga;
+
+  return {
+    r7: edad7 ? media(grupos[edad7]) : '',
+    r28a: grupo28?.[0] ? grupo28[0].tension.toFixed(2) : '',
+    r28b: grupo28?.[1] ? grupo28[1].tension.toFixed(2) : '',
+    r56: edadLarga ? media(grupos[edadLarga]) : '',
+    fechaBase: grupoBase?.[0]?.fecha || '',
+    edadBase,
+  };
 }
 
 function extraerDatosActa(textoOriginal) {
   const t = textoOriginal.replace(/\s+/g, ' ');
-  const datos = { numActa: '', refAlbaran: '', fechaHormigonado: '', fechaRotura: '', edadDias: '', resistencia: '', designacion: '', localizacion: '' };
+  const datos = { numActa: '', refAlbaran: '', fechaHormigonado: '', resistencia7: '', resistencia28a: '', resistencia28b: '', resistencia56: '', designacion: '', localizacion: '' };
 
   const mDes = t.match(/HA-\d{2}\s*\/\s*[A-Z]\s*\/\s*\d{1,2}\s*\/\s*[A-Za-z0-9+]{1,6}/i)
             || t.match(/HA-\d{2}(?:\s*\/\s*[A-Za-z0-9+]{1,6}){0,3}/i);
@@ -4253,29 +4271,21 @@ function extraerDatosActa(textoOriginal) {
 
   const tabla = extraerTablaRoturas(t);
   if (tabla) {
-    datos.edadDias = tabla.edadDias;
-    datos.fechaRotura = normalizarFechaActa(tabla.fecha);
-    datos.resistencia = tabla.resistencia;
+    datos.resistencia7 = tabla.r7;
+    datos.resistencia28a = tabla.r28a;
+    datos.resistencia28b = tabla.r28b;
+    datos.resistencia56 = tabla.r56;
+    if (tabla.fechaBase && tabla.edadBase) {
+      datos.fechaHormigonado = sumarDiasISO(normalizarFechaActa(tabla.fechaBase), -tabla.edadBase);
+    }
   } else {
-    // Formato no tabular reconocido — mejor esfuerzo con los patrones genéricos anteriores
+    // Formato no tabular reconocido — mejor esfuerzo: nº de acta y el último valor N/mm² del
+    // documento (mejor que nada; el usuario revisa y completa el resto a mano).
     const mActa = t.match(/(?:n[ºo.]*\s*(?:de\s*)?acta|acta\s*n[ºo.]*|referencia)\s*[:\-]?\s*([A-Za-z0-9\-\/_.]{3,})/i);
     if (mActa && !datos.numActa) datos.numActa = mActa[1];
 
-    const mEdad = t.match(/edad\D{0,15}(\d{1,3})\s*d[ií]as/i);
-    if (mEdad) datos.edadDias = mEdad[1];
-
-    const mFecha = t.match(/rotura\D{0,20}(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/i)
-                || t.match(/fecha\s*(?:de\s*)?ensayo\D{0,10}(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/i);
-    if (mFecha) datos.fechaRotura = normalizarFechaActa(mFecha[1]);
-
     const resistencias = [...t.matchAll(/(\d{1,3}[.,]\d{1,2})\s*N\s*\/\s*mm/gi)].map(m => m[1].replace(',', '.'));
-    if (resistencias.length) datos.resistencia = resistencias[resistencias.length - 1];
-  }
-
-  // Fecha de hormigonado: no sale fiable cerca de su etiqueta en el texto plano, pero
-  // coincide con fecha de rotura menos la edad en días (verificado con actas reales).
-  if (datos.fechaRotura && datos.edadDias) {
-    datos.fechaHormigonado = sumarDiasISO(datos.fechaRotura, -parseInt(datos.edadDias, 10));
+    if (resistencias.length) datos.resistencia28a = resistencias[resistencias.length - 1];
   }
 
   return datos;
@@ -4412,9 +4422,10 @@ function ControlHormigon({ obra, onSave }) {
         numActa: serie.acta.numActa || '',
         refAlbaran: serie.acta.refAlbaran || '',
         fechaHormigonado: serie.acta.fechaHormigonado || '',
-        fechaRotura: serie.acta.fechaRotura || '',
-        edadDias: serie.acta.edadDias || '',
-        resistencia: serie.acta.resistencia || '',
+        resistencia7: serie.acta.resistencia7 || '',
+        resistencia28a: serie.acta.resistencia28a || '',
+        resistencia28b: serie.acta.resistencia28b || '',
+        resistencia56: serie.acta.resistencia56 || '',
         localizacion: serie.acta.localizacion || '',
       },
     });
@@ -4487,17 +4498,19 @@ function ControlHormigon({ obra, onSave }) {
         if (payload.archivoAEliminar) window.db?.eliminarFoto?.(payload.archivoAEliminar).catch(() => {});
       }
       const fck = parseFloat(elementos.find(e => e.id === payload.elementoId)?.fck);
-      const resistencia = parseFloat(payload.datos.resistencia);
-      const cumple = (!isNaN(fck) && !isNaN(resistencia)) ? resistencia >= fck : null;
+      const valores28 = [parseFloat(payload.datos.resistencia28a), parseFloat(payload.datos.resistencia28b)].filter(v => !isNaN(v));
+      const media28 = valores28.length ? valores28.reduce((a, b) => a + b, 0) / valores28.length : NaN;
+      const cumple = (!isNaN(fck) && !isNaN(media28)) ? media28 >= fck : null;
       asignarActa(payload.elementoId, payload.loteId, payload.serieId, {
         id: payload.actaId || uid(),
         archivo,
         numActa: payload.datos.numActa,
         refAlbaran: payload.datos.refAlbaran,
         fechaHormigonado: payload.datos.fechaHormigonado,
-        fechaRotura: payload.datos.fechaRotura,
-        edadDias: payload.datos.edadDias,
-        resistencia: payload.datos.resistencia,
+        resistencia7: payload.datos.resistencia7,
+        resistencia28a: payload.datos.resistencia28a,
+        resistencia28b: payload.datos.resistencia28b,
+        resistencia56: payload.datos.resistencia56,
         localizacion: payload.datos.localizacion,
         cumple,
         subidoEn: now(),
@@ -4751,7 +4764,7 @@ function ControlHormigon({ obra, onSave }) {
       ) : (() => {
         const t = TIPOS_ELEMENTO[elementoActivo.tipo] || TIPOS_ELEMENTO.flexion;
         const lotesEl = elementoActivo.lotes || [];
-        const filas = lotesEl.flatMap(lote => (lote.series || []).map(serie => ({ lote, serie })));
+        const filas = lotesEl.flatMap(lote => (lote.series || []).map((serie, i) => ({ lote, serie, esPrimeraDelLote: i === 0, numSeriesLote: (lote.series || []).length })));
         const seriesRellenas = filas.filter(f => f.serie.acta).length;
         const arrastrando = dragOverId === elementoActivo.id;
         return (
@@ -4811,34 +4824,39 @@ function ControlHormigon({ obra, onSave }) {
                       <th style={thCell}>Localización</th>
                       <th style={thCell}>Ref. albarán</th>
                       <th style={thCell}>F. hormig.</th>
-                      <th style={thCell}>F. rotura</th>
-                      <th style={thCell}>Resist.</th>
+                      <th style={thCell}>R. 7d</th>
+                      <th style={thCell}>R. 28d</th>
+                      <th style={thCell}>R. 56d</th>
                       <th style={thCell}>Estado</th>
                       <th style={thCell}></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filas.map(({ lote, serie }) => {
+                    {filas.map(({ lote, serie, esPrimeraDelLote, numSeriesLote }, i) => {
                       const acta = serie.acta;
                       const estado = !acta ? { label: 'Pendiente', bg: '#F5F4F0', color: '#9B9B97' }
                         : acta.cumple === false ? { label: 'No cumple', bg: '#FDECEC', color: '#8A1F1F' }
                         : acta.cumple === true  ? { label: 'Cumple', bg: '#E8F5E0', color: '#2D5E10' }
                         : { label: 'Con acta', bg: '#EEEDE7', color: '#52524E' };
+                      const r28 = (acta?.resistencia28a || acta?.resistencia28b)
+                        ? `${acta?.resistencia28a || '—'} / ${acta?.resistencia28b || '—'}` : '—';
                       return (
-                        <tr key={serie.id} style={{ borderTop: '1px solid #F2F1ED' }}>
-                          <td style={tdCell}>{lote.num}</td>
+                        <tr key={serie.id} style={{ borderTop: esPrimeraDelLote ? (i === 0 ? 'none' : '2px solid #D8D7D1') : '1px solid #F2F1ED' }}>
+                          {esPrimeraDelLote && (
+                            <td rowSpan={numSeriesLote} style={{ ...tdCell, fontWeight: 600, color: '#52524E', verticalAlign: 'top', borderRight: '1px solid #ECEAE4' }}>{lote.num}</td>
+                          )}
                           <td style={tdCell}>{serie.num}</td>
-                          <td style={{ ...tdCell, whiteSpace: 'normal', maxWidth: 220 }}>{acta?.localizacion || '—'}</td>
+                          <td style={{ ...tdCell, whiteSpace: 'normal', maxWidth: 200 }}>{acta?.localizacion || '—'}</td>
                           <td style={tdCell}>{acta?.refAlbaran || '—'}</td>
                           <td style={tdCell}>{acta?.fechaHormigonado ? fmtDate(acta.fechaHormigonado) : '—'}</td>
-                          <td style={tdCell}>{acta?.fechaRotura ? fmtDate(acta.fechaRotura) : '—'}</td>
-                          <td style={tdCell}>{acta?.resistencia ? `${acta.resistencia} N/mm²` : '—'}</td>
+                          <td style={tdCell}>{acta?.resistencia7 || '—'}</td>
+                          <td style={tdCell}>{r28}</td>
+                          <td style={tdCell}>{acta?.resistencia56 || '—'}</td>
                           <td style={tdCell}><Pill label={estado.label} bg={estado.bg} color={estado.color} /></td>
                           <td style={tdCell}>
-                            <button onClick={() => acta ? abrirDetalleActa(elementoActivo.id, lote.id, serie.id) : abrirSelector(elementoActivo.id, { loteId: lote.id, serieId: serie.id })}
-                              style={{ background: 'none', border: '1px solid #E0DFD9', borderRadius: 6, padding: '3px 9px', cursor: 'pointer', fontSize: 11, color: '#52524E' }}>
-                              {acta ? 'Ver' : '+ Adjuntar'}
-                            </button>
+                            {acta
+                              ? <button onClick={() => abrirDetalleActa(elementoActivo.id, lote.id, serie.id)} style={{ background: 'none', border: '1px solid #E0DFD9', borderRadius: 6, padding: '3px 9px', cursor: 'pointer', fontSize: 11, color: '#52524E' }}>Ver</button>
+                              : <span style={{ color: '#D4D3CE' }}>—</span>}
                           </td>
                         </tr>
                       );
@@ -4876,9 +4894,10 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
   const [numActa, setNumActa]           = useState(info.datos.numActa || '');
   const [refAlbaran, setRefAlbaran]     = useState(info.datos.refAlbaran || '');
   const [fechaHormigonado, setFechaHormigonado] = useState(info.datos.fechaHormigonado || '');
-  const [fechaRotura, setFechaRotura]   = useState(info.datos.fechaRotura || '');
-  const [edadDias, setEdadDias]         = useState(info.datos.edadDias || '');
-  const [resistencia, setResistencia]   = useState(info.datos.resistencia || '');
+  const [resistencia7, setResistencia7]   = useState(info.datos.resistencia7 || '');
+  const [resistencia28a, setResistencia28a] = useState(info.datos.resistencia28a || '');
+  const [resistencia28b, setResistencia28b] = useState(info.datos.resistencia28b || '');
+  const [resistencia56, setResistencia56] = useState(info.datos.resistencia56 || '');
   const [localizacion, setLocalizacion] = useState(info.datos.localizacion || '');
   const [serieSel, setSerieSel]         = useState(info.loteId && info.serieId ? `${info.loteId}:${info.serieId}` : '');
   const [nuevoArchivo, setNuevoArchivo] = useState(info.nuevoArchivo || null);
@@ -4888,12 +4907,13 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
   const opciones = [];
   (elemento?.lotes || []).forEach(l => (l.series || []).forEach(s => {
     const ocupada = !!s.acta && s.id !== info.serieId;
-    opciones.push({ value: `${l.id}:${s.id}`, label: `Lote ${l.num} · Serie ${s.num}${ocupada ? ' (ya tiene acta)' : ''}` });
+    opciones.push({ value: `${l.id}:${s.id}`, label: `Lote ${l.num} · Serie ${s.num}${ocupada ? ' (ya tiene acta)' : ''}`, ocupada });
   }));
 
   const fck = parseFloat(elemento?.fck);
-  const resNum = parseFloat(resistencia);
-  const cumpleCalc = (!isNaN(fck) && !isNaN(resNum)) ? resNum >= fck : null;
+  const valores28 = [parseFloat(resistencia28a), parseFloat(resistencia28b)].filter(v => !isNaN(v));
+  const media28 = valores28.length ? valores28.reduce((a, b) => a + b, 0) / valores28.length : NaN;
+  const cumpleCalc = (!isNaN(fck) && !isNaN(media28)) ? media28 >= fck : null;
   const nombreArchivo = nuevoArchivo?.nombre || info.archivoExistente?.nombre || info.nuevoArchivo?.nombre;
   const urlVerPdf = nuevoArchivo ? nuevoArchivo.base64 : fotoSrc(info.archivoExistente);
 
@@ -4915,7 +4935,7 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
       archivoAEliminar: (nuevoArchivo && info.archivoExistente?.path) ? info.archivoExistente.path : null,
       base64: nuevoArchivo?.base64 || null,
       archivoNombre: nombreArchivo,
-      datos: { numActa, refAlbaran, fechaHormigonado, fechaRotura, edadDias, resistencia, localizacion },
+      datos: { numActa, refAlbaran, fechaHormigonado, resistencia7, resistencia28a, resistencia28b, resistencia56, localizacion },
     });
   }
 
@@ -4950,8 +4970,9 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
         <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Lote y serie *</label>
         <select value={serieSel} onChange={e => setSerieSel(e.target.value)}>
           <option value="" disabled>Selecciona…</option>
-          {opciones.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {opciones.map(o => <option key={o.value} value={o.value} disabled={o.ocupada}>{o.label}</option>)}
         </select>
+        <div style={{ fontSize: 11, color: '#A5A5A0', marginTop: 4 }}>Una serie ya con acta no se puede volver a elegir — primero elimínala si quieres sustituirla.</div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
@@ -4968,16 +4989,20 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
           <input type="date" value={fechaHormigonado} onChange={e => setFechaHormigonado(e.target.value)} />
         </div>
         <div>
-          <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Fecha de rotura</label>
-          <input type="date" value={fechaRotura} onChange={e => setFechaRotura(e.target.value)} />
+          <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Resist. 7 días (N/mm²)</label>
+          <input type="number" value={resistencia7} onChange={e => setResistencia7(e.target.value)} />
         </div>
         <div>
-          <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Edad (días)</label>
-          <input type="number" value={edadDias} onChange={e => setEdadDias(e.target.value)} />
+          <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Resist. 28 días · probeta 1</label>
+          <input type="number" value={resistencia28a} onChange={e => setResistencia28a(e.target.value)} />
         </div>
         <div>
-          <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Resistencia obtenida (N/mm²)</label>
-          <input type="number" value={resistencia} onChange={e => setResistencia(e.target.value)} />
+          <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Resist. 28 días · probeta 2</label>
+          <input type="number" value={resistencia28b} onChange={e => setResistencia28b(e.target.value)} />
+        </div>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Resist. 56 días (N/mm²)</label>
+          <input type="number" value={resistencia56} onChange={e => setResistencia56(e.target.value)} />
         </div>
       </div>
 
@@ -4988,7 +5013,7 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
 
       {cumpleCalc !== null && (
         <div style={{ marginBottom: 12 }}>
-          <Pill label={cumpleCalc ? `Cumple (≥ ${elemento.fck} N/mm²)` : `No cumple (< ${elemento.fck} N/mm²)`} bg={cumpleCalc ? '#E8F5E0' : '#FDECEC'} color={cumpleCalc ? '#2D5E10' : '#8A1F1F'} />
+          <Pill label={cumpleCalc ? `Cumple (media 28d ${media28.toFixed(1)} ≥ fck ${elemento.fck} N/mm²)` : `No cumple (media 28d ${media28.toFixed(1)} < fck ${elemento.fck} N/mm²)`} bg={cumpleCalc ? '#E8F5E0' : '#FDECEC'} color={cumpleCalc ? '#2D5E10' : '#8A1F1F'} />
         </div>
       )}
 
