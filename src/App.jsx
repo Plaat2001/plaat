@@ -4214,6 +4214,15 @@ function sumarDiasISO(iso, dias) {
   return dt.toISOString().slice(0, 10);
 }
 
+// Días naturales entre dos fechas ISO (yyyy-mm-dd), en UTC para evitar líos de horario de verano
+function diasEntreISO(isoA, isoB) {
+  const [ya, ma, da] = isoA.split('-').map(Number);
+  const [yb, mb, db] = isoB.split('-').map(Number);
+  const a = Date.UTC(ya, ma - 1, da);
+  const b = Date.UTC(yb, mb - 1, db);
+  return Math.round(Math.abs(b - a) / 86400000);
+}
+
 // Extrae la tabla "Probeta / Edad / Fecha de ensayo / Carga de rotura / Tensión de rotura"
 // que llevan las actas de ruptura de probetas (normativa UNE EN 12390), y la reparte en las
 // mismas columnas fijas que lleváis en el Excel: una resistencia a 7 días, dos probetas a
@@ -4419,8 +4428,27 @@ function ControlHormigon({ obra, onSave }) {
     asignarActa(elementoId, loteId, serieId, null);
   }
 
-  function primeraSeriePendiente(elemento) {
-    for (const lote of elemento.lotes || []) {
+  // Dentro de un mismo lote, las series deben hormigonarse en un intervalo de 15 días —
+  // si la nueva acta llega más de 15 días después de la última asignada a ese lote, ya
+  // no entra ahí: pasa a ocupar hueco en el siguiente lote, aunque el actual no esté lleno.
+  function primeraSeriePendiente(elemento, fechaHormigonado) {
+    const lotes = elemento.lotes || [];
+    if (fechaHormigonado) {
+      for (const lote of lotes) {
+        const serieLibre = (lote.series || []).find(s => !s.acta);
+        if (!serieLibre) continue;
+        let fechaMasReciente = null;
+        (lote.series || []).forEach(s => {
+          const f = s.acta?.fechaHormigonado;
+          if (f && (!fechaMasReciente || f > fechaMasReciente)) fechaMasReciente = f;
+        });
+        if (!fechaMasReciente || diasEntreISO(fechaMasReciente, fechaHormigonado) <= 15) {
+          return { loteId: lote.id, serieId: serieLibre.id };
+        }
+      }
+    }
+    // Sin fecha reconocida (o ningún lote encaja por fecha): primer hueco en orden
+    for (const lote of lotes) {
       for (const serie of lote.series || []) {
         if (!serie.acta) return { loteId: lote.id, serieId: serie.id };
       }
@@ -4488,7 +4516,7 @@ function ControlHormigon({ obra, onSave }) {
       const elemento = elementos.find(e => e.id === item.objetivo?.elementoId);
       const destino = (item.objetivo?.serieId && item.objetivo?.loteId)
         ? item.objetivo
-        : (elemento ? primeraSeriePendiente(elemento) : null);
+        : (elemento ? primeraSeriePendiente(elemento, datos.fechaHormigonado) : null);
       setRevisarActa({
         elementoId: item.objetivo?.elementoId,
         loteId: destino?.loteId || null,
