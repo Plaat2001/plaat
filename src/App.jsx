@@ -4149,6 +4149,113 @@ function SeguimientoCQ({ obra, onSave }) {
   );
 }
 
+// ── Lectura automática de actas de probeta (PDF) ──────────────────────────────
+// Heurística por expresiones regulares sobre el texto del PDF: cada laboratorio
+// usa un formato distinto, así que esto es una primera estimación — todos los
+// campos quedan editables en el modal de revisión antes de guardar.
+function fileToBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+function blobToBase64(blob) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(blob);
+  });
+}
+
+async function pdfFileToTexto(file) {
+  const lib = await loadPdfJs();
+  const ab = await file.arrayBuffer();
+  const pdf = await lib.getDocument({ data: new Uint8Array(ab) }).promise;
+  let texto = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    texto += content.items.map(it => it.str).join(' ') + '\n';
+  }
+  return texto;
+}
+
+function normalizarFechaActa(s) {
+  const m = s.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+  if (!m) return '';
+  let [, d, mo, y] = m;
+  if (y.length === 2) y = '20' + y;
+  return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+}
+
+function extraerDatosActa(textoOriginal) {
+  const t = textoOriginal.replace(/\s+/g, ' ');
+  const datos = { numActa: '', fechaRotura: '', edadDias: '', resistencia: '', designacion: '' };
+
+  const mDes = t.match(/HA-\d{2}\s*\/\s*[A-Z]\s*\/\s*\d{1,2}\s*\/\s*[A-Za-z0-9+]{1,6}/i)
+            || t.match(/HA-\d{2}(?:\s*\/\s*[A-Za-z0-9+]{1,6}){0,3}/i);
+  if (mDes) datos.designacion = mDes[0].toUpperCase().replace(/\s+/g, '');
+
+  const mActa = t.match(/(?:n[ºo.]*\s*(?:de\s*)?acta|acta\s*n[ºo.]*|referencia)\s*[:\-]?\s*([A-Za-z0-9\-\/_.]{3,})/i);
+  if (mActa) datos.numActa = mActa[1];
+
+  const mEdad = t.match(/edad\D{0,15}(\d{1,3})\s*d[ií]as/i);
+  if (mEdad) datos.edadDias = mEdad[1];
+
+  const mFecha = t.match(/rotura\D{0,20}(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/i)
+              || t.match(/fecha\s*(?:de\s*)?ensayo\D{0,10}(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/i);
+  if (mFecha) datos.fechaRotura = normalizarFechaActa(mFecha[1]);
+
+  const resistencias = [...t.matchAll(/(\d{1,3}[.,]\d{1,2})\s*N\s*\/\s*mm/gi)].map(m => m[1].replace(',', '.'));
+  if (resistencias.length) datos.resistencia = resistencias[resistencias.length - 1];
+
+  return datos;
+}
+
+async function loadJsZip() {
+  if (window.JSZip) return window.JSZip;
+  await new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    s.onload = res; s.onerror = () => rej(new Error('No se pudo cargar JSZip'));
+    document.head.appendChild(s);
+  });
+  return window.JSZip;
+}
+
+// Descarga en un único .zip todas las actas de un elemento, listas para copiar
+// en la carpeta de la lotificación en el servidor de la empresa.
+async function descargarActasElemento(elemento) {
+  const JSZip = await loadJsZip();
+  const zip = new JSZip();
+  const tareas = [];
+  (elemento.lotes || []).forEach(lote => {
+    (lote.series || []).forEach(serie => {
+      const archivo = serie.acta?.archivo;
+      if (!archivo) return;
+      const src = fotoSrc(archivo);
+      if (!src) return;
+      const sufijo = serie.acta.numActa ? '-' + serie.acta.numActa.replace(/[^A-Za-z0-9-]/g, '_') : '';
+      const nombre = `Lote${lote.num}-Serie${serie.num}${sufijo}.pdf`;
+      const p = (src.startsWith('data:') ? Promise.resolve(src) : fetch(src).then(r => r.blob()).then(blobToBase64))
+        .then(dataUri => zip.file(nombre, dataUri.split(',')[1], { base64: true }));
+      tareas.push(p);
+    });
+  });
+  if (!tareas.length) { alert('Este elemento todavía no tiene actas adjuntas.'); return; }
+  await Promise.all(tareas);
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${elemento.nombre} - Actas.zip`;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { if (a.parentNode) document.body.removeChild(a); URL.revokeObjectURL(url); }, 10 * 60 * 1000);
+}
+
 // ── Control estadístico de hormigón ───────────────────────────────────────────
 function ControlHormigon({ obra, onSave }) {
   const elementosRaw = obra.lotes || [];
@@ -4157,12 +4264,168 @@ function ControlHormigon({ obra, onSave }) {
   const hayAntiguos = elementosRaw.length > elementos.length;
   const [showNuevo, setShowNuevo] = useState(false);
   const [expandido, setExpandido] = useState(null);
-  const [form, setForm] = useState({ nombre: '', tipo: 'flexion', volumen: '', superficie: '', conDOR: false });
+  const [form, setForm] = useState({ nombre: '', tipo: 'flexion', volumen: '', superficie: '', conDOR: false, designacion: '', fck: '' });
   const [confirmacion, setConfirmacion] = useState(null);
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  // ── Bandeja de actas: arrastras/seleccionas el PDF sobre un elemento y la app
+  // lo lee sola (texto del PDF → designación, nº de acta, fecha, resistencia).
+  // Todo queda editable antes de guardar — cada laboratorio tiene su formato.
+  const [dragOverId, setDragOverId] = useState(null);
+  const [cola, setCola] = useState([]);           // archivos pendientes de leer
+  const [procesando, setProcesando] = useState(false);
+  const [guardandoActa, setGuardandoActa] = useState(false);
+  const [revisarActa, setRevisarActa] = useState(null);
+  const fileInputRef = useRef(null);
+  const objetivoRef = useRef(null);
+
   const tipoForm = TIPOS_ELEMENTO[form.tipo];
   const preview  = calcularLotificacion(form.tipo, form.volumen, form.superficie, form.conDOR);
+
+  function actualizarElemento(elementoId, campo, valor) {
+    onSave({ ...obra, lotes: elementos.map(e => e.id === elementoId ? { ...e, [campo]: valor } : e) });
+  }
+
+  function asignarActa(elementoId, loteId, serieId, acta) {
+    onSave({
+      ...obra,
+      lotes: elementos.map(e => e.id !== elementoId ? e : {
+        ...e,
+        lotes: (e.lotes || []).map(l => l.id !== loteId ? l : {
+          ...l,
+          series: (l.series || []).map(s => s.id !== serieId ? s : { ...s, acta }),
+        }),
+      }),
+    });
+  }
+
+  function eliminarActaDeSerie(elementoId, loteId, serieId) {
+    const el = elementos.find(e => e.id === elementoId);
+    const serie = el?.lotes.find(l => l.id === loteId)?.series.find(s => s.id === serieId);
+    if (serie?.acta?.archivo?.path) window.db?.eliminarFoto?.(serie.acta.archivo.path).catch(() => {});
+    asignarActa(elementoId, loteId, serieId, null);
+  }
+
+  function primeraSeriePendiente(elemento) {
+    for (const lote of elemento.lotes || []) {
+      for (const serie of lote.series || []) {
+        if (!serie.acta) return { loteId: lote.id, serieId: serie.id };
+      }
+    }
+    return null;
+  }
+
+  function abrirSelector(elementoId, objetivo) {
+    objetivoRef.current = { elementoId, ...objetivo };
+    fileInputRef.current && (fileInputRef.current.value = '');
+    fileInputRef.current?.click();
+  }
+
+  function abrirDetalleActa(elementoId, loteId, serieId) {
+    const el = elementos.find(e => e.id === elementoId);
+    const serie = el?.lotes.find(l => l.id === loteId)?.series.find(s => s.id === serieId);
+    if (!serie?.acta) return;
+    setRevisarActa({
+      elementoId, loteId, serieId,
+      esNuevo: false,
+      actaId: serie.acta.id,
+      archivoExistente: serie.acta.archivo || null,
+      datos: {
+        numActa: serie.acta.numActa || '',
+        fechaRotura: serie.acta.fechaRotura || '',
+        edadDias: serie.acta.edadDias || '',
+        resistencia: serie.acta.resistencia || '',
+      },
+    });
+  }
+
+  function onFilesElegidos(e) {
+    const todos = Array.from(e.target.files || []);
+    const pdfs = todos.filter(f => f.type === 'application/pdf');
+    if (todos.length - pdfs.length > 0) alert('Solo se procesan archivos PDF. Se han ignorado ' + (todos.length - pdfs.length) + ' archivo(s).');
+    if (pdfs.length) {
+      const objetivo = objetivoRef.current;
+      setCola(prev => [...prev, ...pdfs.map((file, i) => ({ file, objetivo: i === 0 ? objetivo : { elementoId: objetivo?.elementoId } }))]);
+    }
+    objetivoRef.current = null;
+  }
+
+  function onDropElemento(e, elementoId) {
+    e.preventDefault();
+    setDragOverId(null);
+    const pdfs = Array.from(e.dataTransfer.files || []).filter(f => f.type === 'application/pdf');
+    if (!pdfs.length) { alert('Solo se aceptan archivos PDF.'); return; }
+    setCola(prev => [...prev, ...pdfs.map(file => ({ file, objetivo: { elementoId } }))]);
+  }
+
+  // Procesa un PDF de la cola: extrae su texto, intenta reconocer los datos y
+  // abre el modal de revisión (preseleccionando la primera serie pendiente).
+  async function procesarSiguienteDeCola(item) {
+    setProcesando(true);
+    try {
+      const [texto, base64] = await Promise.all([
+        pdfFileToTexto(item.file).catch(() => ''),
+        fileToBase64(item.file),
+      ]);
+      const datos = extraerDatosActa(texto || '');
+      const elemento = elementos.find(e => e.id === item.objetivo?.elementoId);
+      const destino = (item.objetivo?.serieId && item.objetivo?.loteId)
+        ? item.objetivo
+        : (elemento ? primeraSeriePendiente(elemento) : null);
+      setRevisarActa({
+        elementoId: item.objetivo?.elementoId,
+        loteId: destino?.loteId || null,
+        serieId: destino?.serieId || null,
+        esNuevo: true,
+        nuevoArchivo: { base64, nombre: item.file.name },
+        datos,
+      });
+    } catch (err) {
+      console.error('Error leyendo acta PDF:', err);
+      alert(`No se pudo leer "${item.file.name}". Comprueba que es un PDF válido.`);
+    } finally {
+      setProcesando(false);
+    }
+  }
+
+  useEffect(() => {
+    if (procesando || revisarActa || !cola.length) return;
+    const [item, ...resto] = cola;
+    setCola(resto);
+    procesarSiguienteDeCola(item);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cola, procesando, revisarActa]);
+
+  async function guardarActaDesdeModal(payload) {
+    setGuardandoActa(true);
+    try {
+      let archivo = payload.archivoExistente || null;
+      if (payload.base64) {
+        const subido = await subirFotoStorage(obra.id, uid(), payload.base64);
+        archivo = { ...subido, nombre: payload.archivoNombre };
+        if (payload.archivoAEliminar) window.db?.eliminarFoto?.(payload.archivoAEliminar).catch(() => {});
+      }
+      const fck = parseFloat(elementos.find(e => e.id === payload.elementoId)?.fck);
+      const resistencia = parseFloat(payload.datos.resistencia);
+      const cumple = (!isNaN(fck) && !isNaN(resistencia)) ? resistencia >= fck : null;
+      asignarActa(payload.elementoId, payload.loteId, payload.serieId, {
+        id: payload.actaId || uid(),
+        archivo,
+        numActa: payload.datos.numActa,
+        fechaRotura: payload.datos.fechaRotura,
+        edadDias: payload.datos.edadDias,
+        resistencia: payload.datos.resistencia,
+        cumple,
+        subidoEn: now(),
+      });
+      setRevisarActa(null);
+    } catch (err) {
+      console.error('Error guardando acta:', err);
+      alert('No se pudo guardar el acta. Comprueba la conexión e inténtalo de nuevo.');
+    } finally {
+      setGuardandoActa(false);
+    }
+  }
 
   function crearElemento() {
     if (!form.nombre.trim() || !form.volumen) return;
@@ -4179,13 +4442,15 @@ function ControlHormigon({ obra, onSave }) {
       volumen: form.volumen,
       superficie: form.superficie,
       conDOR: form.conDOR,
+      designacion: form.designacion.trim(),
+      fck: form.fck,
       numLotes: calc.numLotes,
       seriesPorLote: calc.seriesPorLote,
       lotes,
       creadoEn: now(),
     };
     onSave({ ...obra, lotes: [elemento, ...elementos] });
-    setForm({ nombre: '', tipo: 'flexion', volumen: '', superficie: '', conDOR: false });
+    setForm({ nombre: '', tipo: 'flexion', volumen: '', superficie: '', conDOR: false, designacion: '', fck: '' });
     setShowNuevo(false);
     setExpandido(elemento.id);
   }
@@ -4265,6 +4530,19 @@ function ControlHormigon({ obra, onSave }) {
             </div>
           </div>
 
+          {/* Designación del hormigón y resistencia exigida (fck) — se usan para comprobar
+              automáticamente el cumplimiento de las actas de rotura que lleguen */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Designación del hormigón</label>
+              <input placeholder="p.ej. HA-25/B/20/IIa" value={form.designacion} onChange={e => upd('designacion', e.target.value)} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Resistencia exigida fck (N/mm²)</label>
+              <input type="number" placeholder="25" value={form.fck} onChange={e => upd('fck', e.target.value)} />
+            </div>
+          </div>
+
           {/* Preview del cálculo */}
           {form.volumen && (
             <div style={{ background: '#F0F6F1', border: '1px solid #C5E3CE', borderRadius: 10, padding: '12px 14px', marginBottom: 14 }}>
@@ -4290,6 +4568,16 @@ function ControlHormigon({ obra, onSave }) {
         </div>
       )}
 
+      {/* Input oculto para seleccionar PDFs (clic en "Adjuntar acta" o en una serie vacía) */}
+      <input ref={fileInputRef} type="file" accept="application/pdf" multiple style={{ display: 'none' }} onChange={onFilesElegidos} />
+
+      {/* Aviso mientras se leen los PDFs de la cola */}
+      {(procesando || cola.length > 0) && (
+        <div style={{ background: '#F0F6F1', border: '1px solid #C5E3CE', borderRadius: 10, padding: '9px 14px', fontSize: 12, color: '#1C1C1A', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span>⏳</span> Leyendo {cola.length + (procesando ? 1 : 0)} acta{(cola.length + (procesando ? 1 : 0)) > 1 ? 's' : ''}…
+        </div>
+      )}
+
       {/* Lista de elementos */}
       {elementos.length === 0 && !showNuevo ? (
         <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, padding: '40px 20px', textAlign: 'center', color: '#A5A5A0' }}>
@@ -4304,10 +4592,17 @@ function ControlHormigon({ obra, onSave }) {
             const lotesEl = el.lotes || [];
             const numLotes = el.numLotes || lotesEl.length;
             const totalSeries = (numLotes || 0) * (el.seriesPorLote || 0);
-            const seriesRellenas = lotesEl.reduce((s, l) => s + (l.series || []).filter(se => se.acta).length, 0);
+            const allSeries = lotesEl.flatMap(l => l.series || []);
+            const seriesRellenas = allSeries.filter(se => se.acta).length;
+            const noCumplen = allSeries.filter(se => se.acta && se.acta.cumple === false).length;
             const abierto = expandido === el.id;
+            const arrastrando = dragOverId === el.id;
             return (
-              <div key={el.id} style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 11, overflow: 'hidden' }}>
+              <div key={el.id}
+                onDragOver={e => { e.preventDefault(); setDragOverId(el.id); }}
+                onDragLeave={() => setDragOverId(d => d === el.id ? null : d)}
+                onDrop={e => onDropElemento(e, el.id)}
+                style={{ background: arrastrando ? '#F5F4F0' : '#fff', border: `1.5px ${arrastrando ? 'dashed #18180F' : 'solid #E8E7E1'}`, borderRadius: 11, overflow: 'hidden', transition: 'border-color .15s, background .15s' }}>
                 {/* Cabecera elemento */}
                 <div onClick={() => setExpandido(abierto ? null : el.id)} style={{ padding: '13px 15px', cursor: 'pointer' }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
@@ -4315,11 +4610,14 @@ function ControlHormigon({ obra, onSave }) {
                       <div style={{ fontSize: 14, fontWeight: 600, color: '#141412' }}>{el.nombre}</div>
                       <div style={{ fontSize: 12, color: '#9B9B97', marginTop: 2 }}>
                         {t.label} · {el.volumen} m³{el.superficie ? ` · ${el.superficie} m²` : ''} · {el.conDOR ? 'Con DOR' : 'Sin DOR'}
+                        {el.designacion ? ` · ${el.designacion}` : ''}{el.fck ? ` · fck ${el.fck} N/mm²` : ''}
                       </div>
                     </div>
+                    {noCumplen > 0 && <Pill label={`⚠ ${noCumplen} no cumple${noCumplen > 1 ? 'n' : ''}`} bg="#FDECEC" color="#8A1F1F" />}
                     <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 20, background: '#EEEDE7', color: '#1C1C1A', fontWeight: 600, whiteSpace: 'nowrap' }}>
                       {numLotes} lote{numLotes > 1 ? 's' : ''} · {totalSeries} series
                     </span>
+                    <button onClick={e => { e.stopPropagation(); abrirSelector(el.id, {}); }} title="Adjuntar acta(s) PDF" style={{ background: 'none', border: '1px solid #E0DFD9', borderRadius: 7, cursor: 'pointer', color: '#52524E', fontSize: 13, padding: '4px 8px', lineHeight: 1 }}>📎</button>
                     <button onClick={e => { e.stopPropagation(); setConfirmacion({ titulo: 'Eliminar lotificación', texto: `Vas a eliminar "${el.nombre}" y todos sus datos. Esta acción no se puede deshacer.`, onSi: () => { eliminar(el.id); setConfirmacion(null); } }); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 16, padding: '0 2px', lineHeight: 1 }}>×</button>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
@@ -4333,7 +4631,20 @@ function ControlHormigon({ obra, onSave }) {
 
                 {/* Detalle lotes y series */}
                 {abierto && (
-                  <div style={{ borderTop: '1px solid #F2F1ED', padding: '12px 15px', background: '#FAFAF8', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ borderTop: '1px solid #F2F1ED', padding: '12px 15px', background: '#FAFAF8', display: 'flex', flexDirection: 'column', gap: 8 }} onClick={e => e.stopPropagation()}>
+
+                    {/* Designación y fck — referencias de la lotificación entregada */}
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                      <div style={{ flex: 1, minWidth: 160 }}>
+                        <label style={{ fontSize: 10.5, color: '#A5A5A0', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Designación del hormigón</label>
+                        <input placeholder="p.ej. HA-25/B/20/IIa" value={el.designacion || ''} onChange={e => actualizarElemento(el.id, 'designacion', e.target.value)} style={{ fontSize: 13 }} />
+                      </div>
+                      <div style={{ width: 150 }}>
+                        <label style={{ fontSize: 10.5, color: '#A5A5A0', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>fck exigido (N/mm²)</label>
+                        <input type="number" placeholder="25" value={el.fck || ''} onChange={e => actualizarElemento(el.id, 'fck', e.target.value)} style={{ fontSize: 13 }} />
+                      </div>
+                    </div>
+
                     {lotesEl.map(lote => (
                       <div key={lote.id} style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 9, padding: '10px 12px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -4341,17 +4652,35 @@ function ControlHormigon({ obra, onSave }) {
                           <span style={{ fontSize: 11, color: '#A5A5A0' }}>{(lote.series || []).length} series</span>
                         </div>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          {(lote.series || []).map(serie => (
-                            <div key={serie.id} title={serie.acta ? 'Con acta' : 'Pendiente de acta'}
-                              style={{ width: 34, height: 34, borderRadius: 8, border: `1.5px solid ${serie.acta ? '#52A124' : '#E0DFD9'}`, background: serie.acta ? '#E8F5E0' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 500, color: serie.acta ? '#2D5E10' : '#A5A5A0' }}>
-                              {serie.acta ? '✓' : serie.num}
-                            </div>
-                          ))}
+                          {(lote.series || []).map(serie => {
+                            const tieneActa = !!serie.acta;
+                            const cumple = serie.acta?.cumple;
+                            const color = !tieneActa ? '#E0DFD9' : cumple === false ? '#C0392B' : '#52A124';
+                            const bg    = !tieneActa ? '#fff'    : cumple === false ? '#FDECEC' : '#E8F5E0';
+                            const fg    = !tieneActa ? '#A5A5A0' : cumple === false ? '#8A1F1F' : '#2D5E10';
+                            const texto = !tieneActa ? serie.num : cumple === false ? '✕' : '✓';
+                            const titulo = !tieneActa ? 'Pendiente de acta — clic para adjuntar'
+                              : cumple === false ? 'No cumple la resistencia exigida — clic para ver'
+                              : cumple === true  ? 'Cumple la resistencia exigida — clic para ver'
+                              : 'Con acta (falta fck para comprobar) — clic para ver';
+                            return (
+                              <div key={serie.id} title={titulo}
+                                onClick={() => tieneActa ? abrirDetalleActa(el.id, lote.id, serie.id) : abrirSelector(el.id, { loteId: lote.id, serieId: serie.id })}
+                                style={{ width: 34, height: 34, borderRadius: 8, border: `1.5px solid ${color}`, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 500, color: fg, cursor: 'pointer' }}>
+                                {texto}
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     ))}
-                    <div style={{ padding: '8px 11px', background: '#F0EFEA', borderRadius: 8, fontSize: 12, color: '#9B9B97', textAlign: 'center' }}>
-                      El volcado automático de actas de probeta sobre las series se añade en la siguiente fase
+
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                      <Btn sm onClick={() => abrirSelector(el.id, {})} full>📎 Adjuntar acta(s)</Btn>
+                      <Btn sm onClick={() => descargarActasElemento(el)} full disabled={seriesRellenas === 0}>⬇ Descargar actas (.zip)</Btn>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#BFBEB9', textAlign: 'center' }}>
+                      También puedes arrastrar el PDF directamente sobre este elemento
                     </div>
                   </div>
                 )}
@@ -4361,7 +4690,134 @@ function ControlHormigon({ obra, onSave }) {
         </div>
       )}
       {confirmacion && <ConfirmMini titulo={confirmacion.titulo} texto={confirmacion.texto} onSi={confirmacion.onSi} onNo={() => setConfirmacion(null)} />}
+
+      {revisarActa && (
+        <ModalActa
+          info={revisarActa}
+          elemento={elementos.find(e => e.id === revisarActa.elementoId)}
+          guardando={guardandoActa}
+          onGuardar={guardarActaDesdeModal}
+          onEliminar={() => { eliminarActaDeSerie(revisarActa.elementoId, revisarActa.loteId, revisarActa.serieId); setRevisarActa(null); }}
+          onClose={() => setRevisarActa(null)}
+        />
+      )}
     </div>
+  );
+}
+
+// ── Modal de alta/edición de una acta de rotura sobre una serie concreta ─────
+function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }) {
+  const [numActa, setNumActa]           = useState(info.datos.numActa || '');
+  const [fechaRotura, setFechaRotura]   = useState(info.datos.fechaRotura || '');
+  const [edadDias, setEdadDias]         = useState(info.datos.edadDias || '');
+  const [resistencia, setResistencia]   = useState(info.datos.resistencia || '');
+  const [serieSel, setSerieSel]         = useState(info.loteId && info.serieId ? `${info.loteId}:${info.serieId}` : '');
+  const [nuevoArchivo, setNuevoArchivo] = useState(info.nuevoArchivo || null);
+  const [confirmacion, setConfirmacion] = useState(null);
+  const replaceRef = useRef(null);
+
+  const opciones = [];
+  (elemento?.lotes || []).forEach(l => (l.series || []).forEach(s => {
+    const ocupada = !!s.acta && s.id !== info.serieId;
+    opciones.push({ value: `${l.id}:${s.id}`, label: `Lote ${l.num} · Serie ${s.num}${ocupada ? ' (ya tiene acta)' : ''}` });
+  }));
+
+  const fck = parseFloat(elemento?.fck);
+  const resNum = parseFloat(resistencia);
+  const cumpleCalc = (!isNaN(fck) && !isNaN(resNum)) ? resNum >= fck : null;
+  const nombreArchivo = nuevoArchivo?.nombre || info.archivoExistente?.nombre || info.nuevoArchivo?.nombre;
+  const urlVerPdf = nuevoArchivo ? nuevoArchivo.base64 : fotoSrc(info.archivoExistente);
+
+  function elegirReemplazo(e) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.type !== 'application/pdf') { alert('Solo se aceptan archivos PDF.'); return; }
+    fileToBase64(f).then(base64 => setNuevoArchivo({ base64, nombre: f.name }));
+  }
+
+  function guardar() {
+    const [loteId, serieId] = serieSel.split(':');
+    if (!loteId || !serieId) return;
+    onGuardar({
+      elementoId: info.elementoId,
+      loteId, serieId,
+      actaId: info.actaId,
+      archivoExistente: nuevoArchivo ? null : info.archivoExistente,
+      archivoAEliminar: (nuevoArchivo && info.archivoExistente?.path) ? info.archivoExistente.path : null,
+      base64: nuevoArchivo?.base64 || null,
+      archivoNombre: nombreArchivo,
+      datos: { numActa, fechaRotura, edadDias, resistencia },
+    });
+  }
+
+  return (
+    <Modal title={info.esNuevo ? 'Nueva acta de rotura' : 'Acta de rotura'} onClose={onClose} footer={
+      <>
+        {!info.esNuevo && <Btn danger onClick={() => setConfirmacion({ titulo: 'Eliminar acta', texto: 'Vas a eliminar esta acta y el PDF adjunto. Esta acción no se puede deshacer.', onSi: onEliminar })}>Eliminar</Btn>}
+        <div style={{ flex: 1 }} />
+        <Btn primary disabled={!serieSel || guardando} onClick={guardar}>{guardando ? 'Guardando…' : 'Guardar'}</Btn>
+      </>
+    }>
+      {elemento && (
+        <div style={{ fontSize: 12, color: '#9B9B97', marginBottom: 8 }}>
+          {elemento.nombre}{elemento.designacion ? ` · ${elemento.designacion}` : ''}{elemento.fck ? ` · fck ${elemento.fck} N/mm²` : ''}
+        </div>
+      )}
+
+      {/* Si el PDF trae una designación reconocible, la comparamos con la del elemento
+          — ayuda a detectar si el acta se ha arrastrado al elemento equivocado */}
+      {info.datos.designacion && (() => {
+        const leida = info.datos.designacion.replace(/\s+/g, '');
+        const propia = (elemento?.designacion || '').replace(/\s+/g, '').toUpperCase();
+        const coincide = !propia || leida === propia;
+        return (
+          <div style={{ fontSize: 11.5, color: coincide ? '#9B9B97' : '#8A1F1F', marginBottom: 12, background: coincide ? '#F5F4F0' : '#FDECEC', borderRadius: 7, padding: '6px 10px' }}>
+            Designación leída en el PDF: <strong>{leida}</strong>{!coincide && ' — no coincide con la del elemento, revisa que sea el acta correcta'}
+          </div>
+        );
+      })()}
+
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Lote y serie *</label>
+        <select value={serieSel} onChange={e => setSerieSel(e.target.value)}>
+          <option value="" disabled>Selecciona…</option>
+          {opciones.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Nº de acta / laboratorio</label>
+          <input value={numActa} onChange={e => setNumActa(e.target.value)} />
+        </div>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Fecha de rotura</label>
+          <input type="date" value={fechaRotura} onChange={e => setFechaRotura(e.target.value)} />
+        </div>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Edad (días)</label>
+          <input type="number" value={edadDias} onChange={e => setEdadDias(e.target.value)} />
+        </div>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Resistencia obtenida (N/mm²)</label>
+          <input type="number" value={resistencia} onChange={e => setResistencia(e.target.value)} />
+        </div>
+      </div>
+
+      {cumpleCalc !== null && (
+        <div style={{ marginBottom: 12 }}>
+          <Pill label={cumpleCalc ? `Cumple (≥ ${elemento.fck} N/mm²)` : `No cumple (< ${elemento.fck} N/mm²)`} bg={cumpleCalc ? '#E8F5E0' : '#FDECEC'} color={cumpleCalc ? '#2D5E10' : '#8A1F1F'} />
+        </div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {urlVerPdf && <a href={urlVerPdf} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#18180F', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 7, border: '1px solid #E0DFD9', background: '#fff' }}>📄 {nombreArchivo || 'Ver PDF'}</a>}
+        <button onClick={() => replaceRef.current?.click()} style={{ fontSize: 12, color: '#6B6B66', background: 'none', border: '1px dashed #E0DFD9', borderRadius: 7, padding: '5px 10px', cursor: 'pointer' }}>{info.esNuevo ? 'Cambiar PDF' : 'Sustituir PDF'}</button>
+        <input ref={replaceRef} type="file" accept="application/pdf" style={{ display: 'none' }} onChange={elegirReemplazo} />
+      </div>
+
+      {confirmacion && <ConfirmMini titulo={confirmacion.titulo} texto={confirmacion.texto} onSi={confirmacion.onSi} onNo={() => setConfirmacion(null)} />}
+    </Modal>
   );
 }
 
