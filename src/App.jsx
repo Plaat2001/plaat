@@ -4262,6 +4262,7 @@ function ControlHormigon({ obra, onSave }) {
   // Filtra elementos con la estructura nueva (tienen nombre y lotes con series)
   const elementos = elementosRaw.filter(e => e && e.nombre && Array.isArray(e.lotes));
   const hayAntiguos = elementosRaw.length > elementos.length;
+  const [sub, setSub] = useState('lotificacion'); // lotificacion | seguimiento
   const [showNuevo, setShowNuevo] = useState(false);
   const [expandido, setExpandido] = useState(null);
   const [form, setForm] = useState({ nombre: '', tipo: 'flexion', volumen: '', superficie: '', conDOR: false, designacion: '', fck: '' });
@@ -4459,8 +4460,24 @@ function ControlHormigon({ obra, onSave }) {
     onSave({ ...obra, lotes: elementos.filter(e => e.id !== id) });
   }
 
+  // Resumen global para la pestaña de seguimiento
+  const totalSeriesObra  = elementos.reduce((s, e) => s + (e.numLotes || (e.lotes || []).length) * (e.seriesPorLote || 0), 0);
+  const totalConActaObra = elementos.reduce((s, e) => s + (e.lotes || []).flatMap(l => l.series || []).filter(se => se.acta).length, 0);
+  const totalNoCumplenObra = elementos.reduce((s, e) => s + (e.lotes || []).flatMap(l => l.series || []).filter(se => se.acta && se.acta.cumple === false).length, 0);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+      {/* Sub-navegación: Lotificación / Seguimiento de actas */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 2, borderBottom: '1px solid #E8E7E1' }}>
+        {[['lotificacion', 'Lotificación'], ['seguimiento', 'Seguimiento de actas']].map(([id, label]) => (
+          <button key={id} onClick={() => setSub(id)} style={{ padding: '7px 14px', border: 'none', borderBottom: `2px solid ${sub === id ? '#1C1C1A' : 'transparent'}`, background: 'transparent', color: sub === id ? '#141412' : '#9B9B97', fontSize: 13, cursor: 'pointer', fontWeight: sub === id ? 600 : 400, marginBottom: -1 }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {sub === 'lotificacion' && (<>
 
       {/* Aviso de datos antiguos */}
       {hayAntiguos && (
@@ -4568,6 +4585,77 @@ function ControlHormigon({ obra, onSave }) {
         </div>
       )}
 
+      {/* Lista de elementos — referencia estructural (designación, fck, lotes y series), sin actas */}
+      {elementos.length === 0 && !showNuevo ? (
+        <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, padding: '40px 20px', textAlign: 'center', color: '#A5A5A0' }}>
+          <div style={{ fontSize: 32, marginBottom: 10 }}>🧱</div>
+          <div style={{ fontSize: 13, marginBottom: 14 }}>Sin elementos de hormigón todavía</div>
+          <Btn onClick={() => setShowNuevo(true)}>+ Crear primera lotificación</Btn>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {elementos.map(el => {
+            const t = TIPOS_ELEMENTO[el.tipo] || TIPOS_ELEMENTO.flexion;
+            const lotesEl = el.lotes || [];
+            const numLotes = el.numLotes || lotesEl.length;
+            const totalSeries = (numLotes || 0) * (el.seriesPorLote || 0);
+            const abierto = expandido === el.id;
+            return (
+              <div key={el.id} style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 11, overflow: 'hidden' }}>
+                <div onClick={() => setExpandido(abierto ? null : el.id)} style={{ padding: '13px 15px', cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#141412' }}>{el.nombre}</div>
+                      <div style={{ fontSize: 12, color: '#9B9B97', marginTop: 2 }}>
+                        {t.label} · {el.volumen} m³{el.superficie ? ` · ${el.superficie} m²` : ''} · {el.conDOR ? 'Con DOR' : 'Sin DOR'}
+                        {el.designacion ? ` · ${el.designacion}` : ''}{el.fck ? ` · fck ${el.fck} N/mm²` : ''}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 20, background: '#EEEDE7', color: '#1C1C1A', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                      {numLotes} lote{numLotes > 1 ? 's' : ''} · {totalSeries} series
+                    </span>
+                    <button onClick={e => { e.stopPropagation(); setConfirmacion({ titulo: 'Eliminar lotificación', texto: `Vas a eliminar "${el.nombre}" y todos sus datos. Esta acción no se puede deshacer.`, onSi: () => { eliminar(el.id); setConfirmacion(null); } }); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 16, padding: '0 2px', lineHeight: 1 }}>×</button>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#A5A5A0', marginTop: 8 }}>{abierto ? '▲ ocultar lotes' : '▼ ver lotes y series'}</div>
+                </div>
+                {abierto && (
+                  <div style={{ borderTop: '1px solid #F2F1ED', padding: '12px 15px', background: '#FAFAF8', display: 'flex', flexDirection: 'column', gap: 8 }} onClick={e => e.stopPropagation()}>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <div style={{ flex: 1, minWidth: 160 }}>
+                        <label style={{ fontSize: 10.5, color: '#A5A5A0', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Designación del hormigón</label>
+                        <input placeholder="p.ej. HA-25/B/20/IIa" value={el.designacion || ''} onChange={e => actualizarElemento(el.id, 'designacion', e.target.value)} style={{ fontSize: 13 }} />
+                      </div>
+                      <div style={{ width: 150 }}>
+                        <label style={{ fontSize: 10.5, color: '#A5A5A0', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>fck exigido (N/mm²)</label>
+                        <input type="number" placeholder="25" value={el.fck || ''} onChange={e => actualizarElemento(el.id, 'fck', e.target.value)} style={{ fontSize: 13 }} />
+                      </div>
+                    </div>
+                    {lotesEl.map(lote => (
+                      <div key={lote.id} style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 9, padding: '10px 12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <span style={{ fontSize: 13, fontWeight: 500 }}>Lote {lote.num}</span>
+                          <span style={{ fontSize: 11, color: '#A5A5A0' }}>{(lote.series || []).length} series</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {(lote.series || []).map(serie => (
+                            <div key={serie.id} style={{ width: 30, height: 30, borderRadius: 7, border: '1.5px solid #E0DFD9', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 500, color: '#A5A5A0' }}>
+                              {serie.num}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      </>)}
+
+      {sub === 'seguimiento' && (<>
+
       {/* Input oculto para seleccionar PDFs (clic en "Adjuntar acta" o en una serie vacía) */}
       <input ref={fileInputRef} type="file" accept="application/pdf" multiple style={{ display: 'none' }} onChange={onFilesElegidos} />
 
@@ -4578,15 +4666,19 @@ function ControlHormigon({ obra, onSave }) {
         </div>
       )}
 
-      {/* Lista de elementos */}
-      {elementos.length === 0 && !showNuevo ? (
+      {elementos.length === 0 ? (
         <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, padding: '40px 20px', textAlign: 'center', color: '#A5A5A0' }}>
-          <div style={{ fontSize: 32, marginBottom: 10 }}>🧱</div>
-          <div style={{ fontSize: 13, marginBottom: 14 }}>Sin elementos de hormigón todavía</div>
-          <Btn onClick={() => setShowNuevo(true)}>+ Crear primera lotificación</Btn>
+          <div style={{ fontSize: 32, marginBottom: 10 }}>📎</div>
+          <div style={{ fontSize: 13, marginBottom: 14 }}>Primero crea la lotificación del elemento en la otra pestaña.</div>
+          <Btn onClick={() => setSub('lotificacion')}>Ir a Lotificación</Btn>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <>
+      <div style={{ display: 'flex', gap: 14, fontSize: 12, color: '#6B6B66' }}>
+        <span><strong style={{ color: '#141412' }}>{totalConActaObra}</strong>/{totalSeriesObra} series con acta</span>
+        {totalNoCumplenObra > 0 && <span style={{ color: '#8A1F1F' }}><strong>{totalNoCumplenObra}</strong> no cumple{totalNoCumplenObra > 1 ? 'n' : ''}</span>}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {elementos.map(el => {
             const t = TIPOS_ELEMENTO[el.tipo] || TIPOS_ELEMENTO.flexion;
             const lotesEl = el.lotes || [];
@@ -4618,7 +4710,6 @@ function ControlHormigon({ obra, onSave }) {
                       {numLotes} lote{numLotes > 1 ? 's' : ''} · {totalSeries} series
                     </span>
                     <button onClick={e => { e.stopPropagation(); abrirSelector(el.id, {}); }} title="Adjuntar acta(s) PDF" style={{ background: 'none', border: '1px solid #E0DFD9', borderRadius: 7, cursor: 'pointer', color: '#52524E', fontSize: 13, padding: '4px 8px', lineHeight: 1 }}>📎</button>
-                    <button onClick={e => { e.stopPropagation(); setConfirmacion({ titulo: 'Eliminar lotificación', texto: `Vas a eliminar "${el.nombre}" y todos sus datos. Esta acción no se puede deshacer.`, onSi: () => { eliminar(el.id); setConfirmacion(null); } }); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 16, padding: '0 2px', lineHeight: 1 }}>×</button>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
                     <div style={{ flex: 1, height: 4, background: '#ECEAE4', borderRadius: 2 }}>
@@ -4633,17 +4724,11 @@ function ControlHormigon({ obra, onSave }) {
                 {abierto && (
                   <div style={{ borderTop: '1px solid #F2F1ED', padding: '12px 15px', background: '#FAFAF8', display: 'flex', flexDirection: 'column', gap: 8 }} onClick={e => e.stopPropagation()}>
 
-                    {/* Designación y fck — referencias de la lotificación entregada */}
-                    <div style={{ display: 'flex', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-                      <div style={{ flex: 1, minWidth: 160 }}>
-                        <label style={{ fontSize: 10.5, color: '#A5A5A0', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Designación del hormigón</label>
-                        <input placeholder="p.ej. HA-25/B/20/IIa" value={el.designacion || ''} onChange={e => actualizarElemento(el.id, 'designacion', e.target.value)} style={{ fontSize: 13 }} />
+                    {!el.designacion && !el.fck && (
+                      <div style={{ fontSize: 11.5, color: '#C47610', background: '#FEF3DB', borderRadius: 7, padding: '6px 10px' }}>
+                        Este elemento no tiene designación ni fck definidos — edítalos en la pestaña Lotificación para poder comprobar el cumplimiento.
                       </div>
-                      <div style={{ width: 150 }}>
-                        <label style={{ fontSize: 10.5, color: '#A5A5A0', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>fck exigido (N/mm²)</label>
-                        <input type="number" placeholder="25" value={el.fck || ''} onChange={e => actualizarElemento(el.id, 'fck', e.target.value)} style={{ fontSize: 13 }} />
-                      </div>
-                    </div>
+                    )}
 
                     {lotesEl.map(lote => (
                       <div key={lote.id} style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 9, padding: '10px 12px' }}>
@@ -4687,8 +4772,11 @@ function ControlHormigon({ obra, onSave }) {
               </div>
             );
           })}
-        </div>
+      </div>
+      </>
       )}
+      </>)}
+
       {confirmacion && <ConfirmMini titulo={confirmacion.titulo} texto={confirmacion.texto} onSi={confirmacion.onSi} onNo={() => setConfirmacion(null)} />}
 
       {revisarActa && (
