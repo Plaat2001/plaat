@@ -4719,7 +4719,12 @@ function ControlHormigon({ obra, onSave }) {
                 const totalSeries = numLotes * (el.seriesPorLote || 0);
                 return (
                   <tr key={el.id} style={{ borderTop: '1px solid #F2F1ED' }}>
-                    <td style={{ ...tdCell, color: '#9B9B97', fontWeight: 700 }}>LC{el.numLC || idx + 1}</td>
+                    <td style={tdCell}>
+                      <button onClick={() => { setElSeleccionado(el.id); setSub('seguimiento'); }} title="Ir al seguimiento de este elemento"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#52524E', fontWeight: 700, fontSize: 'inherit', padding: 0, textDecoration: 'underline', textDecorationColor: '#D8D7D1', textUnderlineOffset: 3 }}>
+                        LC{el.numLC || idx + 1}
+                      </button>
+                    </td>
                     <td style={{ ...tdCell, fontWeight: 600, color: '#141412', whiteSpace: 'normal', minWidth: 140 }}>{el.nombre}</td>
                     <td style={tdCell}>{t.label}</td>
                     <td style={tdCell}>{el.volumen} m³{el.superficie ? ` · ${el.superficie} m²` : ''}</td>
