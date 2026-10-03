@@ -4269,11 +4269,19 @@ function extraerDatosActa(textoOriginal) {
             || t.match(/HA-\d{2}(?:\s*\/\s*[A-Za-z0-9+]{1,6}){0,3}/i);
   if (mDes) datos.designacion = mDes[0].toUpperCase().replace(/\s+/g, '');
 
-  // Cabecera "ALBARÁN Nº / MUESTRA Nº / ACTA OBRA Nº / ACTA Nº / FECHA ACTA" — se reconoce
-  // por la FORMA de cada valor (no por estar junto a su etiqueta: en el texto plano del PDF
-  // las etiquetas y los valores no siempre salen en el mismo orden visual de la tabla).
+  // Cabecera "ALBARÁN Nº / MUESTRA Nº / ACTA OBRA Nº / ACTA Nº / FECHA ACTA" (formato TPF
+  // Getinsa) — se reconoce por la FORMA de cada valor (no por estar junto a su etiqueta: en
+  // el texto plano del PDF las etiquetas y los valores no siempre salen en el mismo orden
+  // visual de la tabla).
+  let fechaPresaDirecta = '';
   const mCab = t.match(/(\d{5,7})\s+([A-Z]{1,4}\.?\s?\d{4}\s?\/\s?\d+)\s+(\d{1,5})\s+(\d{4}\s?\/\s?\d+)\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/);
-  if (mCab) { datos.refAlbaran = mCab[1]; datos.numActa = mCab[3]; }
+  if (mCab) {
+    datos.refAlbaran = mCab[1]; datos.numActa = mCab[3];
+  } else {
+    // Formato LABOCAT: "<albarán>-n ... ALBARA <fecha> DATA DE PRESA <acta> ACTA"
+    const mLabocat = t.match(/(\d{3,7}-\d{1,3})[\s\S]{0,120}?ALBARA\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+DATA DE PRESA\s+(\d{1,5})\s+ACTA/i);
+    if (mLabocat) { datos.refAlbaran = mLabocat[1]; datos.numActa = mLabocat[3]; fechaPresaDirecta = mLabocat[2]; }
+  }
 
   const tabla = extraerTablaRoturas(t);
   if (tabla) {
@@ -4281,7 +4289,9 @@ function extraerDatosActa(textoOriginal) {
     datos.resistencia28a = tabla.r28a;
     datos.resistencia28b = tabla.r28b;
     datos.resistencia56 = tabla.r56;
-    if (tabla.fechaBase && tabla.edadBase) {
+    if (fechaPresaDirecta) {
+      datos.fechaHormigonado = normalizarFechaActa(fechaPresaDirecta);
+    } else if (tabla.fechaBase && tabla.edadBase) {
       datos.fechaHormigonado = sumarDiasISO(normalizarFechaActa(tabla.fechaBase), -tabla.edadBase);
     }
   } else {
