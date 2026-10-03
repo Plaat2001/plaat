@@ -45,10 +45,14 @@ const now      = () => new Date().toISOString();
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+/* Satoshi — tipografia real de plaat.es, autoallotjada (no depenem del seu servidor) */
+@font-face { font-family: 'Satoshi'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/Satoshi-Regular.woff2') format('woff2'); }
+@font-face { font-family: 'Satoshi'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/Satoshi-Medium.woff2') format('woff2'); }
+@font-face { font-family: 'Satoshi'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/Satoshi-Bold.woff2') format('woff2'); }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 html { -webkit-text-size-adjust: 100%; }
-body { font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif; background: #F7F6F3; color: #16160F; font-size: 14px; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+body { font-family: 'Satoshi', -apple-system, BlinkMacSystemFont, sans-serif; background: #F7F6F3; color: #16160F; font-size: 14px; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 button, input, select, textarea { font-family: inherit; }
 input, select, textarea {
   display: block; width: 100%; padding: 10px 13px;
@@ -377,8 +381,13 @@ function useDraftState(key, initial) {
 // "dash-banner" (rgba(138,168,138)), ara tambe disponible com a accent d'interacció
 // (pestanyes actives, focus, detalls) perquè la resta de la UI no sigui nomes gris/negre
 // amb semàfor d'estat.
-const ACCENT = '#4C6B4C';
-const ACCENT_SOFT = '#E7EEE7';
+// Paleta de marca real de plaat.es (extreta del kit global d'Elementor del seu web):
+// negre pur com a accent interactiu, gris fred com a secundari, i un préssec/albercoc
+// (#FFBC7D) com a toc de color propi — a la seva web només l'usen amb compta-gotes
+// (la transició de pàgina), així que aquí també el reservem per a detalls puntuals.
+const ACCENT = '#16160F';
+const ACCENT_SOFT = '#FFF1E0';
+const ACCENT_WARM = '#FFBC7D';
 
 // Set d'icones de línia pròpies (paths reals de Lucide, llicència ISC) — substitueixen els
 // emojis solts que feien que la interfície semblés genèrica. Un sol component reutilitzable,
