@@ -292,6 +292,15 @@ textarea { resize: vertical; min-height: 72px; line-height: 1.5; }
 @media (prefers-reduced-motion: reduce) {
   .plaat-pin .ring, .plaat-pin .beam { animation: none !important; }
 }
+
+/* ── Motiu "plànol tècnic": cantonades retallades en lloc de simple border-radius,
+   per a les targetes principals del Control de formigó ── */
+.plano-frame { clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
+
+/* ── Segell discret quan un lot arriba al 100% de series amb acta ── */
+@keyframes stampIn { 0% { opacity: 0; transform: scale(.4) rotate(-14deg); } 60% { opacity: 1; transform: scale(1.12) rotate(-14deg); } 100% { opacity: 1; transform: scale(1) rotate(-14deg); } }
+.lote-stamp { display: inline-flex; animation: stampIn .32s cubic-bezier(.2,.8,.2,1) both; }
+@media (prefers-reduced-motion: reduce) { .lote-stamp { animation: none !important; } }
 `;
 
 // Detecta móvil: pantalla estrecha Y en vertical. En horizontal usa la interfaz de ordenador.
@@ -363,6 +372,63 @@ function useDraftState(key, initial) {
 }
 
 // ─── Átomos ───────────────────────────────────────────────────────────────────
+
+// Color de acento propio de PLAAT — el mismo verd musgo que ya usaba el anell del
+// "dash-banner" (rgba(138,168,138)), ara tambe disponible com a accent d'interacció
+// (pestanyes actives, focus, detalls) perquè la resta de la UI no sigui nomes gris/negre
+// amb semàfor d'estat.
+const ACCENT = '#4C6B4C';
+const ACCENT_SOFT = '#E7EEE7';
+
+// Set d'icones de línia pròpies (paths reals de Lucide, llicència ISC) — substitueixen els
+// emojis solts que feien que la interfície semblés genèrica. Un sol component reutilitzable,
+// mateix gruix de traç a tota l'app.
+const ICON_PATHS = {
+  doc: '<path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  edit: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
+  warning: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  attach: '<path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/>',
+  clipboard: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
+  chevronRight: '<path d="m9 18 6-6-6-6"/>',
+  chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  done: '<circle cx="12" cy="12" r="10"/><path d="m16 9-5.5 5.5L8 12"/>',
+  note: '<path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4"/><path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><path d="M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"/>',
+  clock: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M5 3 2 6"/><path d="m22 6-3-3"/><path d="M6.38 18.7 4 21"/><path d="M17.64 18.67 20 21"/>',
+  calendar: '<path d="M8 2v3"/><path d="M16 2v3"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/>',
+  folder: '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>',
+  cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
+  crown: '<path d="M11.562 3.266a.5.5 0 0 1 .876 0L15.39 8.87a1 1 0 0 0 1.516.294L21.183 5.5a.5.5 0 0 1 .798.519l-2.834 10.246a1 1 0 0 1-.956.734H5.81a1 1 0 0 1-.957-.734L2.02 6.02a.5.5 0 0 1 .798-.519l4.276 3.664a1 1 0 0 0 1.516-.294z"/><path d="M5 21h14"/>',
+  save: '<path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/>',
+  checkSquare: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="m16 9-5.5 5.5L8 12"/>',
+  comment: '<path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"/>',
+  flask: '<path d="M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2"/><path d="M6.453 15h11.094"/><path d="M8.5 2h7"/>',
+  ruler: '<path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/>',
+  brick: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 9v6"/><path d="M16 15v6"/><path d="M16 3v6"/><path d="M3 15h18"/><path d="M3 9h18"/><path d="M8 15v6"/><path d="M8 3v6"/>',
+  hourglass: '<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>',
+  download: '<path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/>',
+  pin: '<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
+  rain: '<path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M16 14v6"/><path d="M8 14v6"/><path d="M12 16v6"/>',
+  search: '<path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/>',
+  people: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/>',
+  refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+  map: '<path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  camera: '<path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"/><circle cx="12" cy="13" r="3"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+};
+
+function Icon({ name, size = 15, strokeWidth = 1.75, style, className, ...rest }) {
+  const d = ICON_PATHS[name];
+  if (!d) return null;
+  return (
+    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round"
+      style={{ display: 'inline-block', verticalAlign: '-3px', flexShrink: 0, ...style }}
+      dangerouslySetInnerHTML={{ __html: d }} {...rest} />
+  );
+}
 
 function Pill({ label, bg, color }) {
   return <span style={{ fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 500, background: bg, color, whiteSpace: 'nowrap' }}>{label}</span>;
@@ -730,7 +796,7 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
           <div style={{ fontSize: 12, color: '#6B6B66', marginTop: 2 }}>{obraSel.cliente}</div>
           <div style={{ fontSize: 11.5, color: '#A5A5A0', marginTop: 2 }}>{obraSel.direccion || 'Sin dirección'}</div>
           {(!obraSel.direccion || obraSel.geoLat === null) && (
-            <div style={{ fontSize: 10.5, color: '#C47610', marginTop: 4 }}>⚠ Ubicación aproximada — no se ha podido localizar la dirección exacta</div>
+            <div style={{ fontSize: 10.5, color: '#C47610', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="warning" size={11} /> Ubicación aproximada — no se ha podido localizar la dirección exacta</div>
           )}
           <div style={{ marginTop: 10 }}><Btn primary sm full onClick={() => onSelectObra(obraSel)}>Abrir obra</Btn></div>
         </div>
@@ -859,7 +925,7 @@ function ModalCompartir({ obra, user, onClose }) {
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: '#16160F', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nombre}</div>
-                    <div style={{ fontSize: 11, color: '#A5A5A0' }}>{esCreador ? '👑 Creador' : 'Editor'}</div>
+                    <div style={{ fontSize: 11, color: '#A5A5A0', display: 'flex', alignItems: 'center', gap: 4 }}>{esCreador ? <><Icon name="crown" size={11} /> Creador</> : 'Editor'}</div>
                   </div>
                   {/* Quitar acceso — solo owner puede, no puede echarse a sí mismo ni al creador */}
                   {esOwner && !esYo && !esCreador && (
@@ -950,7 +1016,7 @@ function MenuPerfil({ onBackup, onSalir }) {
         <div className="fade" style={{ position: 'absolute', bottom: 'calc(100% + 6px)', right: 0, background: '#2A2A27', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.4)', minWidth: 180, zIndex: 200, overflow: 'hidden' }}>
           <button onClick={() => { setOpen(false); onBackup(); }}
             style={{ width: '100%', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'rgba(255,255,255,0.75)', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 9 }}>
-            <span>💾</span> Copia de seguridad
+            <Icon name="save" size={13} /> Copia de seguridad
           </button>
           <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '0 10px' }} />
           <button onClick={() => { setOpen(false); onSalir(); }}
@@ -1885,7 +1951,7 @@ function ModuloInspecciones({ obra, onSave }) {
               <div style={{ fontSize: 13, fontWeight: activa ? 500 : 400, color: '#18180F', marginBottom: 3 }}>{d.nombre}</div>
               <div style={{ display: 'flex', gap: 6, fontSize: 11, color: '#A5A5A0' }}>
                 <span>{insp}/{pts} insp.</span>
-                {inc > 0 && <span style={{ color: '#8A1F1F' }}>⚠ {inc}</span>}
+                {inc > 0 && <span style={{ color: '#8A1F1F', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="warning" size={10} /> {inc}</span>}
               </div>
             </div>
           );
@@ -1912,7 +1978,7 @@ function ModuloInspecciones({ obra, onSave }) {
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
               <span style={{ color: '#6B6B66' }}>{inspeccionados}/{totalPuntos}</span>
-              {conIncidencia > 0 && <span style={{ color: '#8A1F1F' }}>⚠ {conIncidencia}</span>}
+              {conIncidencia > 0 && <span style={{ color: '#8A1F1F', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="warning" size={10} /> {conIncidencia}</span>}
             </div>
           </div>
         )}
@@ -1927,7 +1993,7 @@ function ModuloInspecciones({ obra, onSave }) {
         )}
         {!disciplina ? (
           <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: '#A5A5A0' }}>
-            <div style={{ fontSize: 32 }}>📋</div>
+            <Icon name="clipboard" size={32} style={{ color: '#C5C4BE' }} />
             <div style={{ fontSize: 13 }}>Selecciona una disciplina para ver sus puntos de control</div>
           </div>
         ) : (
@@ -2428,7 +2494,7 @@ function FormNuevaIncidencia({ onClose, onCrear, obraId }) {
               <button onClick={() => setFotos(p => p.filter(x => x.id !== f.id))} style={{ position: 'absolute', top: -5, right: -5, width: 16, height: 16, borderRadius: '50%', background: '#8A1F1F', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
             </div>
           ))}
-          <button onClick={() => pickFiles('image/*', f => setFotos(p => [...p, f]), obraId)} style={{ width: 70, height: 56, borderRadius: 7, border: '1.5px dashed #E0DFD9', background: 'transparent', cursor: 'pointer', fontSize: 20, color: '#A5A5A0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📷</button>
+          <button onClick={() => pickFiles('image/*', f => setFotos(p => [...p, f]), obraId)} style={{ width: 70, height: 56, borderRadius: 7, border: '1.5px dashed #E0DFD9', background: 'transparent', cursor: 'pointer', color: '#A5A5A0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="camera" size={19} /></button>
         </div>
       </div>
 
@@ -2517,7 +2583,7 @@ function DetalleIncidencia({ inc, onClose, onActualizar, onEliminar, obraId }) {
         ) : (
           <>
             <span style={{ fontSize: 13, fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inc.titulo}</span>
-            <button onClick={() => setEditTitulo(true)} title="Editar título" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#A5A5A0', fontSize: 13, padding: '0 2px', flexShrink: 0 }}>✏️</button>
+            <button onClick={() => setEditTitulo(true)} title="Editar título" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#A5A5A0', padding: '0 2px', flexShrink: 0, display: 'inline-flex' }}><Icon name="edit" size={13} /></button>
           </>
         )}
         <Pill label={est.label} bg={est.bg} color={est.color} />
@@ -2527,7 +2593,7 @@ function DetalleIncidencia({ inc, onClose, onActualizar, onEliminar, obraId }) {
             <>
               <div onClick={() => setMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 20 }} />
               <div style={{ position: 'absolute', right: 0, top: '100%', background: '#fff', border: '1px solid #E0DFD9', borderRadius: 9, boxShadow: '0 8px 24px rgba(0,0,0,.12)', padding: 5, zIndex: 21, minWidth: 130 }}>
-                <div onClick={() => { setMenu(false); setEditTitulo(true); }} className="hov-row" style={{ padding: '7px 11px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: '#16160F' }}>✏️ Editar título</div>
+                <div onClick={() => { setMenu(false); setEditTitulo(true); }} className="hov-row" style={{ padding: '7px 11px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: '#16160F', display: 'flex', alignItems: 'center', gap: 7 }}><Icon name="edit" size={13} /> Editar título</div>
                 <div onClick={() => { setMenu(false); setConfirmar(true); }} className="hov-row" style={{ padding: '7px 11px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: '#8A1F1F' }}>Eliminar</div>
               </div>
             </>
@@ -2587,7 +2653,7 @@ function DetalleIncidencia({ inc, onClose, onActualizar, onEliminar, obraId }) {
                   {/* Botones editar/eliminar entrada */}
                   {(h.tipo === 'nota' || h.tipo === 'creacion' || h.tipo === 'cambio_estado') && (
                     <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-                      <button onClick={() => setEditH(h.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#A5A5A0', fontSize: 13, padding: '0 3px' }} title="Editar">✏️</button>
+                      <button onClick={() => setEditH(h.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#A5A5A0', padding: '0 3px', display: 'inline-flex' }} title="Editar"><Icon name="edit" size={13} /></button>
                       <button onClick={() => eliminarEntrada(h.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C4C3BE', fontSize: 15, lineHeight: 1, padding: '0 3px' }} title="Eliminar entrada">×</button>
                     </div>
                   )}
@@ -2597,7 +2663,7 @@ function DetalleIncidencia({ inc, onClose, onActualizar, onEliminar, obraId }) {
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     {h.adjuntos.map(a => a.tipo === 'imagen'
                       ? <img key={a.id} src={fotoSrc(a)} alt={a.nombre} onClick={() => setPreview(a)} style={{ width: 140, height: 110, objectFit: 'cover', borderRadius: 8, border: '1px solid #E0DFD9', cursor: 'zoom-in' }} />
-                      : <a key={a.id} href={fotoSrc(a)} download={a.nombre} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, padding: '4px 9px', borderRadius: 7, background: '#F5F4F0', border: '1px solid #E0DFD9', color: '#18180F', textDecoration: 'none' }}>📄 {a.nombre}</a>
+                      : <a key={a.id} href={fotoSrc(a)} download={a.nombre} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, padding: '4px 9px', borderRadius: 7, background: '#F5F4F0', border: '1px solid #E0DFD9', color: '#18180F', textDecoration: 'none' }}><Icon name="doc" size={12} /> {a.nombre}</a>
                     )}
                   </div>
                 )}
@@ -2616,14 +2682,14 @@ function DetalleIncidencia({ inc, onClose, onActualizar, onEliminar, obraId }) {
                 <div key={a.id} style={{ position: 'relative' }}>
                   {a.tipo === 'imagen'
                     ? <img src={fotoSrc(a)} alt="" style={{ width: 60, height: 48, objectFit: 'cover', borderRadius: 6, border: '1px solid #E0DFD9' }} />
-                    : <div style={{ fontSize: 11, padding: '4px 8px', background: '#fff', border: '1px solid #E0DFD9', borderRadius: 6 }}>📄 {a.nombre}</div>}
+                    : <div style={{ fontSize: 11, padding: '4px 8px', background: '#fff', border: '1px solid #E0DFD9', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="doc" size={12} /> {a.nombre}</div>}
                   <button onClick={() => setAdjuntos(p => p.filter(x => x.id !== a.id))} style={{ position: 'absolute', top: -4, right: -4, width: 14, height: 14, borderRadius: '50%', background: '#8A1F1F', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 9, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
                 </div>
               ))}
             </div>
           )}
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => pickFiles('image/*,.pdf,.doc,.docx', f => setAdjuntos(p => [...p, f]), obraId)} style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid #E0DFD9', background: '#fff', cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap' }}>📎 Adjuntar</button>
+            <button onClick={() => pickFiles('image/*,.pdf,.doc,.docx', f => setAdjuntos(p => [...p, f]), obraId)} style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid #E0DFD9', background: '#fff', cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="attach" size={13} /> Adjuntar</button>
             <Btn primary full onClick={guardar} disabled={!nota.trim() && adjuntos.length === 0 && estado === inc.estado}>Guardar</Btn>
           </div>
         </div>
@@ -2657,7 +2723,7 @@ function EntradaEditor({ entrada, obraId, onGuardar, onCancelar }) {
           </div>
         ) : (
           <div key={a.id} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '4px 8px', background: '#fff', border: '1px solid #E0DFD9', borderRadius: 6 }}>
-            📄 {a.nombre}
+            <Icon name="doc" size={12} /> {a.nombre}
             <button onClick={() => setAdjuntos(p => p.filter(x => x.id !== a.id))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C4C3BE', fontSize: 13, lineHeight: 1 }}>×</button>
           </div>
         ))}
@@ -2736,14 +2802,14 @@ function ModalRevision({ inc, onSinCambios, onConCambios, onClose, obraId }) {
                     <div key={a.id} style={{ position: 'relative' }}>
                       {a.tipo === 'imagen'
                         ? <img src={fotoSrc(a)} alt="" style={{ width: 60, height: 48, objectFit: 'cover', borderRadius: 6, border: '1px solid #E0DFD9' }} />
-                        : <div style={{ fontSize: 11, padding: '4px 8px', background: '#F5F4F0', border: '1px solid #E0DFD9', borderRadius: 6 }}>📄 {a.nombre}</div>}
+                        : <div style={{ fontSize: 11, padding: '4px 8px', background: '#F5F4F0', border: '1px solid #E0DFD9', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="doc" size={12} /> {a.nombre}</div>}
                       <button onClick={() => setAdjuntos(p => p.filter(x => x.id !== a.id))} style={{ position: 'absolute', top: -4, right: -4, width: 14, height: 14, borderRadius: '50%', background: '#8A1F1F', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 9 }}>×</button>
                     </div>
                   ))}
                 </div>
               )}
 
-              <button onClick={() => pickFiles('image/*,.pdf,.doc,.docx', f => setAdjuntos(p => [...p, f]), obraId)} style={{ width: '100%', padding: '8px', borderRadius: 8, border: '1.5px dashed #E0DFD9', background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#6B6B66', marginBottom: 14 }}>📎 Adjuntar foto o documento</button>
+              <button onClick={() => pickFiles('image/*,.pdf,.doc,.docx', f => setAdjuntos(p => [...p, f]), obraId)} style={{ width: '100%', padding: '8px', borderRadius: 8, border: '1.5px dashed #E0DFD9', background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#6B6B66', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Icon name="attach" size={12} /> Adjuntar foto o documento</button>
 
               <div style={{ display: 'flex', gap: 8 }}>
                 <Btn onClick={() => setFase('pregunta')} full>← Atrás</Btn>
@@ -2863,7 +2929,7 @@ function ModuloIncidencias({ obra, onSave }) {
       {/* Banner visita */}
       {esVisita && pendientes.length > 0 && (
         <div style={{ background: sinRevisar.length === 0 ? '#E8F5E0' : '#FEF3DB', border: `1px solid ${sinRevisar.length === 0 ? '#B8DFA8' : '#F5D98B'}`, borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 18 }}>{sinRevisar.length === 0 ? '✅' : '📋'}</span>
+          <Icon name={sinRevisar.length === 0 ? 'done' : 'clipboard'} size={18} style={{ color: sinRevisar.length === 0 ? '#2D5E10' : '#7C4A00' }} />
           <div>
             <div style={{ fontSize: 13, fontWeight: 500, color: '#18180F' }}>
               {sinRevisar.length === 0
@@ -2879,7 +2945,7 @@ function ModuloIncidencias({ obra, onSave }) {
       {/* Sin visita hoy: próxima visita */}
       {!esVisita && pendientes.length > 0 && (
         <div style={{ background: '#F9F8F5', border: '1px solid #E8E7E1', borderRadius: 10, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 13 }}>📅</span>
+          <Icon name="calendar" size={13} style={{ color: '#6B6B66' }} />
           <span style={{ fontSize: 12, color: '#6B6B66' }}>Próxima visita: <strong>{proximaDiaVisita()}</strong> · {pendientes.length} incidencia{pendientes.length > 1 ? 's' : ''} pendiente{pendientes.length > 1 ? 's' : ''}</span>
         </div>
       )}
@@ -2920,7 +2986,7 @@ function ModuloIncidencias({ obra, onSave }) {
       {/* Lista */}
       {mostradas.length === 0 ? (
         <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, padding: '40px 20px', textAlign: 'center', color: '#A5A5A0' }}>
-          <div style={{ fontSize: 32, marginBottom: 10 }}>{vista === 'resueltas' ? '✅' : '✓'}</div>
+          <div style={{ marginBottom: 10 }}>{vista === 'resueltas' ? <Icon name="done" size={30} style={{ color: '#C5C4BE' }} /> : <span style={{ fontSize: 32 }}>✓</span>}</div>
           <div style={{ fontSize: 13 }}>
             {vista === 'pendientes' ? 'Sin incidencias pendientes' : vista === 'resueltas' ? 'Aún no hay incidencias resueltas' : 'Sin incidencias registradas'}
           </div>
@@ -3022,7 +3088,7 @@ function ModuloApuntes({ obra, onSave }) {
       {/* Stats rápidas */}
       {tareasPend.length > 0 && (
         <div style={{ background: apuntes.some(isVencida) ? '#FFF0F0' : '#FEF3DB', border: `1px solid ${apuntes.some(isVencida) ? '#FDCECE' : '#F5D98B'}`, borderRadius: 10, padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 16 }}>{apuntes.some(isVencida) ? '⚠️' : '📋'}</span>
+          <Icon name={apuntes.some(isVencida) ? 'warning' : 'clipboard'} size={16} style={{ color: apuntes.some(isVencida) ? '#8A1F1F' : '#7C4A00' }} />
           <span style={{ fontSize: 13, fontWeight: 500 }}>
             {tareasPend.length} tarea{tareasPend.length > 1 ? 's' : ''} pendiente{tareasPend.length > 1 ? 's' : ''}
             {apuntes.some(isVencida) && <span style={{ color: '#8A1F1F' }}> · {apuntes.filter(isVencida).length} vencida{apuntes.filter(isVencida).length > 1 ? 's' : ''}</span>}
@@ -3054,9 +3120,9 @@ function ModuloApuntes({ obra, onSave }) {
         <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, padding: '14px 16px' }}>
           {/* Tipo toggle */}
           <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-            {[['tarea','☑ Tarea'],['nota','📝 Nota']].map(([t, l]) => (
-              <button key={t} onClick={() => upd('tipo', t)} style={{ padding: '6px 14px', borderRadius: 20, border: `1.5px solid ${form.tipo === t ? '#18180F' : '#E0DFD9'}`, background: form.tipo === t ? '#18180F' : 'transparent', color: form.tipo === t ? '#fff' : '#6B6B66', fontSize: 12, cursor: 'pointer', fontWeight: form.tipo === t ? 600 : 400, transition: 'all .15s' }}>
-                {l}
+            {[['tarea','checkSquare','Tarea'],['nota','note','Nota']].map(([t, icono, l]) => (
+              <button key={t} onClick={() => upd('tipo', t)} style={{ padding: '6px 14px', borderRadius: 20, border: `1.5px solid ${form.tipo === t ? '#18180F' : '#E0DFD9'}`, background: form.tipo === t ? '#18180F' : 'transparent', color: form.tipo === t ? '#fff' : '#6B6B66', fontSize: 12, cursor: 'pointer', fontWeight: form.tipo === t ? 600 : 400, transition: 'all .15s', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Icon name={icono} size={12} /> {l}
               </button>
             ))}
           </div>
@@ -3092,8 +3158,8 @@ function ModuloApuntes({ obra, onSave }) {
       {/* Lista */}
       {mostrados.length === 0 ? (
         <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, padding: '40px 20px', textAlign: 'center', color: '#A5A5A0' }}>
-          <div style={{ fontSize: 32, marginBottom: 10 }}>
-            {filtro === 'hechas' ? '✅' : filtro === 'notas' ? '📝' : '📋'}
+          <div style={{ marginBottom: 10 }}>
+            <Icon name={filtro === 'hechas' ? 'done' : filtro === 'notas' ? 'note' : 'clipboard'} size={30} style={{ color: '#C5C4BE' }} />
           </div>
           <div style={{ fontSize: 13 }}>
             {filtro === 'todo' ? 'Sin apuntes todavía' : filtro === 'pendientes' ? 'Sin tareas pendientes' : filtro === 'hechas' ? 'Sin tareas completadas' : 'Sin notas'}
@@ -3135,7 +3201,7 @@ function ApunteItem({ item, vencida, onToggleHecha, onEditarTexto, onAddComentar
             {item.hecha ? '✓' : ''}
           </button>
         )}
-        {item.tipo === 'nota' && <span style={{ fontSize: 15, flexShrink: 0, marginTop: 1 }}>📝</span>}
+        {item.tipo === 'nota' && <Icon name="note" size={14} style={{ flexShrink: 0, marginTop: 1, color: '#9B9B97' }} />}
 
         {/* Contenido */}
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -3152,19 +3218,19 @@ function ApunteItem({ item, vencida, onToggleHecha, onEditarTexto, onAddComentar
               <div style={{ flex: 1, fontSize: 13, color: item.hecha ? '#A5A5A0' : '#18180F', textDecoration: item.hecha ? 'line-through' : 'none', lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>
                 {item.texto}
               </div>
-              <button onClick={() => setEditando(true)} title="Editar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C4C3BE', fontSize: 13, padding: '0 2px', flexShrink: 0, marginTop: 1 }}>✏️</button>
+              <button onClick={() => setEditando(true)} title="Editar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C4C3BE', padding: '0 2px', flexShrink: 0, marginTop: 1, display: 'inline-flex' }}><Icon name="edit" size={13} /></button>
             </div>
           )}
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 20, background: '#F0EFEA', color: '#6B6B66' }}>{item.categoria}</span>
             {item.tipo === 'tarea' && item.fechaLimite && (
-              <span style={{ fontSize: 11, color: vencida ? '#8A1F1F' : '#A5A5A0', fontWeight: vencida ? 500 : 400 }}>
-                {vencida ? '⚠ Vencida · ' : '📅 '}{fmtDate(item.fechaLimite)}
+              <span style={{ fontSize: 11, color: vencida ? '#8A1F1F' : '#A5A5A0', fontWeight: vencida ? 500 : 400, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                <Icon name={vencida ? 'warning' : 'calendar'} size={10} />{vencida ? ' Vencida · ' : ' '}{fmtDate(item.fechaLimite)}
               </span>
             )}
             {item.tipo === 'nota' && <span style={{ fontSize: 11, color: '#A5A5A0' }}>{fmtShort(item.creadaEn)}</span>}
             <button onClick={() => setAbierto(v => !v)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#6B6B66', display: 'flex', alignItems: 'center', gap: 3 }}>
-              💬 {comentarios.length > 0 ? comentarios.length : ''} {abierto ? '▲' : '▼'}
+              <Icon name="comment" size={11} /> {comentarios.length > 0 ? comentarios.length : ''} {abierto ? '▲' : '▼'}
             </button>
           </div>
         </div>
@@ -3348,14 +3414,14 @@ function ModuloEnsayos({ obra, onSave }) {
   if (!datos) {
     return (
       <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, padding: '48px 24px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
-        <div style={{ width: 56, height: 56, borderRadius: 16, background: '#1C1C1A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>🧪</div>
+        <div style={{ width: 56, height: 56, borderRadius: 16, background: '#1C1C1A', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="flask" size={26} style={{ color: '#F2F1ED' }} /></div>
         <div>
           <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Importar ensayos desde Presto</div>
           <div style={{ fontSize: 13, color: '#9B9B97', maxWidth: 420, lineHeight: 1.5 }}>
             Carga el Excel exportado del presupuesto de Presto. La app reconocerá los capítulos y creará la lista de ensayos automáticamente.
           </div>
         </div>
-        <Btn primary onClick={() => importarExcel(onImportar)}>📂 Cargar Excel de Presto</Btn>
+        <Btn primary onClick={() => importarExcel(onImportar)}><Icon name="folder" size={13} /> Cargar Excel de Presto</Btn>
       </div>
     );
   }
@@ -3377,7 +3443,7 @@ function ModuloEnsayos({ obra, onSave }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 200 }}>
           <div style={{ fontSize: 13, fontWeight: 500 }}>{totalEjecutados}/{totalEnsayos} ensayos iniciados</div>
-          <div style={{ fontSize: 11, color: '#9B9B97', marginTop: 1 }}>📄 {datos.archivoNombre} · importado {fmtShort(datos.importadoEn)}</div>
+          <div style={{ fontSize: 11, color: '#9B9B97', marginTop: 1, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="doc" size={11} /> {datos.archivoNombre} · importado {fmtShort(datos.importadoEn)}</div>
         </div>
         <button onClick={() => importarExcel(onImportar)} style={{ fontSize: 12, color: '#6B6B66', background: '#fff', border: '1px solid #E0DFD9', borderRadius: 8, padding: '6px 11px', cursor: 'pointer' }}>Reimportar</button>
       </div>
@@ -3485,7 +3551,7 @@ function DetalleEnsayo({ ensayo, onClose, onUpdate, onPreview }) {
         {/* Criterio de medición */}
         {ensayo.criterio && (
           <div style={{ background: '#F0F4FA', border: '1px solid #D3E2F5', borderRadius: 9, padding: '9px 12px', marginBottom: 14, display: 'flex', gap: 8 }}>
-            <span style={{ fontSize: 13 }}>📐</span>
+            <Icon name="ruler" size={13} style={{ color: '#0C447C', flexShrink: 0 }} />
             <div>
               <div style={{ fontSize: 10, color: '#0C447C', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, marginBottom: 2 }}>Criterio de medición</div>
               <div style={{ fontSize: 12, color: '#1A3A5C', lineHeight: 1.45 }}>{ensayo.criterio}</div>
@@ -3545,7 +3611,7 @@ function UnidadesNombradas({ ensayo, onUpdate, onPreview }) {
               </div>
               <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: '#141412' }}>{u.nombre}</span>
               {u.marca && <Pill label={res.label} bg={res.bg} color={res.color} />}
-              {u.marca?.adjuntos?.length > 0 && <span style={{ fontSize: 11, color: '#A5A5A0' }}>📎 {u.marca.adjuntos.length}</span>}
+              {u.marca?.adjuntos?.length > 0 && <span style={{ fontSize: 11, color: '#A5A5A0', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="attach" size={10} /> {u.marca.adjuntos.length}</span>}
             </div>
 
             {/* Editor inline */}
@@ -3563,14 +3629,14 @@ function UnidadesNombradas({ ensayo, onUpdate, onPreview }) {
                       <div key={a.id} style={{ position: 'relative' }}>
                         {a.tipo === 'imagen'
                           ? <img src={fotoSrc(a)} alt="" onClick={() => onPreview(a)} style={{ width: 60, height: 48, objectFit: 'cover', borderRadius: 6, border: '1px solid #E0DFD9', cursor: 'zoom-in' }} />
-                          : <div style={{ fontSize: 11, padding: '4px 8px', background: '#fff', border: '1px solid #E0DFD9', borderRadius: 6 }}>📄 {a.nombre}</div>}
+                          : <div style={{ fontSize: 11, padding: '4px 8px', background: '#fff', border: '1px solid #E0DFD9', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="doc" size={12} /> {a.nombre}</div>}
                         <button onClick={() => setAdjuntos(p => p.filter(x => x.id !== a.id))} style={{ position: 'absolute', top: -4, right: -4, width: 14, height: 14, borderRadius: '50%', background: '#8A1F1F', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 9 }}>×</button>
                       </div>
                     ))}
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <button onClick={() => pickFiles('image/*,.pdf,.doc,.docx', f => setAdjuntos(p => [...p, f]), obraId)} style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid #E0DFD9', background: '#fff', cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap' }}>📎 Adjuntar</button>
+                  <button onClick={() => pickFiles('image/*,.pdf,.doc,.docx', f => setAdjuntos(p => [...p, f]), obraId)} style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid #E0DFD9', background: '#fff', cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="attach" size={13} /> Adjuntar</button>
                   {u.marca && <Btn danger onClick={() => quitar(u.id)}>Desmarcar</Btn>}
                   <div style={{ flex: 1 }} />
                   <Btn onClick={() => setEditId(null)}>Cancelar</Btn>
@@ -3654,7 +3720,7 @@ function RegistrosLibres({ ensayo, onUpdate, onPreview }) {
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     {r.adjuntos.map(a => a.tipo === 'imagen'
                       ? <img key={a.id} src={fotoSrc(a)} alt={a.nombre} onClick={() => onPreview(a)} style={{ width: 120, height: 92, objectFit: 'cover', borderRadius: 8, border: '1px solid #E0DFD9', cursor: 'zoom-in' }} />
-                      : <a key={a.id} href={fotoSrc(a)} download={a.nombre} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, padding: '4px 9px', borderRadius: 7, background: '#F5F4F0', border: '1px solid #E0DFD9', color: '#18180F', textDecoration: 'none' }}>📄 {a.nombre}</a>
+                      : <a key={a.id} href={fotoSrc(a)} download={a.nombre} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, padding: '4px 9px', borderRadius: 7, background: '#F5F4F0', border: '1px solid #E0DFD9', color: '#18180F', textDecoration: 'none' }}><Icon name="doc" size={12} /> {a.nombre}</a>
                     )}
                   </div>
                 )}
@@ -3679,14 +3745,14 @@ function RegistrosLibres({ ensayo, onUpdate, onPreview }) {
                 <div key={a.id} style={{ position: 'relative' }}>
                   {a.tipo === 'imagen'
                     ? <img src={fotoSrc(a)} alt="" onClick={() => onPreview(a)} style={{ width: 60, height: 48, objectFit: 'cover', borderRadius: 6, border: '1px solid #E0DFD9', cursor: 'zoom-in' }} />
-                    : <div style={{ fontSize: 11, padding: '4px 8px', background: '#fff', border: '1px solid #E0DFD9', borderRadius: 6 }}>📄 {a.nombre}</div>}
+                    : <div style={{ fontSize: 11, padding: '4px 8px', background: '#fff', border: '1px solid #E0DFD9', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="doc" size={12} /> {a.nombre}</div>}
                   <button onClick={() => setAdjuntos(p => p.filter(x => x.id !== a.id))} style={{ position: 'absolute', top: -4, right: -4, width: 14, height: 14, borderRadius: '50%', background: '#8A1F1F', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 9 }}>×</button>
                 </div>
               ))}
             </div>
           )}
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => pickFiles('image/*,.pdf,.doc,.docx', f => setAdjuntos(p => [...p, f]), obraId)} style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid #E0DFD9', background: '#fff', cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap' }}>📎 Adjuntar acta</button>
+            <button onClick={() => pickFiles('image/*,.pdf,.doc,.docx', f => setAdjuntos(p => [...p, f]), obraId)} style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid #E0DFD9', background: '#fff', cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="attach" size={13} /> Adjuntar acta</button>
             <Btn onClick={() => setShow(false)} full>Cancelar</Btn>
             <Btn primary full onClick={guardar}>Guardar</Btn>
           </div>
@@ -3779,7 +3845,7 @@ function ModuloCalidad({ obra, onSave }) {
       {/* Sub-navegación de calidad */}
       <div style={{ display: 'flex', gap: 4, background: '#fff', border: '1px solid #E8E7E1', borderRadius: 10, padding: 4, width: 'fit-content' }}>
         {subTabs.map(t => (
-          <button key={t.id} onClick={() => setSub(t.id)} style={{ padding: '6px 14px', borderRadius: 7, border: 'none', background: sub === t.id ? '#1C1C1A' : 'transparent', color: sub === t.id ? '#F2F1ED' : '#6B6B66', fontSize: 13, cursor: 'pointer', fontWeight: sub === t.id ? 500 : 400, transition: 'all .15s' }}>
+          <button key={t.id} onClick={() => setSub(t.id)} style={{ padding: '6px 14px', borderRadius: 7, border: 'none', background: sub === t.id ? ACCENT : 'transparent', color: sub === t.id ? '#F2F1ED' : '#6B6B66', fontSize: 13, cursor: 'pointer', fontWeight: sub === t.id ? 500 : 400, transition: 'all .15s' }}>
             {t.label}
           </button>
         ))}
@@ -3803,7 +3869,7 @@ function ModuloMateriales({ obra, onSave }) {
     <div>
       <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: '1px solid #E8E7E1' }}>
         {subTabs.map(t => (
-          <button key={t.id} onClick={() => setSub(t.id)} style={{ padding: '7px 14px', border: 'none', borderBottom: `2px solid ${sub === t.id ? '#1C1C1A' : 'transparent'}`, background: 'transparent', color: sub === t.id ? '#141412' : '#9B9B97', fontSize: 13, cursor: 'pointer', fontWeight: sub === t.id ? 600 : 400, marginBottom: -1 }}>
+          <button key={t.id} onClick={() => setSub(t.id)} style={{ padding: '7px 14px', border: 'none', borderBottom: `2px solid ${sub === t.id ? ACCENT : 'transparent'}`, background: 'transparent', color: sub === t.id ? ACCENT : '#9B9B97', fontSize: 13, cursor: 'pointer', fontWeight: sub === t.id ? 600 : 400, marginBottom: -1 }}>
             {t.label}
           </button>
         ))}
@@ -4087,8 +4153,8 @@ function SeguimientoCQ({ obra, onSave }) {
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C5C4BE', fontSize: 12, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}>✎</button>
                   <button onClick={e => { e.stopPropagation(); setConfirmacion({ titulo: 'Eliminar capítol', texto: `Vas a eliminar "${c.titulo}" i tots els seus elements.`, onSi: () => delCap(c.id) }); }}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 16, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}>×</button>
-                  <span onClick={() => setAbierto(a => ({ ...a, [c.id]: !a[c.id] }))}
-                    style={{ fontSize: 9, color: '#C4C3BE', cursor: 'pointer', flexShrink: 0, transition: 'transform .2s', transform: open ? 'rotate(90deg)' : 'none' }}>▶</span>
+                  <Icon name="chevronRight" size={11} onClick={() => setAbierto(a => ({ ...a, [c.id]: !a[c.id] }))}
+                    style={{ color: '#C4C3BE', cursor: 'pointer', flexShrink: 0, transition: 'transform .2s', transform: open ? 'rotate(90deg)' : 'none' }} />
                 </div>
 
                 {/* Línia 2 — què queda pendent */}
@@ -4123,7 +4189,7 @@ function SeguimientoCQ({ obra, onSave }) {
                               : <span style={{ flex: 1, fontSize: 13, color: '#18180F', lineHeight: 1.4 }}>{i.nombre}</span>}
                             <span style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
                               <button onClick={() => setEditItem(i.id)} title="Editar nom"
-                                style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C3BE', fontSize:12, padding:'2px 4px' }}>✏️</button>
+                                style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C3BE', padding:'2px 4px', display: 'inline-flex' }}><Icon name="edit" size={12} /></button>
                               <button onClick={() => setConfirmacion({ titulo: 'Eliminar element', texto: `Vas a eliminar "${i.nombre}".`, onSi: () => delItem(c.id, i.id) })}
                                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 15, lineHeight: 1, padding: '0 3px' }}>×</button>
                             </span>
@@ -4690,6 +4756,8 @@ function ControlHormigon({ obra, onSave }) {
 
   const thCell = { padding: '8px 10px', fontSize: 10.5, color: '#9B9B97', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600, whiteSpace: 'nowrap', textAlign: 'left' };
   const tdCell = { padding: '7px 10px', verticalAlign: 'middle', whiteSpace: 'nowrap' };
+  // Numerals alineats — volums, fck i resistències llegeixen millor en columna que en proporcional
+  const NUM_TAB = { fontVariantNumeric: 'tabular-nums', letterSpacing: '0.01em' };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -4697,7 +4765,7 @@ function ControlHormigon({ obra, onSave }) {
       {/* Sub-navegación: Lotificación / Seguimiento de actas */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 2, borderBottom: '1px solid #E8E7E1' }}>
         {[['lotificacion', 'Lotificación'], ['seguimiento', 'Seguimiento de actas']].map(([id, label]) => (
-          <button key={id} onClick={() => setSub(id)} style={{ padding: '7px 14px', border: 'none', borderBottom: `2px solid ${sub === id ? '#1C1C1A' : 'transparent'}`, background: 'transparent', color: sub === id ? '#141412' : '#9B9B97', fontSize: 13, cursor: 'pointer', fontWeight: sub === id ? 600 : 400, marginBottom: -1 }}>
+          <button key={id} onClick={() => setSub(id)} style={{ padding: '7px 14px', border: 'none', borderBottom: `2px solid ${sub === id ? ACCENT : 'transparent'}`, background: 'transparent', color: sub === id ? ACCENT : '#9B9B97', fontSize: 13, cursor: 'pointer', fontWeight: sub === id ? 600 : 400, marginBottom: -1 }}>
             {label}
           </button>
         ))}
@@ -4708,7 +4776,7 @@ function ControlHormigon({ obra, onSave }) {
       {/* Aviso de datos antiguos */}
       {hayAntiguos && (
         <div style={{ background: '#FEF3DB', border: '1px solid #F5D98B', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 15 }}>⚠️</span>
+          <Icon name="warning" size={15} style={{ color: '#C47610' }} />
           <span style={{ fontSize: 12, color: '#7C4A00', flex: 1 }}>Hay lotes creados con una versión anterior que no son compatibles.</span>
           <button onClick={() => onSave({ ...obra, lotes: elementos })} style={{ fontSize: 12, padding: '5px 11px', borderRadius: 8, border: '1px solid #D48A0C', background: '#fff', color: '#7C4A00', cursor: 'pointer', fontWeight: 500, whiteSpace: 'nowrap' }}>
             Limpiar antiguos
@@ -4739,7 +4807,7 @@ function ControlHormigon({ obra, onSave }) {
             <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 6 }}>Tipo de elemento</label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               {Object.entries(TIPOS_ELEMENTO).map(([k, v]) => (
-                <div key={k} onClick={() => upd('tipo', k)} style={{ padding: '10px 12px', borderRadius: 10, border: `1.5px solid ${form.tipo === k ? '#18180F' : '#E0DFD9'}`, background: form.tipo === k ? '#F5F4F0' : '#fff', cursor: 'pointer', transition: 'all .15s' }}>
+                <div key={k} onClick={() => upd('tipo', k)} style={{ padding: '10px 12px', borderRadius: 10, border: `1.5px solid ${form.tipo === k ? ACCENT : '#E0DFD9'}`, background: form.tipo === k ? ACCENT_SOFT : '#fff', cursor: 'pointer', transition: 'all .15s' }}>
                   <div style={{ fontSize: 13, fontWeight: 500 }}>{v.label}</div>
                   <div style={{ fontSize: 11, color: '#A5A5A0', marginTop: 2 }}>{v.desc}</div>
                 </div>
@@ -4766,7 +4834,7 @@ function ControlHormigon({ obra, onSave }) {
             <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 6 }}>¿Hormigón con DOR?</label>
             <div style={{ display: 'flex', gap: 6 }}>
               {[[false, 'Sin DOR'], [true, 'Con DOR']].map(([val, label]) => (
-                <button key={String(val)} onClick={() => upd('conDOR', val)} style={{ padding: '6px 14px', borderRadius: 20, border: `1.5px solid ${form.conDOR === val ? '#18180F' : '#E0DFD9'}`, background: form.conDOR === val ? '#18180F' : 'transparent', color: form.conDOR === val ? '#fff' : '#6B6B66', fontSize: 12, cursor: 'pointer', fontWeight: form.conDOR === val ? 600 : 400 }}>
+                <button key={String(val)} onClick={() => upd('conDOR', val)} style={{ padding: '6px 14px', borderRadius: 20, border: `1.5px solid ${form.conDOR === val ? ACCENT : '#E0DFD9'}`, background: form.conDOR === val ? ACCENT : 'transparent', color: form.conDOR === val ? '#fff' : '#6B6B66', fontSize: 12, cursor: 'pointer', fontWeight: form.conDOR === val ? 600 : 400 }}>
                   {label}
                 </button>
               ))}
@@ -4814,12 +4882,12 @@ function ControlHormigon({ obra, onSave }) {
       {/* Resumen tipo hoja "lotificació" del Excel: una fila por elemento con sus referencias */}
       {elementos.length === 0 && !showNuevo ? (
         <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, padding: '40px 20px', textAlign: 'center', color: '#A5A5A0' }}>
-          <div style={{ fontSize: 32, marginBottom: 10 }}>🧱</div>
+          <Icon name="brick" size={30} style={{ color: '#C5C4BE', marginBottom: 10 }} />
           <div style={{ fontSize: 13, marginBottom: 14 }}>Sin elementos de hormigón todavía</div>
           <Btn onClick={() => setShowNuevo(true)}>+ Crear primera lotificación</Btn>
         </div>
       ) : elementos.length > 0 && (
-        <div style={{ overflowX: 'auto', background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12 }}>
+        <div className="plano-frame" style={{ overflowX: 'auto', background: '#fff', border: '1px solid #E8E7E1' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 720 }}>
             <thead>
               <tr>
@@ -4841,23 +4909,23 @@ function ControlHormigon({ obra, onSave }) {
                 const totalSeries = numLotes * (el.seriesPorLote || 0);
                 return (
                   <tr key={el.id} style={{ borderTop: '1px solid #F2F1ED' }}>
-                    <td style={tdCell}>
+                    <td style={{ ...tdCell, ...NUM_TAB }}>
                       <button onClick={() => { setElSeleccionado(el.id); setSub('seguimiento'); }} title="Ir al seguimiento de este elemento"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#52524E', fontWeight: 700, fontSize: 'inherit', padding: 0, textDecoration: 'underline', textDecorationColor: '#D8D7D1', textUnderlineOffset: 3 }}>
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: ACCENT, fontWeight: 700, fontSize: 'inherit', padding: 0, textDecoration: 'underline', textDecorationColor: ACCENT_SOFT, textUnderlineOffset: 3 }}>
                         LC{el.numLC || idx + 1}
                       </button>
                     </td>
                     <td style={{ ...tdCell, fontWeight: 600, color: '#141412', whiteSpace: 'normal', minWidth: 140 }}>{el.nombre}</td>
                     <td style={tdCell}>{t.label}</td>
-                    <td style={tdCell}>{el.volumen} m³{el.superficie ? ` · ${el.superficie} m²` : ''}</td>
+                    <td style={{ ...tdCell, ...NUM_TAB }}>{el.volumen} m³{el.superficie ? ` · ${el.superficie} m²` : ''}</td>
                     <td style={tdCell}>
                       <input placeholder="HA-25/B/20/IIa" value={el.designacion || ''} onChange={e => actualizarElemento(el.id, 'designacion', e.target.value)} style={{ fontSize: 12, padding: '4px 7px', width: 140 }} />
                     </td>
                     <td style={tdCell}>
-                      <input type="number" placeholder="25" value={el.fck || ''} onChange={e => actualizarElemento(el.id, 'fck', e.target.value)} style={{ fontSize: 12, padding: '4px 7px', width: 52 }} />
+                      <input type="number" placeholder="25" value={el.fck || ''} onChange={e => actualizarElemento(el.id, 'fck', e.target.value)} style={{ fontSize: 12, padding: '4px 7px', width: 52, ...NUM_TAB }} />
                     </td>
-                    <td style={tdCell}>{numLotes}</td>
-                    <td style={tdCell}>{totalSeries}</td>
+                    <td style={{ ...tdCell, ...NUM_TAB }}>{numLotes}</td>
+                    <td style={{ ...tdCell, ...NUM_TAB }}>{totalSeries}</td>
                     <td style={tdCell}>
                       <button onClick={() => setConfirmacion({ titulo: 'Eliminar lotificación', texto: `Vas a eliminar "${el.nombre}" y todos sus datos. Esta acción no se puede deshacer.`, onSi: () => { eliminar(el.id); setConfirmacion(null); } })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 16, padding: '0 2px', lineHeight: 1 }}>×</button>
                     </td>
@@ -4878,13 +4946,13 @@ function ControlHormigon({ obra, onSave }) {
       {/* Aviso mientras se leen los PDFs de la cola */}
       {(procesando || cola.length > 0) && (
         <div style={{ background: '#F0F6F1', border: '1px solid #C5E3CE', borderRadius: 10, padding: '9px 14px', fontSize: 12, color: '#1C1C1A', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span>⏳</span> Leyendo {cola.length + (procesando ? 1 : 0)} acta{(cola.length + (procesando ? 1 : 0)) > 1 ? 's' : ''}…
+          <Icon name="hourglass" size={13} /> Leyendo {cola.length + (procesando ? 1 : 0)} acta{(cola.length + (procesando ? 1 : 0)) > 1 ? 's' : ''}…
         </div>
       )}
 
       {!elementoActivo ? (
         <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, padding: '40px 20px', textAlign: 'center', color: '#A5A5A0' }}>
-          <div style={{ fontSize: 32, marginBottom: 10 }}>📎</div>
+          <Icon name="attach" size={30} style={{ color: '#C5C4BE', marginBottom: 10 }} />
           <div style={{ fontSize: 13, marginBottom: 14 }}>Primero crea la lotificación del elemento en la otra pestaña.</div>
           <Btn onClick={() => setSub('lotificacion')}>Ir a Lotificación</Btn>
         </div>
@@ -4909,7 +4977,7 @@ function ControlHormigon({ obra, onSave }) {
                 const noCumplenEl = (el.lotes || []).flatMap(l => l.series || []).filter(s => evaluarActa(s.acta, el.fck).key === 'noCumple').length;
                 return (
                   <button key={el.id} onClick={() => setElSeleccionado(el.id)}
-                    style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: `1.5px solid ${activo ? '#18180F' : '#E0DFD9'}`, background: activo ? '#18180F' : '#fff', color: activo ? '#fff' : '#52524E', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: `1.5px solid ${activo ? ACCENT : '#E0DFD9'}`, background: activo ? ACCENT : '#fff', color: activo ? '#fff' : '#52524E', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', ...NUM_TAB }}>
                     LC{el.numLC || idx + 1}
                     {noCumplenEl > 0 && <span style={{ width: 6, height: 6, borderRadius: '50%', background: activo ? '#FF9B9B' : '#C0392B' }} />}
                   </button>
@@ -4918,22 +4986,22 @@ function ControlHormigon({ obra, onSave }) {
             </div>
 
             {/* Detalle del elemento seleccionado — tabla tipo hoja LC-x */}
-            <div
+            <div className="plano-frame"
               onDragOver={e => { e.preventDefault(); setDragOverId(elementoActivo.id); }}
               onDragLeave={() => setDragOverId(d => d === elementoActivo.id ? null : d)}
               onDrop={e => onDropElemento(e, elementoActivo.id)}
-              style={{ background: arrastrando ? '#F5F4F0' : '#fff', border: `1.5px ${arrastrando ? 'dashed #18180F' : 'solid #E8E7E1'}`, borderRadius: 11, padding: 14, transition: 'border-color .15s, background .15s' }}>
+              style={{ background: arrastrando ? '#F5F4F0' : '#fff', border: `1.5px ${arrastrando ? `dashed ${ACCENT}` : 'solid #E8E7E1'}`, padding: 14, transition: 'border-color .15s, background .15s' }}>
 
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 200 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#141412' }}>LC{elementoActivo.numLC || (elementos.indexOf(elementoActivo) + 1)} · {elementoActivo.nombre}</div>
-                  <div style={{ fontSize: 12, color: '#9B9B97', marginTop: 2 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#141412', ...NUM_TAB }}>LC{elementoActivo.numLC || (elementos.indexOf(elementoActivo) + 1)} · {elementoActivo.nombre}</div>
+                  <div style={{ fontSize: 12, color: '#9B9B97', marginTop: 2, ...NUM_TAB }}>
                     {t.label} · {elementoActivo.volumen} m³{elementoActivo.superficie ? ` · ${elementoActivo.superficie} m²` : ''}
                     {elementoActivo.designacion ? ` · ${elementoActivo.designacion}` : ''}{elementoActivo.fck ? ` · fck ${elementoActivo.fck} N/mm²` : ''}
                   </div>
                 </div>
-                <Btn sm onClick={() => abrirSelector(elementoActivo.id, {})}>📎 Adjuntar acta(s)</Btn>
-                <Btn sm onClick={() => descargarActasElemento(elementoActivo, elementoActivo.numLC || (elementos.indexOf(elementoActivo) + 1))} disabled={seriesRellenas === 0}>⬇ .zip</Btn>
+                <Btn sm onClick={() => abrirSelector(elementoActivo.id, {})}><Icon name="attach" size={13} /> Adjuntar acta(s)</Btn>
+                <Btn sm onClick={() => descargarActasElemento(elementoActivo, elementoActivo.numLC || (elementos.indexOf(elementoActivo) + 1))} disabled={seriesRellenas === 0}><Icon name="download" size={13} /> .zip</Btn>
               </div>
 
               {!elementoActivo.designacion && !elementoActivo.fck && (
@@ -4964,18 +5032,24 @@ function ControlHormigon({ obra, onSave }) {
                       const estado = evaluarActa(acta, elementoActivo.fck);
                       const r28 = (acta?.resistencia28a || acta?.resistencia28b)
                         ? `${acta?.resistencia28a || '—'} / ${acta?.resistencia28b || '—'}` : '—';
+                      const loteCompleto = esPrimeraDelLote && (lote.series || []).every(s => !!s.acta);
                       return (
                         <tr key={serie.id} style={{ borderTop: esPrimeraDelLote ? (i === 0 ? 'none' : '2px solid #D8D7D1') : '1px solid #F2F1ED' }}>
                           {esPrimeraDelLote && (
-                            <td rowSpan={numSeriesLote} style={{ ...tdCell, fontWeight: 600, color: '#52524E', verticalAlign: 'top', borderRight: '1px solid #ECEAE4' }}>{lote.num}</td>
+                            <td rowSpan={numSeriesLote} style={{ ...tdCell, ...NUM_TAB, fontWeight: 600, color: '#52524E', verticalAlign: 'top', borderRight: '1px solid #ECEAE4' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                {lote.num}
+                                {loteCompleto && <Icon name="done" size={12} className="lote-stamp" style={{ color: '#52A124' }} />}
+                              </span>
+                            </td>
                           )}
-                          <td style={tdCell}>{serie.num}</td>
+                          <td style={{ ...tdCell, ...NUM_TAB }}>{serie.num}</td>
                           <td style={{ ...tdCell, whiteSpace: 'normal', maxWidth: 200 }}>{acta?.localizacion || '—'}</td>
-                          <td style={tdCell}>{acta?.refAlbaran || '—'}</td>
-                          <td style={tdCell}>{acta?.fechaHormigonado ? fmtDate(acta.fechaHormigonado) : '—'}</td>
-                          <td style={tdCell}>{acta?.resistencia7 || '—'}</td>
-                          <td style={tdCell}>{r28}</td>
-                          <td style={tdCell}>{acta?.resistencia56 || '—'}</td>
+                          <td style={{ ...tdCell, ...NUM_TAB }}>{acta?.refAlbaran || '—'}</td>
+                          <td style={{ ...tdCell, ...NUM_TAB }}>{acta?.fechaHormigonado ? fmtDate(acta.fechaHormigonado) : '—'}</td>
+                          <td style={{ ...tdCell, ...NUM_TAB }}>{acta?.resistencia7 || '—'}</td>
+                          <td style={{ ...tdCell, ...NUM_TAB }}>{r28}</td>
+                          <td style={{ ...tdCell, ...NUM_TAB }}>{acta?.resistencia56 || '—'}</td>
                           <td style={tdCell}><Pill label={estado.label} bg={estado.bg} color={estado.color} /></td>
                           <td style={tdCell}>
                             {acta
@@ -5123,19 +5197,19 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
         </div>
         <div>
           <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Resist. 7 días (N/mm²)</label>
-          <input type="number" value={resistencia7} onChange={e => setResistencia7(e.target.value)} />
+          <input type="number" value={resistencia7} onChange={e => setResistencia7(e.target.value)} style={{ fontVariantNumeric: 'tabular-nums' }} />
         </div>
         <div>
           <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Resist. 28 días · probeta 1</label>
-          <input type="number" value={resistencia28a} onChange={e => setResistencia28a(e.target.value)} />
+          <input type="number" value={resistencia28a} onChange={e => setResistencia28a(e.target.value)} style={{ fontVariantNumeric: 'tabular-nums' }} />
         </div>
         <div>
           <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Resist. 28 días · probeta 2</label>
-          <input type="number" value={resistencia28b} onChange={e => setResistencia28b(e.target.value)} />
+          <input type="number" value={resistencia28b} onChange={e => setResistencia28b(e.target.value)} style={{ fontVariantNumeric: 'tabular-nums' }} />
         </div>
         <div>
           <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Resist. 56 días (N/mm²)</label>
-          <input type="number" value={resistencia56} onChange={e => setResistencia56(e.target.value)} />
+          <input type="number" value={resistencia56} onChange={e => setResistencia56(e.target.value)} style={{ fontVariantNumeric: 'tabular-nums' }} />
         </div>
       </div>
 
@@ -5152,7 +5226,7 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        {urlVerPdf && <a href={urlVerPdf} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#18180F', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 7, border: '1px solid #E0DFD9', background: '#fff' }}>📄 {nombreArchivo || 'Ver PDF'}</a>}
+        {urlVerPdf && <a href={urlVerPdf} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#18180F', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 7, border: '1px solid #E0DFD9', background: '#fff' }}><Icon name="doc" size={12} /> {nombreArchivo || 'Ver PDF'}</a>}
         <button onClick={() => replaceRef.current?.click()} style={{ fontSize: 12, color: '#6B6B66', background: 'none', border: '1px dashed #E0DFD9', borderRadius: 7, padding: '5px 10px', cursor: 'pointer' }}>{info.esNuevo ? 'Cambiar PDF' : 'Sustituir PDF'}</button>
         <input ref={replaceRef} type="file" accept="application/pdf" style={{ display: 'none' }} onChange={elegirReemplazo} />
       </div>
@@ -6012,7 +6086,7 @@ function ModuloActaVO({ obra, onSave }) {
       {/* Equipo técnico */}
       <div style={{ border: '1px solid #E8E7E1', borderRadius: 10, marginBottom: 14, overflow: 'hidden' }}>
         <button onClick={() => setShowEquipo(v => !v)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '11px 14px', background: '#FAFAF8', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: '#141412' }}>
-          <span style={{ fontSize: 10, color: '#A5A5A0', display: 'inline-block', transition: 'transform .2s', transform: showEquipo ? 'rotate(90deg)' : 'none' }}>▶</span>
+          <Icon name="chevronRight" size={11} style={{ color: '#A5A5A0', transition: 'transform .2s', transform: showEquipo ? 'rotate(90deg)' : 'none' }} />
           Equipo técnico y datos de contacto
         </button>
         {showEquipo && (
@@ -6273,7 +6347,7 @@ function ModuloActaVO({ obra, onSave }) {
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
           <button onClick={() => setShowMapaClima(true)}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 11px', borderRadius: 8, border: '1px solid #E0DFD9', background: obra.climaLat !== undefined ? '#F0EFEA' : '#fff', cursor: 'pointer', fontSize: 12, color: '#52524E', fontWeight: 500 }}>
-            📍 {obra.climaLat !== undefined ? 'Ubicació marcada' : 'Marcar ubicació al mapa'}
+            <Icon name="pin" size={12} /> {obra.climaLat !== undefined ? 'Ubicació marcada' : 'Marcar ubicació al mapa'}
           </button>
           {obra.climaLat !== undefined && (
             <span style={{ ...NUM, fontSize: 10.5, color: '#9B9B97' }}>
@@ -6339,7 +6413,7 @@ function ModuloActaVO({ obra, onSave }) {
       {/* Buscador de temes — filtra per títol/número, ignora accents; desplega automàticament
           les seccions amb coincidències mentre hi ha text a la cerca */}
       <div style={{ position: 'relative', marginBottom: 14 }}>
-        <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: '#BFBEB9', pointerEvents: 'none' }}>🔍</span>
+        <Icon name="search" size={13} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: '#BFBEB9', pointerEvents: 'none' }} />
         <input value={buscarTema} onChange={e => setBuscarTema(e.target.value)}
           placeholder="Buscar tema pel títol o número..."
           style={{ width: '100%', padding: '9px 32px', fontSize: 13.5, borderRadius: 9, border: '1px solid #E5E4DF' }} />
@@ -6374,14 +6448,14 @@ function ModuloActaVO({ obra, onSave }) {
                 <div key={sec.id} style={{ marginBottom: 16 }}>
                   {/* Cabecera sección — clicable per plegar/desplegar tota la secció */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7 }}>
-                    <span onClick={() => setSeccColapsades(s => ({ ...s, [sec.id]: !s[sec.id] }))}
-                      style={{ fontSize: 9, color: '#C4C3BE', cursor: 'pointer', flexShrink: 0, transition: 'transform .2s', transform: colapsada ? 'none' : 'rotate(90deg)' }}>▶</span>
+                    <Icon name="chevronRight" size={11} onClick={() => setSeccColapsades(s => ({ ...s, [sec.id]: !s[sec.id] }))}
+                      style={{ color: '#C4C3BE', cursor: 'pointer', flexShrink: 0, transition: 'transform .2s', transform: colapsada ? 'none' : 'rotate(90deg)' }} />
                     <span onClick={() => setSeccColapsades(s => ({ ...s, [sec.id]: !s[sec.id] }))}
                       style={{ fontSize: 11, fontWeight: 700, color: '#52524E', flexShrink: 0, cursor: 'pointer' }}>{sec.codigo}</span>
                     {editandoSec === sec.id
                       ? <input autoFocus value={sec.titulo} onChange={e => updSeccion(sec.id, 'titulo', e.target.value)} onBlur={() => setEditandoSec(null)} style={{ flex: 1, fontSize: 12, fontWeight: 600 }} />
                       : <span onClick={() => setSeccColapsades(s => ({ ...s, [sec.id]: !s[sec.id] }))} style={{ fontSize: 12, fontWeight: 600, color: '#141412', flex: 1, cursor: 'pointer' }}>{sec.titulo}</span>}
-                    {!editandoSec && <button onClick={() => setEditandoSec(sec.id)} title="Editar" style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C3BE', fontSize:12, padding:'0 2px', flexShrink:0 }}>✏️</button>}
+                    {!editandoSec && <button onClick={() => setEditandoSec(sec.id)} title="Editar" style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C3BE', padding:'0 2px', flexShrink:0, display: 'inline-flex' }}><Icon name="edit" size={12} /></button>}
                     {pendents > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, color: '#7C4A00', background: '#FEF3DB', borderRadius: 10, padding: '1px 7px' }}>{pendents}</span>}
                     <span style={{ fontSize: 11, color: '#A5A5A0' }}>{busq ? `${visibles.length}/${activos.length}` : activos.length}</span>
                     <button onClick={() => setBorrar({ tipo: 'seccion', id: sec.id, label: sec.titulo })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 15, lineHeight: 1 }}>×</button>
@@ -6529,7 +6603,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
           {ultEsNueva
             ? <Pill label="Nova" bg="#F2F1ED" color="#52524E" />
             : <Pill label={est.label} bg={est.bg} color={est.color} />}
-          <span style={{ fontSize: 9, color: '#C4C3BE', flexShrink: 0, transition: 'transform .2s', transform: abierto ? 'rotate(90deg)' : 'none' }}>▶</span>
+          <Icon name="chevronRight" size={11} style={{ color: '#C4C3BE', flexShrink: 0, transition: 'transform .2s', transform: abierto ? 'rotate(90deg)' : 'none' }} />
         </div>
 
         {/* Línia 2 — què es va dir l'últim cop */}
@@ -6600,7 +6674,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
 
                       <span style={{ marginLeft: 'auto', display: 'flex', gap: 2, flexShrink: 0 }}>
                         <button onClick={() => { setEditEnt(en.id); const draft = llegirEsborrany(`voEntText:${en.id}`); setTxtEdit(draft !== null ? draft : en.texto); }} title="Editar text"
-                          style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C3BE', fontSize:12, padding:'2px 4px' }}>✏️</button>
+                          style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C3BE', padding:'2px 4px', display: 'inline-flex' }}><Icon name="edit" size={12} /></button>
                         <button onClick={() => onDelEntrada(t.id, en.id)} title="Eliminar seguiment"
                           style={{ background:'none', border:'none', cursor:'pointer', color:'#D4D3CE', fontSize:15, lineHeight:1, padding:'0 3px' }}>×</button>
                       </span>
@@ -6661,7 +6735,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
           <div style={{ borderTop: '1px solid #F2F1ED', marginTop: 10 }}>
             <button onClick={() => setShowAdmin(v => !v)}
               style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 6, padding: '8px 13px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#A5A5A0' }}>
-              <span style={{ fontSize: 8, transition: 'transform .2s', transform: showAdmin ? 'rotate(90deg)' : 'none' }}>▶</span>
+              <Icon name="chevronRight" size={9} style={{ transition: 'transform .2s', transform: showAdmin ? 'rotate(90deg)' : 'none' }} />
               Numeració, ordre i secció
             </button>
             {showAdmin && (
@@ -8573,7 +8647,7 @@ function VistaSeguimiento({ obras, isMobile }) {
         {loading && <div style={{ textAlign:'center', padding:40, color:'#A5A5A0', fontSize:13 }}>Cargando...</div>}
         {!loading && puntosFiltrados.length === 0 && (
           <div style={{ textAlign:'center', padding:'60px 20px' }}>
-            <div style={{ fontSize:36, marginBottom:14 }}>📋</div>
+            <Icon name="clipboard" size={34} style={{ color: '#C5C4BE', marginBottom: 14 }} />
             <div style={{ fontSize:15, fontWeight:500, color:'#16160F', marginBottom:8 }}>Sin puntos de seguimiento</div>
             <div style={{ fontSize:13, color:'#9B9B97', marginBottom:20 }}>Registra el primer punto de acción de una reunión</div>
             <button onClick={() => setShowForm(true)} style={{ padding:'9px 20px', borderRadius:11, border:'none', background:'#5A7D5A', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer' }}>+ Nuevo punto</button>
@@ -8810,7 +8884,7 @@ function DetalleObra({ obra, onBack, onSave, onFlush, isMobile, user, tabInicial
 
           {/* Botón compartir */}
           <button onClick={() => setShowCompartir(true)} style={{ flexShrink: 0, padding: '5px 12px', borderRadius: 9, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.7)', fontSize: 12, cursor: 'pointer', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 5 }}>
-            👥{!isMobile && ' Compartir'}
+            <Icon name="people" size={13} />{!isMobile && ' Compartir'}
           </button>
         </div>
 
@@ -9683,7 +9757,7 @@ export default function App() {
     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
       background: '#1C1C1A', color: '#fff', padding: '10px 18px',
       display: 'flex', alignItems: 'center', gap: 12, fontSize: 13 }}>
-      <span style={{ flex: 1 }}>🔄 Nova versió de PLAAT disponible</span>
+      <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 7 }}><Icon name="refresh" size={14} /> Nova versió de PLAAT disponible</span>
       <button onClick={() => { setNewVersion(false); window.location.reload(); }}
         style={{ background: '#fff', color: '#1C1C1A', border: 'none', borderRadius: 8,
           padding: '5px 14px', fontWeight: 600, cursor: 'pointer', fontSize: 12 }}>
@@ -9775,7 +9849,7 @@ export default function App() {
                 <div style={{ position: 'relative', zIndex: 2, display: 'flex', gap: 8 }}>
                   {obras.length > 0 && (
                     <button onClick={() => setShowMapaObras(true)} className="tap" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1.5px solid rgba(138,168,138,0.4)', background: 'rgba(138,168,138,0.1)', color: '#8AA88A', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                      🗺️ Mapa 3D
+                      <Icon name="map" size={13} /> Mapa 3D
                     </button>
                   )}
                   <button onClick={() => setShowNueva(true)} className="shimmer-btn tap" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 16px', borderRadius: 8, border: '1.5px solid #7A9D7A', background: '#5A7D5A', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
@@ -9880,7 +9954,7 @@ export default function App() {
       {showBackup && (
         <Modal title="Copia de seguridad" onClose={() => { setShowBackup(false); setBackupMsg(''); }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#F0F6FF', border: '1px solid #C8DEFF', borderRadius: 10, padding: '10px 14px', marginBottom: 16 }}>
-            <span style={{ fontSize: 20 }}>🔗</span>
+            <Icon name="link" size={19} style={{ color: '#0C447C' }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: '#0C447C' }}>Google Drive conectado</div>
               <div style={{ fontSize: 11, color: '#4A7AB5' }}>Los backups se guardan en "PLAAT DEO Backups" en tu Drive</div>
@@ -9893,17 +9967,17 @@ export default function App() {
               Sube <strong>{obras.length} obras</strong> a Google Drive y descarga una copia local simultáneamente. La primera vez pedirá permiso a Google.
             </div>
             <Btn primary full onClick={() => exportarBackup(false)}>
-              {backupAuto ? '⏰ Hacer backup ahora (recomendado)' : '☁️ Guardar en Google Drive'}
+              <Icon name={backupAuto ? 'clock' : 'cloud'} size={13} /> {backupAuto ? 'Hacer backup ahora (recomendado)' : 'Guardar en Google Drive'}
             </Btn>
           </div>
 
           <div style={{ background: '#F5F4F0', borderRadius: 10, padding: '14px 16px', marginBottom: backupMsg ? 12 : 0 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: '#52524E', marginBottom: 6 }}>↓ Restaurar backup</div>
-            <p style={{ fontSize: 12, color: '#8A1F1F', background: '#FDECEC', border: '1px solid #F9CACA', borderRadius: 8, padding: '8px 12px', marginBottom: 10, lineHeight: 1.5 }}>
-              ⚠️ Esto <strong>reemplaza todos los datos actuales</strong> con los del archivo. Haz un backup primero si tienes datos nuevos.
+            <p style={{ fontSize: 12, color: '#8A1F1F', background: '#FDECEC', border: '1px solid #F9CACA', borderRadius: 8, padding: '8px 12px', marginBottom: 10, lineHeight: 1.5, display: 'flex', gap: 6 }}>
+              <Icon name="warning" size={13} style={{ flexShrink: 0, marginTop: 2 }} /><span>Esto <strong>reemplaza todos los datos actuales</strong> con los del archivo. Haz un backup primero si tienes datos nuevos.</span>
             </p>
             <label style={{ display: 'block', width: '100%', padding: '9px 14px', borderRadius: 8, border: '1.5px dashed #E0DFD9', background: '#fff', cursor: 'pointer', fontSize: 13, color: '#6B6B66', textAlign: 'center' }}>
-              {importando ? 'Restaurando...' : '📂 Seleccionar archivo .json de backup'}
+              {importando ? 'Restaurando...' : <><Icon name="folder" size={13} /> Seleccionar archivo .json de backup</>}
               <input type="file" accept=".json" style={{ display: 'none' }} disabled={importando}
                 onChange={e => { if (e.target.files[0]) importarBackup(e.target.files[0]); }} />
             </label>
