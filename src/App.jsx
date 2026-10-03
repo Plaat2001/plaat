@@ -4220,14 +4220,19 @@ function sumarDiasISO(iso, dias) {
 // 28 días (la edad determinante del cumplimiento) y una a 56 días. En vez de fiarnos de dónde
 // cae en el texto el valor "Tensión media" ya impreso en el PDF, agrupamos por edad y
 // calculamos nosotros mismos la media de cada grupo.
+// Cada laboratorio ordena "edad" y "fecha de ensayo" de forma distinta (TPF: edad antes que
+// fecha; LABOCAT: fecha antes que edad), así que probamos las dos combinaciones a la vez.
 function extraerTablaRoturas(texto) {
   const idxNotas = texto.search(/notas/i);
   const zona = idxNotas >= 0 ? texto.slice(idxNotas) : texto;
-  const filaRe = /(\d{1,2})\s+(\d{1,3})\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+\d{1,4}(?:[.,]\d{1,2})?\s+(\d{1,3}[.,]\d{1,2})/g;
+  // El grupo final opcional (3-4 dígitos sin decimales) absorbe la columna "kp/cm²" que
+  // algunos laboratorios imprimen justo después del N/mm² — si no se consume aquí, esos
+  // dígitos sueltos confunden al motor de regex y rompe el reconocimiento de la fila siguiente.
+  const filaRe = /(\d{1,2})\s+(?:(\d{1,3})\s+(\d{1,2}\/\d{1,2}\/\d{2,4})|(\d{1,2}\/\d{1,2}\/\d{2,4})\s+(\d{1,3}))\s+\d{1,4}(?:[.,]\d{1,2})?\s+(\d{1,3}[.,]\d{1,2})(?:\s+\d{3,4}(?![.,\d]))?/g;
   const filas = [...zona.matchAll(filaRe)].map(m => ({
-    edad: parseInt(m[2], 10),
-    fecha: m[3],
-    tension: parseFloat(m[4].replace(',', '.')),
+    edad: parseInt(m[2] ?? m[5], 10),
+    fecha: m[3] ?? m[4],
+    tension: parseFloat(m[6].replace(',', '.')),
   })).filter(f => Number.isFinite(f.edad) && Number.isFinite(f.tension));
   if (!filas.length) return null;
 
@@ -4239,7 +4244,8 @@ function extraerTablaRoturas(texto) {
   const edad28 = edades.includes(28) ? 28 : edades.find(e => e > 15 && e < 40);
   const grupo28 = edad28 ? grupos[edad28] : null;
   const restantes = edades.filter(e => e !== edad28);
-  const edad7 = restantes.find(e => e <= 15);
+  // Si hay varias edades tempranas (p.ej. 5 y 7 días), preferimos exactamente "7"
+  const edad7 = restantes.includes(7) ? 7 : restantes.find(e => e <= 15);
   const edadLarga = restantes.filter(e => e > (edad28 || 28)).sort((a, b) => b - a)[0];
 
   const grupoBase = grupo28 || (edad7 && grupos[edad7]) || (edadLarga && grupos[edadLarga]);
