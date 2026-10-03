@@ -2583,7 +2583,7 @@ function DetalleIncidencia({ inc, onClose, onActualizar, onEliminar, obraId }) {
         ) : (
           <>
             <span style={{ fontSize: 13, fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inc.titulo}</span>
-            <button onClick={() => setEditTitulo(true)} title="Editar título" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#A5A5A0', padding: '0 2px', flexShrink: 0, display: 'inline-flex' }}><Icon name="edit" size={13} /></button>
+            <button onClick={() => setEditTitulo(true)} title="Editar título" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#A5A5A0', padding: '0 2px', flexShrink: 0, display: 'inline-flex' }}>✏️</button>
           </>
         )}
         <Pill label={est.label} bg={est.bg} color={est.color} />
@@ -2593,7 +2593,7 @@ function DetalleIncidencia({ inc, onClose, onActualizar, onEliminar, obraId }) {
             <>
               <div onClick={() => setMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 20 }} />
               <div style={{ position: 'absolute', right: 0, top: '100%', background: '#fff', border: '1px solid #E0DFD9', borderRadius: 9, boxShadow: '0 8px 24px rgba(0,0,0,.12)', padding: 5, zIndex: 21, minWidth: 130 }}>
-                <div onClick={() => { setMenu(false); setEditTitulo(true); }} className="hov-row" style={{ padding: '7px 11px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: '#16160F', display: 'flex', alignItems: 'center', gap: 7 }}><Icon name="edit" size={13} /> Editar título</div>
+                <div onClick={() => { setMenu(false); setEditTitulo(true); }} className="hov-row" style={{ padding: '7px 11px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: '#16160F', display: 'flex', alignItems: 'center', gap: 7 }}>✏️ Editar título</div>
                 <div onClick={() => { setMenu(false); setConfirmar(true); }} className="hov-row" style={{ padding: '7px 11px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: '#8A1F1F' }}>Eliminar</div>
               </div>
             </>
@@ -2653,7 +2653,7 @@ function DetalleIncidencia({ inc, onClose, onActualizar, onEliminar, obraId }) {
                   {/* Botones editar/eliminar entrada */}
                   {(h.tipo === 'nota' || h.tipo === 'creacion' || h.tipo === 'cambio_estado') && (
                     <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-                      <button onClick={() => setEditH(h.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#A5A5A0', padding: '0 3px', display: 'inline-flex' }} title="Editar"><Icon name="edit" size={13} /></button>
+                      <button onClick={() => setEditH(h.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#A5A5A0', padding: '0 3px', display: 'inline-flex' }} title="Editar">✏️</button>
                       <button onClick={() => eliminarEntrada(h.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C4C3BE', fontSize: 15, lineHeight: 1, padding: '0 3px' }} title="Eliminar entrada">×</button>
                     </div>
                   )}
@@ -3218,7 +3218,7 @@ function ApunteItem({ item, vencida, onToggleHecha, onEditarTexto, onAddComentar
               <div style={{ flex: 1, fontSize: 13, color: item.hecha ? '#A5A5A0' : '#18180F', textDecoration: item.hecha ? 'line-through' : 'none', lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>
                 {item.texto}
               </div>
-              <button onClick={() => setEditando(true)} title="Editar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C4C3BE', padding: '0 2px', flexShrink: 0, marginTop: 1, display: 'inline-flex' }}><Icon name="edit" size={13} /></button>
+              <button onClick={() => setEditando(true)} title="Editar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C4C3BE', padding: '0 2px', flexShrink: 0, marginTop: 1, display: 'inline-flex' }}>✏️</button>
             </div>
           )}
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -4189,7 +4189,7 @@ function SeguimientoCQ({ obra, onSave }) {
                               : <span style={{ flex: 1, fontSize: 13, color: '#18180F', lineHeight: 1.4 }}>{i.nombre}</span>}
                             <span style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
                               <button onClick={() => setEditItem(i.id)} title="Editar nom"
-                                style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C3BE', padding:'2px 4px', display: 'inline-flex' }}><Icon name="edit" size={12} /></button>
+                                style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C3BE', padding:'2px 4px', display: 'inline-flex' }}>✏️</button>
                               <button onClick={() => setConfirmacion({ titulo: 'Eliminar element', texto: `Vas a eliminar "${i.nombre}".`, onSi: () => delItem(c.id, i.id) })}
                                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 15, lineHeight: 1, padding: '0 3px' }}>×</button>
                             </span>
@@ -4468,7 +4468,7 @@ async function descargarActasElemento(elemento, refLC) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   const etiqueta = refLC ? `LC${refLC} · ${elemento.nombre}` : elemento.nombre;
-  a.href = url; a.download = `${etiqueta} - Actas.zip`;
+  a.href = url; a.download = `${etiqueta}.zip`;
   document.body.appendChild(a); a.click();
   setTimeout(() => { if (a.parentNode) document.body.removeChild(a); URL.revokeObjectURL(url); }, 10 * 60 * 1000);
 }
@@ -6455,7 +6455,7 @@ function ModuloActaVO({ obra, onSave }) {
                     {editandoSec === sec.id
                       ? <input autoFocus value={sec.titulo} onChange={e => updSeccion(sec.id, 'titulo', e.target.value)} onBlur={() => setEditandoSec(null)} style={{ flex: 1, fontSize: 12, fontWeight: 600 }} />
                       : <span onClick={() => setSeccColapsades(s => ({ ...s, [sec.id]: !s[sec.id] }))} style={{ fontSize: 12, fontWeight: 600, color: '#141412', flex: 1, cursor: 'pointer' }}>{sec.titulo}</span>}
-                    {!editandoSec && <button onClick={() => setEditandoSec(sec.id)} title="Editar" style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C3BE', padding:'0 2px', flexShrink:0, display: 'inline-flex' }}><Icon name="edit" size={12} /></button>}
+                    {!editandoSec && <button onClick={() => setEditandoSec(sec.id)} title="Editar" style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C3BE', padding:'0 2px', flexShrink:0, display: 'inline-flex' }}>✏️</button>}
                     {pendents > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, color: '#7C4A00', background: '#FEF3DB', borderRadius: 10, padding: '1px 7px' }}>{pendents}</span>}
                     <span style={{ fontSize: 11, color: '#A5A5A0' }}>{busq ? `${visibles.length}/${activos.length}` : activos.length}</span>
                     <button onClick={() => setBorrar({ tipo: 'seccion', id: sec.id, label: sec.titulo })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 15, lineHeight: 1 }}>×</button>
@@ -6674,7 +6674,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
 
                       <span style={{ marginLeft: 'auto', display: 'flex', gap: 2, flexShrink: 0 }}>
                         <button onClick={() => { setEditEnt(en.id); const draft = llegirEsborrany(`voEntText:${en.id}`); setTxtEdit(draft !== null ? draft : en.texto); }} title="Editar text"
-                          style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C3BE', padding:'2px 4px', display: 'inline-flex' }}><Icon name="edit" size={12} /></button>
+                          style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C3BE', padding:'2px 4px', display: 'inline-flex' }}>✏️</button>
                         <button onClick={() => onDelEntrada(t.id, en.id)} title="Eliminar seguiment"
                           style={{ background:'none', border:'none', cursor:'pointer', color:'#D4D3CE', fontSize:15, lineHeight:1, padding:'0 3px' }}>×</button>
                       </span>
