@@ -4338,7 +4338,7 @@ async function loadJsZip() {
 
 // Descarga en un único .zip todas las actas de un elemento, listas para copiar
 // en la carpeta de la lotificación en el servidor de la empresa.
-async function descargarActasElemento(elemento) {
+async function descargarActasElemento(elemento, refLC) {
   const JSZip = await loadJsZip();
   const zip = new JSZip();
   const tareas = [];
@@ -4360,7 +4360,8 @@ async function descargarActasElemento(elemento) {
   const blob = await zip.generateAsync({ type: 'blob' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = `${elemento.nombre} - Actas.zip`;
+  const etiqueta = refLC ? `LC${refLC} · ${elemento.nombre}` : elemento.nombre;
+  a.href = url; a.download = `${etiqueta} - Actas.zip`;
   document.body.appendChild(a); a.click();
   setTimeout(() => { if (a.parentNode) document.body.removeChild(a); URL.revokeObjectURL(url); }, 10 * 60 * 1000);
 }
@@ -4864,7 +4865,7 @@ function ControlHormigon({ obra, onSave }) {
                   </div>
                 </div>
                 <Btn sm onClick={() => abrirSelector(elementoActivo.id, {})}>📎 Adjuntar acta(s)</Btn>
-                <Btn sm onClick={() => descargarActasElemento(elementoActivo)} disabled={seriesRellenas === 0}>⬇ .zip</Btn>
+                <Btn sm onClick={() => descargarActasElemento(elementoActivo, elementoActivo.numLC || (elementos.indexOf(elementoActivo) + 1))} disabled={seriesRellenas === 0}>⬇ .zip</Btn>
               </div>
 
               {!elementoActivo.designacion && !elementoActivo.fck && (
