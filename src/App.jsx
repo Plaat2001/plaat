@@ -3726,14 +3726,16 @@ const TIPOS_ELEMENTO = {
 };
 
 // Calcula la lotificación completa de un elemento según el CE
-function calcularLotificacion(tipo, volumen, superficie, conDOR) {
+function calcularLotificacion(tipo, volumen, superficie, conDOR, fck) {
   const t = TIPOS_ELEMENTO[tipo];
   const V = parseFloat(volumen) || 0;
   const S = parseFloat(superficie) || 0;
+  // Código Estructural: para hormigones con fck ≥ 50 N/mm² sin distintivo, N mínimo pasa de 3 a 6
+  const minSinDOR = (parseFloat(fck) || 0) >= 50 ? 6 : 3;
 
   // Cimentaciones grandes: 1 lote, N por fórmula sobre volumen
   if (t.formulaN) {
-    const N = conDOR ? Math.max(Math.ceil(V / 105), 1) : Math.max(Math.ceil(V / 35), 3);
+    const N = conDOR ? Math.max(Math.ceil(V / 105), 1) : Math.max(Math.ceil(V / 35), minSinDOR);
     return {
       numLotes: 1,
       seriesPorLote: N,
@@ -3746,11 +3748,12 @@ function calcularLotificacion(tipo, volumen, superficie, conDOR) {
   const lotesVol = t.volumen ? Math.ceil(V / t.volumen) : 1;
   const lotesSup = t.superficie ? Math.ceil(S / t.superficie) : 1;
   const numLotes = Math.max(lotesVol, lotesSup, 1);
-  const N = conDOR ? 1 : 3;
+  const N = conDOR ? 1 : minSinDOR;
 
   let motivo;
   if (t.superficie && lotesSup >= lotesVol) motivo = `Manda superficie (${lotesSup} lote${lotesSup > 1 ? 's' : ''} por ${t.superficie} m²)`;
   else motivo = `Manda volumen (${lotesVol} lote${lotesVol > 1 ? 's' : ''} por ${t.volumen} m³)`;
+  if (minSinDOR > 3) motivo += ' · fck≥50: N≥6';
 
   return { numLotes, seriesPorLote: N, totalSeries: numLotes * N, motivo };
 }
@@ -4192,26 +4195,81 @@ function normalizarFechaActa(s) {
   return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
 }
 
+// Suma días a una fecha ISO (yyyy-mm-dd)
+function sumarDiasISO(iso, dias) {
+  if (!iso || !Number.isFinite(dias)) return '';
+  const d = new Date(iso + 'T00:00:00');
+  if (isNaN(d)) return '';
+  d.setDate(d.getDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+
+// Extrae la tabla "Probeta / Edad / Fecha de ensayo / Carga de rotura / Tensión de rotura"
+// que llevan las actas de ruptura de probetas (normativa UNE EN 12390). Al contrario que
+// buscar el último valor "N/mm²" del documento (poco fiable si hay varias edades, p.ej.
+// 7/28/63 días), aquí agrupamos las filas por edad y promediamos las de 28 días — que es
+// la edad determinante para el cumplimiento del fck — calculando la media nosotros mismos
+// en vez de fiarnos de dónde cae en el texto el valor "Tensión media" ya impreso en el PDF.
+function extraerTablaRoturas(texto) {
+  const idxNotas = texto.search(/notas/i);
+  const zona = idxNotas >= 0 ? texto.slice(idxNotas) : texto;
+  const filaRe = /(\d{1,2})\s+(\d{1,3})\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+\d{1,4}(?:[.,]\d{1,2})?\s+(\d{1,3}[.,]\d{1,2})/g;
+  const filas = [...zona.matchAll(filaRe)].map(m => ({
+    edad: parseInt(m[2], 10),
+    fecha: m[3],
+    tension: parseFloat(m[4].replace(',', '.')),
+  })).filter(f => Number.isFinite(f.edad) && Number.isFinite(f.tension));
+  if (!filas.length) return null;
+
+  const grupos = {};
+  filas.forEach(f => { (grupos[f.edad] = grupos[f.edad] || []).push(f); });
+  const edades = Object.keys(grupos).map(Number);
+  const edadElegida = edades.includes(28) ? 28 : edades.reduce((a, b) => Math.abs(b - 28) < Math.abs(a - 28) ? b : a);
+  const grupo = grupos[edadElegida];
+  const media = grupo.reduce((s, f) => s + f.tension, 0) / grupo.length;
+  return { edadDias: String(edadElegida), fecha: grupo[0].fecha, resistencia: media.toFixed(2) };
+}
+
 function extraerDatosActa(textoOriginal) {
   const t = textoOriginal.replace(/\s+/g, ' ');
-  const datos = { numActa: '', fechaRotura: '', edadDias: '', resistencia: '', designacion: '' };
+  const datos = { numActa: '', refAlbaran: '', fechaHormigonado: '', fechaRotura: '', edadDias: '', resistencia: '', designacion: '' };
 
   const mDes = t.match(/HA-\d{2}\s*\/\s*[A-Z]\s*\/\s*\d{1,2}\s*\/\s*[A-Za-z0-9+]{1,6}/i)
             || t.match(/HA-\d{2}(?:\s*\/\s*[A-Za-z0-9+]{1,6}){0,3}/i);
   if (mDes) datos.designacion = mDes[0].toUpperCase().replace(/\s+/g, '');
 
-  const mActa = t.match(/(?:n[ºo.]*\s*(?:de\s*)?acta|acta\s*n[ºo.]*|referencia)\s*[:\-]?\s*([A-Za-z0-9\-\/_.]{3,})/i);
-  if (mActa) datos.numActa = mActa[1];
+  // Cabecera "ALBARÁN Nº / MUESTRA Nº / ACTA OBRA Nº / ACTA Nº / FECHA ACTA" — se reconoce
+  // por la FORMA de cada valor (no por estar junto a su etiqueta: en el texto plano del PDF
+  // las etiquetas y los valores no siempre salen en el mismo orden visual de la tabla).
+  const mCab = t.match(/(\d{5,7})\s+([A-Z]{1,4}\.?\s?\d{4}\s?\/\s?\d+)\s+(\d{1,5})\s+(\d{4}\s?\/\s?\d+)\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/);
+  if (mCab) { datos.refAlbaran = mCab[1]; datos.numActa = mCab[3]; }
 
-  const mEdad = t.match(/edad\D{0,15}(\d{1,3})\s*d[ií]as/i);
-  if (mEdad) datos.edadDias = mEdad[1];
+  const tabla = extraerTablaRoturas(t);
+  if (tabla) {
+    datos.edadDias = tabla.edadDias;
+    datos.fechaRotura = normalizarFechaActa(tabla.fecha);
+    datos.resistencia = tabla.resistencia;
+  } else {
+    // Formato no tabular reconocido — mejor esfuerzo con los patrones genéricos anteriores
+    const mActa = t.match(/(?:n[ºo.]*\s*(?:de\s*)?acta|acta\s*n[ºo.]*|referencia)\s*[:\-]?\s*([A-Za-z0-9\-\/_.]{3,})/i);
+    if (mActa && !datos.numActa) datos.numActa = mActa[1];
 
-  const mFecha = t.match(/rotura\D{0,20}(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/i)
-              || t.match(/fecha\s*(?:de\s*)?ensayo\D{0,10}(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/i);
-  if (mFecha) datos.fechaRotura = normalizarFechaActa(mFecha[1]);
+    const mEdad = t.match(/edad\D{0,15}(\d{1,3})\s*d[ií]as/i);
+    if (mEdad) datos.edadDias = mEdad[1];
 
-  const resistencias = [...t.matchAll(/(\d{1,3}[.,]\d{1,2})\s*N\s*\/\s*mm/gi)].map(m => m[1].replace(',', '.'));
-  if (resistencias.length) datos.resistencia = resistencias[resistencias.length - 1];
+    const mFecha = t.match(/rotura\D{0,20}(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/i)
+                || t.match(/fecha\s*(?:de\s*)?ensayo\D{0,10}(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/i);
+    if (mFecha) datos.fechaRotura = normalizarFechaActa(mFecha[1]);
+
+    const resistencias = [...t.matchAll(/(\d{1,3}[.,]\d{1,2})\s*N\s*\/\s*mm/gi)].map(m => m[1].replace(',', '.'));
+    if (resistencias.length) datos.resistencia = resistencias[resistencias.length - 1];
+  }
+
+  // Fecha de hormigonado: no sale fiable cerca de su etiqueta en el texto plano, pero
+  // coincide con fecha de rotura menos la edad en días (verificado con actas reales).
+  if (datos.fechaRotura && datos.edadDias) {
+    datos.fechaHormigonado = sumarDiasISO(datos.fechaRotura, -parseInt(datos.edadDias, 10));
+  }
 
   return datos;
 }
@@ -4281,7 +4339,7 @@ function ControlHormigon({ obra, onSave }) {
   const objetivoRef = useRef(null);
 
   const tipoForm = TIPOS_ELEMENTO[form.tipo];
-  const preview  = calcularLotificacion(form.tipo, form.volumen, form.superficie, form.conDOR);
+  const preview  = calcularLotificacion(form.tipo, form.volumen, form.superficie, form.conDOR, form.fck);
 
   function actualizarElemento(elementoId, campo, valor) {
     onSave({ ...obra, lotes: elementos.map(e => e.id === elementoId ? { ...e, [campo]: valor } : e) });
@@ -4333,6 +4391,8 @@ function ControlHormigon({ obra, onSave }) {
       archivoExistente: serie.acta.archivo || null,
       datos: {
         numActa: serie.acta.numActa || '',
+        refAlbaran: serie.acta.refAlbaran || '',
+        fechaHormigonado: serie.acta.fechaHormigonado || '',
         fechaRotura: serie.acta.fechaRotura || '',
         edadDias: serie.acta.edadDias || '',
         resistencia: serie.acta.resistencia || '',
@@ -4413,6 +4473,8 @@ function ControlHormigon({ obra, onSave }) {
         id: payload.actaId || uid(),
         archivo,
         numActa: payload.datos.numActa,
+        refAlbaran: payload.datos.refAlbaran,
+        fechaHormigonado: payload.datos.fechaHormigonado,
         fechaRotura: payload.datos.fechaRotura,
         edadDias: payload.datos.edadDias,
         resistencia: payload.datos.resistencia,
@@ -4430,7 +4492,7 @@ function ControlHormigon({ obra, onSave }) {
 
   function crearElemento() {
     if (!form.nombre.trim() || !form.volumen) return;
-    const calc = calcularLotificacion(form.tipo, form.volumen, form.superficie, form.conDOR);
+    const calc = calcularLotificacion(form.tipo, form.volumen, form.superficie, form.conDOR, form.fck);
     const lotes = Array.from({ length: calc.numLotes }, (_, i) => ({
       id: uid(),
       num: i + 1,
@@ -4796,6 +4858,8 @@ function ControlHormigon({ obra, onSave }) {
 // ── Modal de alta/edición de una acta de rotura sobre una serie concreta ─────
 function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }) {
   const [numActa, setNumActa]           = useState(info.datos.numActa || '');
+  const [refAlbaran, setRefAlbaran]     = useState(info.datos.refAlbaran || '');
+  const [fechaHormigonado, setFechaHormigonado] = useState(info.datos.fechaHormigonado || '');
   const [fechaRotura, setFechaRotura]   = useState(info.datos.fechaRotura || '');
   const [edadDias, setEdadDias]         = useState(info.datos.edadDias || '');
   const [resistencia, setResistencia]   = useState(info.datos.resistencia || '');
@@ -4834,7 +4898,7 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
       archivoAEliminar: (nuevoArchivo && info.archivoExistente?.path) ? info.archivoExistente.path : null,
       base64: nuevoArchivo?.base64 || null,
       archivoNombre: nombreArchivo,
-      datos: { numActa, fechaRotura, edadDias, resistencia },
+      datos: { numActa, refAlbaran, fechaHormigonado, fechaRotura, edadDias, resistencia },
     });
   }
 
@@ -4875,8 +4939,16 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
         <div>
-          <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Nº de acta / laboratorio</label>
+          <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Nº de acta</label>
           <input value={numActa} onChange={e => setNumActa(e.target.value)} />
+        </div>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Ref. albarán</label>
+          <input value={refAlbaran} onChange={e => setRefAlbaran(e.target.value)} />
+        </div>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Fecha de hormigonado</label>
+          <input type="date" value={fechaHormigonado} onChange={e => setFechaHormigonado(e.target.value)} />
         </div>
         <div>
           <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Fecha de rotura</label>
