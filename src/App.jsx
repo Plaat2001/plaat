@@ -4325,6 +4325,47 @@ function extraerDatosActa(textoOriginal) {
   return datos;
 }
 
+// Estado de una serie EN VIVO contra el fck actual del elemento — nunca contra lo que
+// estuviera guardado en el momento de subir el acta, para que al editar la designación/fck
+// en Lotificación, el cumple/no cumple de Seguimiento se actualice solo.
+function evaluarActa(acta, fck) {
+  if (!acta) return { key: 'pendiente', label: 'Pendiente', bg: '#F5F4F0', color: '#9B9B97' };
+  const valores28 = [parseFloat(acta.resistencia28a), parseFloat(acta.resistencia28b)].filter(v => !isNaN(v));
+  if (!valores28.length) return { key: 'pendiente28', label: 'Pendiente 28 días', bg: '#FEF3DB', color: '#C47610' };
+  const media28 = valores28.reduce((a, b) => a + b, 0) / valores28.length;
+  const fckNum = parseFloat(fck);
+  if (isNaN(fckNum)) return { key: 'conActa', label: 'Con acta', bg: '#EEEDE7', color: '#52524E' };
+  return media28 >= fckNum
+    ? { key: 'cumple', label: 'Cumple', bg: '#E8F5E0', color: '#2D5E10' }
+    : { key: 'noCumple', label: 'No cumple', bg: '#FDECEC', color: '#8A1F1F' };
+}
+
+// Detecta si el PDF recién leído es en realidad una actualización de un acta que YA está
+// subida en este elemento (el mismo albarán/acta, normalmente porque el laboratorio manda
+// primero el resultado a 7 días y más tarde reenvía el mismo documento con el de 28 añadido).
+// Se identifica por Ref. albarán (más fiable) o, si no hay, por Nº de acta.
+function buscarActaExistente(elemento, datos) {
+  for (const lote of elemento?.lotes || []) {
+    for (const serie of lote.series || []) {
+      const acta = serie.acta;
+      if (!acta) continue;
+      const mismoAlbaran = datos.refAlbaran && acta.refAlbaran && acta.refAlbaran === datos.refAlbaran;
+      const mismaActa = !datos.refAlbaran && datos.numActa && acta.numActa && acta.numActa === datos.numActa;
+      if (mismoAlbaran || mismaActa) return { loteId: lote.id, serieId: serie.id, acta };
+    }
+  }
+  return null;
+}
+
+// Combina los datos ya guardados de una serie con los recién leídos del PDF nuevo — un campo
+// vacío en la lectura nueva no borra lo que ya había (p.ej. la localización solo suele venir
+// en la primera acta, no en la que añade el resultado a 28 días).
+function fusionarDatos(viejo, nuevo) {
+  const resultado = { ...viejo };
+  Object.keys(nuevo).forEach(k => { if (nuevo[k]) resultado[k] = nuevo[k]; });
+  return resultado;
+}
+
 async function loadJsZip() {
   if (window.JSZip) return window.JSZip;
   await new Promise((res, rej) => {
@@ -4515,6 +4556,35 @@ function ControlHormigon({ obra, onSave }) {
       ]);
       const datos = extraerDatosActa(texto || '');
       const elemento = elementos.find(e => e.id === item.objetivo?.elementoId);
+      const existente = elemento ? buscarActaExistente(elemento, datos) : null;
+
+      if (existente) {
+        // Mismo albarán/acta que una serie ya subida: se trata como una actualización de esa
+        // serie (añade el 28 días que faltaba, etc.), no como una acta nueva — y el PDF
+        // anterior se sustituye por este.
+        setRevisarActa({
+          elementoId: item.objetivo?.elementoId,
+          loteId: existente.loteId,
+          serieId: existente.serieId,
+          esNuevo: false,
+          actualizando: true,
+          actaId: existente.acta.id,
+          archivoExistente: existente.acta.archivo || null,
+          nuevoArchivo: { base64, nombre: item.file.name },
+          datos: fusionarDatos({
+            numActa: existente.acta.numActa || '',
+            refAlbaran: existente.acta.refAlbaran || '',
+            fechaHormigonado: existente.acta.fechaHormigonado || '',
+            resistencia7: existente.acta.resistencia7 || '',
+            resistencia28a: existente.acta.resistencia28a || '',
+            resistencia28b: existente.acta.resistencia28b || '',
+            resistencia56: existente.acta.resistencia56 || '',
+            localizacion: existente.acta.localizacion || '',
+          }, datos),
+        });
+        return;
+      }
+
       const destino = (item.objetivo?.serieId && item.objetivo?.loteId)
         ? item.objetivo
         : (elemento ? primeraSeriePendiente(elemento, datos.fechaHormigonado) : null);
@@ -4551,10 +4621,9 @@ function ControlHormigon({ obra, onSave }) {
         archivo = { ...subido, nombre: payload.archivoNombre };
         if (payload.archivoAEliminar) window.db?.eliminarFoto?.(payload.archivoAEliminar).catch(() => {});
       }
-      const fck = parseFloat(elementos.find(e => e.id === payload.elementoId)?.fck);
-      const valores28 = [parseFloat(payload.datos.resistencia28a), parseFloat(payload.datos.resistencia28b)].filter(v => !isNaN(v));
-      const media28 = valores28.length ? valores28.reduce((a, b) => a + b, 0) / valores28.length : NaN;
-      const cumple = (!isNaN(fck) && !isNaN(media28)) ? media28 >= fck : null;
+      // El cumplimiento ya no se guarda como valor fijo: se calcula en vivo (evaluarActa)
+      // contra el fck que tenga el elemento en cada momento, para que si luego se edita en
+      // Lotificación, el estado en Seguimiento se actualice solo sin tener que resubir nada.
       asignarActa(payload.elementoId, payload.loteId, payload.serieId, {
         id: payload.actaId || uid(),
         archivo,
@@ -4566,7 +4635,6 @@ function ControlHormigon({ obra, onSave }) {
         resistencia28b: payload.datos.resistencia28b,
         resistencia56: payload.datos.resistencia56,
         localizacion: payload.datos.localizacion,
-        cumple,
         subidoEn: now(),
       });
       setRevisarActa(null);
@@ -4617,7 +4685,7 @@ function ControlHormigon({ obra, onSave }) {
   // Resumen global para la pestaña de seguimiento
   const totalSeriesObra  = elementos.reduce((s, e) => s + (e.numLotes || (e.lotes || []).length) * (e.seriesPorLote || 0), 0);
   const totalConActaObra = elementos.reduce((s, e) => s + (e.lotes || []).flatMap(l => l.series || []).filter(se => se.acta).length, 0);
-  const totalNoCumplenObra = elementos.reduce((s, e) => s + (e.lotes || []).flatMap(l => l.series || []).filter(se => se.acta && se.acta.cumple === false).length, 0);
+  const totalNoCumplenObra = elementos.reduce((s, e) => s + (e.lotes || []).flatMap(l => l.series || []).filter(se => evaluarActa(se.acta, e.fck).key === 'noCumple').length, 0);
   const elementoActivo = elementos.find(e => e.id === elSeleccionado) || elementos[0] || null;
 
   const thCell = { padding: '8px 10px', fontSize: 10.5, color: '#9B9B97', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600, whiteSpace: 'nowrap', textAlign: 'left' };
@@ -4838,7 +4906,7 @@ function ControlHormigon({ obra, onSave }) {
             <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 2 }}>
               {elementos.map((el, idx) => {
                 const activo = elementoActivo.id === el.id;
-                const noCumplenEl = (el.lotes || []).flatMap(l => l.series || []).filter(s => s.acta && s.acta.cumple === false).length;
+                const noCumplenEl = (el.lotes || []).flatMap(l => l.series || []).filter(s => evaluarActa(s.acta, el.fck).key === 'noCumple').length;
                 return (
                   <button key={el.id} onClick={() => setElSeleccionado(el.id)}
                     style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: `1.5px solid ${activo ? '#18180F' : '#E0DFD9'}`, background: activo ? '#18180F' : '#fff', color: activo ? '#fff' : '#52524E', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
@@ -4893,10 +4961,7 @@ function ControlHormigon({ obra, onSave }) {
                   <tbody>
                     {filas.map(({ lote, serie, esPrimeraDelLote, numSeriesLote }, i) => {
                       const acta = serie.acta;
-                      const estado = !acta ? { label: 'Pendiente', bg: '#F5F4F0', color: '#9B9B97' }
-                        : acta.cumple === false ? { label: 'No cumple', bg: '#FDECEC', color: '#8A1F1F' }
-                        : acta.cumple === true  ? { label: 'Cumple', bg: '#E8F5E0', color: '#2D5E10' }
-                        : { label: 'Con acta', bg: '#EEEDE7', color: '#52524E' };
+                      const estado = evaluarActa(acta, elementoActivo.fck);
                       const r28 = (acta?.resistencia28a || acta?.resistencia28b)
                         ? `${acta?.resistencia28a || '—'} / ${acta?.resistencia28b || '—'}` : '—';
                       return (
@@ -5002,13 +5067,19 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
   }
 
   return (
-    <Modal title={info.esNuevo ? 'Nueva acta de rotura' : 'Acta de rotura'} onClose={onClose} footer={
+    <Modal title={info.actualizando ? 'Actualizar acta existente' : info.esNuevo ? 'Nueva acta de rotura' : 'Acta de rotura'} onClose={onClose} footer={
       <>
         {!info.esNuevo && <Btn danger onClick={() => setConfirmacion({ titulo: 'Eliminar acta', texto: 'Vas a eliminar esta acta y el PDF adjunto. Esta acción no se puede deshacer.', onSi: onEliminar })}>Eliminar</Btn>}
         <div style={{ flex: 1 }} />
         <Btn primary disabled={!serieSel || guardando} onClick={guardar}>{guardando ? 'Guardando…' : 'Guardar'}</Btn>
       </>
     }>
+      {info.actualizando && (
+        <div style={{ fontSize: 11.5, color: '#1C1C1A', background: '#F0F6F1', border: '1px solid #C5E3CE', borderRadius: 7, padding: '7px 10px', marginBottom: 10 }}>
+          Este PDF tiene el mismo albarán/acta que una serie que ya tenías subida — se ha rellenado con los datos que ya había y los nuevos del PDF. Al guardar, se sustituye el PDF anterior por este.
+        </div>
+      )}
+
       {elemento && (
         <div style={{ fontSize: 12, color: '#9B9B97', marginBottom: 8 }}>
           {elemento.nombre}{elemento.designacion ? ` · ${elemento.designacion}` : ''}{elemento.fck ? ` · fck ${elemento.fck} N/mm²` : ''}
