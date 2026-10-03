@@ -4269,6 +4269,15 @@ function extraerDatosActa(textoOriginal) {
             || t.match(/HA-\d{2}(?:\s*\/\s*[A-Za-z0-9+]{1,6}){0,3}/i);
   if (mDes) datos.designacion = mDes[0].toUpperCase().replace(/\s+/g, '');
 
+  // Localización de la muestra: cada laboratorio la marca de forma distinta, así que
+  // probamos dos anclas conocidas — TPF (el texto libre entre el código postal del
+  // destinatario y el disclaimer "Los ensayos comprendidos") y LABOCAT (etiqueta explícita
+  // "LOCALITZACIO:" hasta la línea de firma "Ciudad, a dd/mm/aaaa").
+  const mLocTpf = t.match(/\d{5}-[A-ZÀ-Úa-zà-ú]+\s+([A-ZÀ-ÚÑ0-9][^.]{4,160})\.\s*Los ensayos comprendidos/);
+  const mLocLabocat = t.match(/LOCALITZACIO\s*:?\s*([^.]{4,160}?)\s+[A-ZÀ-Úa-zà-ú]+,\s*a\s*\d{1,2}\/\d{1,2}\/\d{2,4}/i);
+  if (mLocTpf) datos.localizacion = mLocTpf[1].trim();
+  else if (mLocLabocat) datos.localizacion = mLocLabocat[1].trim();
+
   // Cabecera "ALBARÁN Nº / MUESTRA Nº / ACTA OBRA Nº / ACTA Nº / FECHA ACTA" (formato TPF
   // Getinsa) — se reconoce por la FORMA de cada valor (no por estar junto a su etiqueta: en
   // el texto plano del PDF las etiquetas y los valores no siempre salen en el mismo orden
