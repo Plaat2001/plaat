@@ -4886,7 +4886,7 @@ function ControlHormigon({ obra, onSave }) {
                       <th style={thCell}>R. 7d</th>
                       <th style={thCell}>R. 28d</th>
                       <th style={thCell}>R. 56d</th>
-                      <th style={thCell}>Estado</th>
+                      <th style={thCell} title="Aviso orientativo: compara la media de 28 días de ESTA serie con el fck. No es el cálculo estadístico oficial del Código Estructural (x̄ − 1,66·s ≥ fck sobre el conjunto de lotes de ese tipo de hormigón).">Estado ⓘ</th>
                       <th style={thCell}></th>
                     </tr>
                   </thead>
@@ -4925,6 +4925,9 @@ function ControlHormigon({ obra, onSave }) {
               </div>
               <div style={{ fontSize: 11, color: '#BFBEB9', textAlign: 'center', marginTop: 8 }}>
                 También puedes arrastrar el PDF directamente aquí
+              </div>
+              <div style={{ fontSize: 10.5, color: '#C5C4BE', textAlign: 'center', marginTop: 4 }}>
+                El "Estado" es un aviso orientativo (28d de esa serie vs fck) — no sustituye el cálculo estadístico oficial del Código Estructural.
               </div>
             </div>
           </>
@@ -5072,7 +5075,8 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
 
       {cumpleCalc !== null && (
         <div style={{ marginBottom: 12 }}>
-          <Pill label={cumpleCalc ? `Cumple (media 28d ${media28.toFixed(1)} ≥ fck ${elemento.fck} N/mm²)` : `No cumple (media 28d ${media28.toFixed(1)} < fck ${elemento.fck} N/mm²)`} bg={cumpleCalc ? '#E8F5E0' : '#FDECEC'} color={cumpleCalc ? '#2D5E10' : '#8A1F1F'} />
+          <Pill label={cumpleCalc ? `Aviso: cumple (media 28d ${media28.toFixed(1)} ≥ fck ${elemento.fck} N/mm²)` : `Aviso: no cumple (media 28d ${media28.toFixed(1)} < fck ${elemento.fck} N/mm²)`} bg={cumpleCalc ? '#E8F5E0' : '#FDECEC'} color={cumpleCalc ? '#2D5E10' : '#8A1F1F'} />
+          <div style={{ fontSize: 10.5, color: '#A5A5A0', marginTop: 4 }}>Orientativo (esta serie vs fck) — no sustituye el cálculo estadístico oficial del Código Estructural.</div>
         </div>
       )}
 
