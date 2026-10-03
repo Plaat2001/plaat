@@ -5031,7 +5031,7 @@ function ControlHormigon({ obra, onSave }) {
                       <th style={thCell}>R. 7d</th>
                       <th style={thCell}>R. 28d</th>
                       <th style={thCell}>R. 56d</th>
-                      <th style={thCell} title="Aviso orientativo: compara la media de 28 días de ESTA serie con el fck. No es el cálculo estadístico oficial del Código Estructural (x̄ − 1,66·s ≥ fck sobre el conjunto de lotes de ese tipo de hormigón).">Estado ⓘ</th>
+                      <th style={thCell}>Estado</th>
                       <th style={thCell}></th>
                     </tr>
                   </thead>
@@ -5074,9 +5074,6 @@ function ControlHormigon({ obra, onSave }) {
               <div style={{ fontSize: 11, color: '#BFBEB9', textAlign: 'center', marginTop: 8 }}>
                 También puedes arrastrar el PDF directamente aquí
               </div>
-              <div style={{ fontSize: 10.5, color: '#C5C4BE', textAlign: 'center', marginTop: 4 }}>
-                El "Estado" es un aviso orientativo (28d de esa serie vs fck) — no sustituye el cálculo estadístico oficial del Código Estructural.
-              </div>
             </div>
           </>
         );
@@ -5109,16 +5106,15 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
   const [resistencia28b, setResistencia28b] = useState(info.datos.resistencia28b || '');
   const [resistencia56, setResistencia56] = useState(info.datos.resistencia56 || '');
   const [localizacion, setLocalizacion] = useState(info.datos.localizacion || '');
-  const [serieSel, setSerieSel]         = useState(info.loteId && info.serieId ? `${info.loteId}:${info.serieId}` : '');
   const [nuevoArchivo, setNuevoArchivo] = useState(info.nuevoArchivo || null);
   const [confirmacion, setConfirmacion] = useState(null);
   const replaceRef = useRef(null);
 
-  const opciones = [];
-  (elemento?.lotes || []).forEach(l => (l.series || []).forEach(s => {
-    const ocupada = !!s.acta && s.id !== info.serieId;
-    opciones.push({ value: `${l.id}:${s.id}`, label: `Lote ${l.num} · Serie ${s.num}${ocupada ? ' (ya tiene acta)' : ''}`, ocupada });
-  }));
+  // El lote/serie lo decide siempre la app sola (primera serie pendiente, respetando el
+  // salto de 15 días entre lotes, o la serie ya existente si es una actualización) — no hay
+  // selector manual.
+  const loteInfo = elemento?.lotes?.find(l => l.id === info.loteId);
+  const serieInfo = loteInfo?.series?.find(s => s.id === info.serieId);
 
   const fck = parseFloat(elemento?.fck);
   const valores28 = [parseFloat(resistencia28a), parseFloat(resistencia28b)].filter(v => !isNaN(v));
@@ -5135,11 +5131,10 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
   }
 
   function guardar() {
-    const [loteId, serieId] = serieSel.split(':');
-    if (!loteId || !serieId) return;
+    if (!info.loteId || !info.serieId) return;
     onGuardar({
       elementoId: info.elementoId,
-      loteId, serieId,
+      loteId: info.loteId, serieId: info.serieId,
       actaId: info.actaId,
       archivoExistente: nuevoArchivo ? null : info.archivoExistente,
       archivoAEliminar: (nuevoArchivo && info.archivoExistente?.path) ? info.archivoExistente.path : null,
@@ -5154,7 +5149,7 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
       <>
         {!info.esNuevo && <Btn danger onClick={() => setConfirmacion({ titulo: 'Eliminar acta', texto: 'Vas a eliminar esta acta y el PDF adjunto. Esta acción no se puede deshacer.', onSi: onEliminar })}>Eliminar</Btn>}
         <div style={{ flex: 1 }} />
-        <Btn primary disabled={!serieSel || guardando} onClick={guardar}>{guardando ? 'Guardando…' : 'Guardar'}</Btn>
+        <Btn primary disabled={!info.loteId || !info.serieId || guardando} onClick={guardar}>{guardando ? 'Guardando…' : 'Guardar'}</Btn>
       </>
     }>
       {info.actualizando && (
@@ -5183,12 +5178,16 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
       })()}
 
       <div style={{ marginBottom: 12 }}>
-        <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Lote y serie *</label>
-        <select value={serieSel} onChange={e => setSerieSel(e.target.value)}>
-          <option value="" disabled>Selecciona…</option>
-          {opciones.map(o => <option key={o.value} value={o.value} disabled={o.ocupada}>{o.label}</option>)}
-        </select>
-        <div style={{ fontSize: 11, color: '#A5A5A0', marginTop: 4 }}>Una serie ya con acta no se puede volver a elegir — primero elimínala si quieres sustituirla.</div>
+        <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Lote y serie</label>
+        {loteInfo && serieInfo ? (
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#16160F', padding: '9px 12px', background: '#F5F4F0', borderRadius: 3, border: '1px solid #E6E4DD' }}>
+            Lote {loteInfo.num} · Serie {serieInfo.num}
+          </div>
+        ) : (
+          <div style={{ fontSize: 12.5, color: '#8A1F1F', background: '#FDECEC', borderRadius: 3, padding: '9px 12px' }}>
+            No se ha podido asignar automáticamente a ninguna serie libre de este elemento.
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
@@ -5229,8 +5228,7 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
 
       {cumpleCalc !== null && (
         <div style={{ marginBottom: 12 }}>
-          <Pill label={cumpleCalc ? `Aviso: cumple (media 28d ${media28.toFixed(1)} ≥ fck ${elemento.fck} N/mm²)` : `Aviso: no cumple (media 28d ${media28.toFixed(1)} < fck ${elemento.fck} N/mm²)`} bg={cumpleCalc ? '#E8F5E0' : '#FDECEC'} color={cumpleCalc ? '#2D5E10' : '#8A1F1F'} />
-          <div style={{ fontSize: 10.5, color: '#A5A5A0', marginTop: 4 }}>Orientativo (esta serie vs fck) — no sustituye el cálculo estadístico oficial del Código Estructural.</div>
+          <Pill label={cumpleCalc ? `Cumple (media 28d ${media28.toFixed(1)} ≥ fck ${elemento.fck} N/mm²)` : `No cumple (media 28d ${media28.toFixed(1)} < fck ${elemento.fck} N/mm²)`} bg={cumpleCalc ? '#E8F5E0' : '#FDECEC'} color={cumpleCalc ? '#2D5E10' : '#8A1F1F'} />
         </div>
       )}
 
