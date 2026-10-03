@@ -56,7 +56,7 @@ body { font-family: 'Satoshi', -apple-system, BlinkMacSystemFont, sans-serif; ba
 button, input, select, textarea { font-family: inherit; }
 input, select, textarea {
   display: block; width: 100%; padding: 10px 13px;
-  border: 1px solid #E6E4DD; border-radius: 11px;
+  border: 1px solid #E6E4DD; border-radius: 3px;
   font-size: 14px; color: #16160F; background: #fff;
   outline: none; transition: border-color .18s ease, box-shadow .18s ease;
 }
@@ -446,7 +446,7 @@ function Pill({ label, bg, color }) {
 function Btn({ children, onClick, primary, sm, danger, ghost, disabled, full }) {
   const base = {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-    padding: sm ? '6px 13px' : '9px 17px', borderRadius: 11, border: '1.5px solid',
+    padding: sm ? '6px 13px' : '9px 17px', borderRadius: 3, border: '1.5px solid',
     cursor: disabled ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600,
     transition: 'opacity .15s, transform .12s ease', opacity: disabled ? 0.45 : 1, width: full ? '100%' : 'auto',
     letterSpacing: '0.01em',
@@ -967,7 +967,7 @@ function Modal({ title, onClose, children, footer, wide }) {
   const isMobile = useIsMobile();
   const panelStyle = isMobile
     ? { background: '#fff', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: '100%', maxHeight: '92dvh', borderTop: '1px solid #E0DFD9', boxShadow: '0 -8px 40px rgba(0,0,0,.18)', display: 'flex', flexDirection: 'column' }
-    : { background: '#fff', borderRadius: 14, width: wide ? 540 : 460, maxWidth: '95vw', maxHeight: '90vh', border: '1px solid #E0DFD9', boxShadow: '0 24px 64px rgba(0,0,0,.14)', display: 'flex', flexDirection: 'column' };
+    : { background: '#fff', borderRadius: 3, width: wide ? 540 : 460, maxWidth: '95vw', maxHeight: '90vh', border: '1px solid #E0DFD9', boxShadow: '0 24px 64px rgba(0,0,0,.14)', display: 'flex', flexDirection: 'column' };
   return createPortal(
     <div className="modal-overlay"
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.2)', display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(3px)' }}
