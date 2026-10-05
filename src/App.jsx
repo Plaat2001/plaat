@@ -4548,6 +4548,8 @@ function ControlHormigon({ obra, onSave }) {
   // Dentro de un mismo lote, las series deben hormigonarse en un intervalo de 15 días —
   // si la nueva acta llega más de 15 días después de la última asignada a ese lote, ya
   // no entra ahí: pasa a ocupar hueco en el siguiente lote, aunque el actual no esté lleno.
+  // Si ningún lote existente tiene hueco que encaje (todos llenos, o por fechas no se puede
+  // agrupar), se devuelve null: el llamante crea un lote nuevo en vez de forzarlo en uno viejo.
   function primeraSeriePendiente(elemento, fechaHormigonado) {
     const lotes = elemento.lotes || [];
     if (fechaHormigonado) {
@@ -4563,14 +4565,30 @@ function ControlHormigon({ obra, onSave }) {
           return { loteId: lote.id, serieId: serieLibre.id };
         }
       }
+      return null;
     }
-    // Sin fecha reconocida (o ningún lote encaja por fecha): primer hueco en orden
+    // Sin fecha reconocida: no se puede aplicar la regla de los 15 días, así que se ocupa
+    // el primer hueco en orden.
     for (const lote of lotes) {
       for (const serie of lote.series || []) {
         if (!serie.acta) return { loteId: lote.id, serieId: serie.id };
       }
     }
     return null;
+  }
+
+  // Lote añadido a mano porque han llegado más actas de las que cubre el mínimo normativo
+  // calculado al crear el elemento — se marca `extra: true` para que quede reflejado en la UI.
+  function nuevoLoteExtra(elemento) {
+    const lotesActuales = elemento.lotes || [];
+    const maxNum = lotesActuales.reduce((m, l) => Math.max(m, l.num || 0), 0);
+    const nSeries = elemento.seriesPorLote || (lotesActuales[0]?.series || []).length || 1;
+    return {
+      id: uid(),
+      num: maxNum + 1,
+      extra: true,
+      series: Array.from({ length: nSeries }, (_, j) => ({ id: uid(), num: j + 1, acta: null })),
+    };
   }
 
   function abrirSelector(elementoId, objetivo) {
@@ -4660,9 +4678,21 @@ function ControlHormigon({ obra, onSave }) {
         return;
       }
 
-      const destino = (item.objetivo?.serieId && item.objetivo?.loteId)
+      let destino = (item.objetivo?.serieId && item.objetivo?.loteId)
         ? item.objetivo
         : (elemento ? primeraSeriePendiente(elemento, datos.fechaHormigonado) : null);
+
+      // Ningún lote existente tiene hueco que encaje (todo lleno, o ninguno agrupa por
+      // fechas): se crea un lote nuevo con sus series, marcado como extra.
+      if (!destino && elemento) {
+        const lote = nuevoLoteExtra(elemento);
+        onSave({
+          ...obra,
+          lotes: elementos.map(e => e.id === elemento.id ? { ...e, lotes: [...(e.lotes || []), lote] } : e),
+        });
+        destino = { loteId: lote.id, serieId: lote.series[0].id };
+      }
+
       setRevisarActa({
         elementoId: item.objetivo?.elementoId,
         loteId: destino?.loteId || null,
@@ -4758,7 +4788,7 @@ function ControlHormigon({ obra, onSave }) {
   }
 
   // Resumen global para la pestaña de seguimiento
-  const totalSeriesObra  = elementos.reduce((s, e) => s + (e.numLotes || (e.lotes || []).length) * (e.seriesPorLote || 0), 0);
+  const totalSeriesObra  = elementos.reduce((s, e) => s + (e.lotes || []).reduce((ss, l) => ss + (l.series || []).length, 0), 0);
   const totalConActaObra = elementos.reduce((s, e) => s + (e.lotes || []).flatMap(l => l.series || []).filter(se => se.acta).length, 0);
   const totalNoCumplenObra = elementos.reduce((s, e) => s + (e.lotes || []).flatMap(l => l.series || []).filter(se => evaluarActa(se.acta, e.fck).key === 'noCumple').length, 0);
   const elementoActivo = elementos.find(e => e.id === elSeleccionado) || elementos[0] || null;
@@ -4914,8 +4944,10 @@ function ControlHormigon({ obra, onSave }) {
             <tbody>
               {elementos.map((el, idx) => {
                 const t = TIPOS_ELEMENTO[el.tipo] || TIPOS_ELEMENTO.flexion;
-                const numLotes = el.numLotes || (el.lotes || []).length;
-                const totalSeries = numLotes * (el.seriesPorLote || 0);
+                const numLotesMin = el.numLotes || (el.lotes || []).length;
+                const numLotesExtra = (el.lotes || []).filter(l => l.extra).length;
+                const numLotes = (el.lotes || []).length || numLotesMin;
+                const totalSeries = (el.lotes || []).reduce((s, l) => s + (l.series || []).length, 0) || (numLotes * (el.seriesPorLote || 0));
                 return (
                   <tr key={el.id} style={{ borderTop: '1px solid #F2F1ED' }}>
                     <td style={{ ...tdCell, ...NUM_TAB }}>
@@ -4933,7 +4965,10 @@ function ControlHormigon({ obra, onSave }) {
                     <td style={tdCell}>
                       <input type="number" placeholder="25" value={el.fck || ''} onChange={e => actualizarElemento(el.id, 'fck', e.target.value)} style={{ fontSize: 12, padding: '4px 7px', width: 52, ...NUM_TAB }} />
                     </td>
-                    <td style={{ ...tdCell, ...NUM_TAB }}>{numLotes}</td>
+                    <td style={{ ...tdCell, ...NUM_TAB }}>
+                      {numLotes}
+                      {numLotesExtra > 0 && <span style={{ marginLeft: 5, fontSize: 10.5, fontWeight: 600, color: '#C47610', background: '#FEF3DB', borderRadius: 5, padding: '1.5px 5px' }}>+{numLotesExtra} extra</span>}
+                    </td>
                     <td style={{ ...tdCell, ...NUM_TAB }}>{totalSeries}</td>
                     <td style={tdCell}>
                       <button onClick={() => setConfirmacion({ titulo: 'Eliminar lotificación', texto: `Vas a eliminar "${el.nombre}" y todos sus datos. Esta acción no se puede deshacer.`, onSi: () => { eliminar(el.id); setConfirmacion(null); } })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 16, padding: '0 2px', lineHeight: 1 }}>×</button>
@@ -5049,6 +5084,7 @@ function ControlHormigon({ obra, onSave }) {
                               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                 {lote.num}
                                 {loteCompleto && <Icon name="done" size={12} className="lote-stamp" style={{ color: '#52A124' }} />}
+                                {lote.extra && <span title="Lote añadido más allá del mínimo normativo calculado" style={{ fontSize: 9.5, fontWeight: 700, color: '#C47610', background: '#FEF3DB', borderRadius: 4, padding: '1px 4px', letterSpacing: '0.02em' }}>EXTRA</span>}
                               </span>
                             </td>
                           )}
@@ -5182,6 +5218,7 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
         {loteInfo && serieInfo ? (
           <div style={{ fontSize: 13, fontWeight: 600, color: '#16160F', padding: '9px 12px', background: '#F5F4F0', borderRadius: 3, border: '1px solid #E6E4DD' }}>
             Lote {loteInfo.num} · Serie {serieInfo.num}
+            {loteInfo.extra && <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: '#C47610', background: '#FEF3DB', borderRadius: 4, padding: '2px 6px', letterSpacing: '0.02em' }}>LOTE EXTRA · fuera del mínimo normativo</span>}
           </div>
         ) : (
           <div style={{ fontSize: 12.5, color: '#8A1F1F', background: '#FDECEC', borderRadius: 3, padding: '9px 12px' }}>
