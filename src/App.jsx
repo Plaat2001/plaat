@@ -2162,8 +2162,13 @@ function diasDesde(iso) {
 async function subirFotoStorage(obraId, fotoId, base64) {
   if (!window.db?.subirFoto || !obraId) return { id: fotoId, data: base64 };
   try {
-    const { path, url } = await window.db.subirFoto(obraId, fotoId, base64);
-    return { id: fotoId, path, url, data: base64 }; // guardamos base64 como fallback temporal
+    const { path, url, pendent } = await window.db.subirFoto(obraId, fotoId, base64);
+    // El base64 solo se guarda dentro del registro de la obra mientras la subida a
+    // Storage está pendiente (sin conexión / en cola) — es la red de seguridad para no
+    // perder el archivo si todavía no está en Storage. Una vez confirmada la subida, no
+    // se guarda: con cientos de fotos/actas por obra, mantenerlo para siempre duplicaría
+    // su peso en cada guardado de la obra (todo el JSON se reenvía entero cada vez).
+    return pendent ? { id: fotoId, path, url, data: base64 } : { id: fotoId, path, url };
   } catch(e) {
     console.error('Error subiendo foto a Storage:', e);
     return { id: fotoId, data: base64 }; // fallback: guardar base64
