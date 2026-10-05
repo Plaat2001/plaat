@@ -4503,8 +4503,7 @@ function ControlHormigon({ obra, onSave }) {
   // lo lee sola (texto del PDF → designación, nº de acta, fecha, resistencia).
   // Todo queda editable antes de guardar — cada laboratorio tiene su formato.
   const [dragOverId, setDragOverId] = useState(null);
-  const [cola, setCola] = useState([]);           // archivos pendientes de leer
-  const [procesando, setProcesando] = useState(false);
+  const [procesando, setProcesando] = useState(0);   // nº d'actes que s'estan llegint/pujant ara mateix
   const [guardandoActa, setGuardandoActa] = useState(false);
   const [revisarActa, setRevisarActa] = useState(null);
   const fileInputRef = useRef(null);
@@ -4540,8 +4539,20 @@ function ControlHormigon({ obra, onSave }) {
 
   function eliminarActaDeSerie(elementoId, loteId, serieId) {
     const el = elementos.find(e => e.id === elementoId);
-    const serie = el?.lotes.find(l => l.id === loteId)?.series.find(s => s.id === serieId);
+    const lote = el?.lotes.find(l => l.id === loteId);
+    const serie = lote?.series.find(s => s.id === serieId);
     if (serie?.acta?.archivo?.path) window.db?.eliminarFoto?.(serie.acta.archivo.path).catch(() => {});
+
+    // Si el lote es extra y se queda sin ninguna acta al borrar esta, el lote entero
+    // desaparece — ya no hace falta, no es parte del mínimo normativo.
+    const loteQuedaVacio = lote?.extra && (lote.series || []).every(s => s.id === serieId || !s.acta);
+    if (loteQuedaVacio) {
+      onSave({
+        ...obra,
+        lotes: elementos.map(e => e.id !== elementoId ? e : { ...e, lotes: (e.lotes || []).filter(l => l.id !== loteId) }),
+      });
+      return;
+    }
     asignarActa(elementoId, loteId, serieId, null);
   }
 
@@ -4591,8 +4602,8 @@ function ControlHormigon({ obra, onSave }) {
     };
   }
 
-  function abrirSelector(elementoId, objetivo) {
-    objetivoRef.current = { elementoId, ...objetivo };
+  function abrirSelector(elementoId) {
+    objetivoRef.current = elementoId;
     fileInputRef.current && (fileInputRef.current.value = '');
     fileInputRef.current?.click();
   }
@@ -4623,11 +4634,9 @@ function ControlHormigon({ obra, onSave }) {
     const todos = Array.from(e.target.files || []);
     const pdfs = todos.filter(f => f.type === 'application/pdf');
     if (todos.length - pdfs.length > 0) alert('Solo se procesan archivos PDF. Se han ignorado ' + (todos.length - pdfs.length) + ' archivo(s).');
-    if (pdfs.length) {
-      const objetivo = objetivoRef.current;
-      setCola(prev => [...prev, ...pdfs.map((file, i) => ({ file, objetivo: i === 0 ? objetivo : { elementoId: objetivo?.elementoId } }))]);
-    }
+    const elementoId = objetivoRef.current;
     objetivoRef.current = null;
+    if (pdfs.length && elementoId) procesarArchivosEnLote(elementoId, pdfs);
   }
 
   function onDropElemento(e, elementoId) {
@@ -4635,87 +4644,109 @@ function ControlHormigon({ obra, onSave }) {
     setDragOverId(null);
     const pdfs = Array.from(e.dataTransfer.files || []).filter(f => f.type === 'application/pdf');
     if (!pdfs.length) { alert('Solo se aceptan archivos PDF.'); return; }
-    setCola(prev => [...prev, ...pdfs.map(file => ({ file, objetivo: { elementoId } }))]);
+    procesarArchivosEnLote(elementoId, pdfs);
   }
 
-  // Procesa un PDF de la cola: extrae su texto, intenta reconocer los datos y
-  // abre el modal de revisión (preseleccionando la primera serie pendiente).
-  async function procesarSiguienteDeCola(item) {
-    setProcesando(true);
+  // Adjunta de golpe todas las actas que se sueltan o se seleccionan a la vez — sin pedir
+  // confirmación una por una. Primero las ordena por fecha de hormigonado (de más antigua a
+  // más nueva): la asignación a lotes/series depende de ese orden cronológico (regla de los
+  // 15 días), no del orden en que se hayan soltado los archivos. Las que no traen fecha
+  // reconocible se procesan al final, en el orden en que llegaron.
+  async function procesarArchivosEnLote(elementoId, files) {
+    setProcesando(n => n + files.length);
+    const errores = [];
     try {
-      const [texto, base64] = await Promise.all([
-        pdfFileToTexto(item.file).catch(() => ''),
-        fileToBase64(item.file),
-      ]);
-      const datos = extraerDatosActa(texto || '');
-      const elemento = elementos.find(e => e.id === item.objetivo?.elementoId);
-      const existente = elemento ? buscarActaExistente(elemento, datos) : null;
+      const leidos = await Promise.all(files.map(async file => {
+        const [texto, base64] = await Promise.all([
+          pdfFileToTexto(file).catch(() => ''),
+          fileToBase64(file),
+        ]);
+        return { file, base64, datos: extraerDatosActa(texto || '') };
+      }));
 
-      if (existente) {
-        // Mismo albarán/acta que una serie ya subida: se trata como una actualización de esa
-        // serie (añade el 28 días que faltaba, etc.), no como una acta nueva — y el PDF
-        // anterior se sustituye por este.
-        setRevisarActa({
-          elementoId: item.objetivo?.elementoId,
-          loteId: existente.loteId,
-          serieId: existente.serieId,
-          esNuevo: false,
-          actualizando: true,
-          actaId: existente.acta.id,
-          archivoExistente: existente.acta.archivo || null,
-          nuevoArchivo: { base64, nombre: item.file.name },
-          datos: fusionarDatos({
-            numActa: existente.acta.numActa || '',
-            refAlbaran: existente.acta.refAlbaran || '',
-            fechaHormigonado: existente.acta.fechaHormigonado || '',
-            resistencia7: existente.acta.resistencia7 || '',
-            resistencia28a: existente.acta.resistencia28a || '',
-            resistencia28b: existente.acta.resistencia28b || '',
-            resistencia56: existente.acta.resistencia56 || '',
-            localizacion: existente.acta.localizacion || '',
-          }, datos),
-        });
-        return;
-      }
-
-      let destino = (item.objetivo?.serieId && item.objetivo?.loteId)
-        ? item.objetivo
-        : (elemento ? primeraSeriePendiente(elemento, datos.fechaHormigonado) : null);
-
-      // Ningún lote existente tiene hueco que encaje (todo lleno, o ninguno agrupa por
-      // fechas): se crea un lote nuevo con sus series, marcado como extra.
-      if (!destino && elemento) {
-        const lote = nuevoLoteExtra(elemento);
-        onSave({
-          ...obra,
-          lotes: elementos.map(e => e.id === elemento.id ? { ...e, lotes: [...(e.lotes || []), lote] } : e),
-        });
-        destino = { loteId: lote.id, serieId: lote.series[0].id };
-      }
-
-      setRevisarActa({
-        elementoId: item.objetivo?.elementoId,
-        loteId: destino?.loteId || null,
-        serieId: destino?.serieId || null,
-        esNuevo: true,
-        nuevoArchivo: { base64, nombre: item.file.name },
-        datos,
+      leidos.sort((a, b) => {
+        const fa = a.datos.fechaHormigonado, fb = b.datos.fechaHormigonado;
+        if (fa && fb) return fa < fb ? -1 : fa > fb ? 1 : 0;
+        if (fa) return -1;
+        if (fb) return 1;
+        return 0;
       });
-    } catch (err) {
-      console.error('Error leyendo acta PDF:', err);
-      alert(`No se pudo leer "${item.file.name}". Comprueba que es un PDF válido.`);
+
+      const elementoBase = elementos.find(e => e.id === elementoId);
+      if (!elementoBase) return;
+      let lotesElemento = elementoBase.lotes || [];
+
+      for (const { file, base64, datos } of leidos) {
+        try {
+          const elementoActual = { ...elementoBase, lotes: lotesElemento };
+          const existente = buscarActaExistente(elementoActual, datos);
+          const subido = await subirFotoStorage(obra.id, uid(), base64);
+          const archivo = { ...subido, nombre: file.name };
+
+          if (existente) {
+            // Mismo albarán/acta que una serie ya subida en este mismo lote de archivos o en
+            // uno anterior: se actualiza esa serie (añade el 28 días que faltaba, etc.) en vez
+            // de crear una acta nueva, y el PDF anterior se sustituye por este.
+            if (existente.acta.archivo?.path) window.db?.eliminarFoto?.(existente.acta.archivo.path).catch(() => {});
+            const datosFusionados = fusionarDatos({
+              numActa: existente.acta.numActa || '',
+              refAlbaran: existente.acta.refAlbaran || '',
+              fechaHormigonado: existente.acta.fechaHormigonado || '',
+              resistencia7: existente.acta.resistencia7 || '',
+              resistencia28a: existente.acta.resistencia28a || '',
+              resistencia28b: existente.acta.resistencia28b || '',
+              resistencia56: existente.acta.resistencia56 || '',
+              localizacion: existente.acta.localizacion || '',
+            }, datos);
+            lotesElemento = lotesElemento.map(l => l.id !== existente.loteId ? l : {
+              ...l,
+              series: (l.series || []).map(s => s.id !== existente.serieId ? s : {
+                ...s,
+                acta: { ...s.acta, ...datosFusionados, archivo, subidoEn: now() },
+              }),
+            });
+            continue;
+          }
+
+          // Ningún lote existente tiene hueco que encaje (todo lleno, o por fechas no se
+          // puede agrupar): se crea un lote nuevo con sus series, marcado como extra.
+          let destino = primeraSeriePendiente(elementoActual, datos.fechaHormigonado);
+          if (!destino) {
+            const lote = nuevoLoteExtra(elementoActual);
+            lotesElemento = [...lotesElemento, lote];
+            destino = { loteId: lote.id, serieId: lote.series[0].id };
+          }
+          lotesElemento = lotesElemento.map(l => l.id !== destino.loteId ? l : {
+            ...l,
+            series: (l.series || []).map(s => s.id !== destino.serieId ? s : {
+              ...s,
+              acta: {
+                id: uid(),
+                archivo,
+                numActa: datos.numActa,
+                refAlbaran: datos.refAlbaran,
+                fechaHormigonado: datos.fechaHormigonado,
+                resistencia7: datos.resistencia7,
+                resistencia28a: datos.resistencia28a,
+                resistencia28b: datos.resistencia28b,
+                resistencia56: datos.resistencia56,
+                localizacion: datos.localizacion,
+                subidoEn: now(),
+              },
+            }),
+          });
+        } catch (err) {
+          console.error('Error procesando acta PDF:', err);
+          errores.push(file.name);
+        }
+      }
+
+      onSave({ ...obra, lotes: elementos.map(e => e.id === elementoId ? { ...e, lotes: lotesElemento } : e) });
+      if (errores.length) alert(`No se pudieron leer ${errores.length} archivo(s): ${errores.join(', ')}.`);
     } finally {
-      setProcesando(false);
+      setProcesando(n => n - files.length);
     }
   }
-
-  useEffect(() => {
-    if (procesando || revisarActa || !cola.length) return;
-    const [item, ...resto] = cola;
-    setCola(resto);
-    procesarSiguienteDeCola(item);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cola, procesando, revisarActa]);
 
   async function guardarActaDesdeModal(payload) {
     setGuardandoActa(true);
@@ -4987,10 +5018,10 @@ function ControlHormigon({ obra, onSave }) {
       {/* Input oculto para seleccionar PDFs (clic en "Adjuntar acta" o en una serie vacía) */}
       <input ref={fileInputRef} type="file" accept="application/pdf" multiple style={{ display: 'none' }} onChange={onFilesElegidos} />
 
-      {/* Aviso mientras se leen los PDFs de la cola */}
-      {(procesando || cola.length > 0) && (
+      {/* Aviso mientras se leen y archivan las actas */}
+      {procesando > 0 && (
         <div style={{ background: '#F0F6F1', border: '1px solid #C5E3CE', borderRadius: 10, padding: '9px 14px', fontSize: 12, color: '#1C1C1A', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Icon name="hourglass" size={13} /> Leyendo {cola.length + (procesando ? 1 : 0)} acta{(cola.length + (procesando ? 1 : 0)) > 1 ? 's' : ''}…
+          <Icon name="hourglass" size={13} /> Leyendo y archivando {procesando} acta{procesando > 1 ? 's' : ''}…
         </div>
       )}
 
@@ -5044,7 +5075,7 @@ function ControlHormigon({ obra, onSave }) {
                     {elementoActivo.designacion ? ` · ${elementoActivo.designacion}` : ''}{elementoActivo.fck ? ` · fck ${elementoActivo.fck} N/mm²` : ''}
                   </div>
                 </div>
-                <Btn sm onClick={() => abrirSelector(elementoActivo.id, {})}><Icon name="attach" size={13} /> Adjuntar acta(s)</Btn>
+                <Btn sm onClick={() => abrirSelector(elementoActivo.id)}><Icon name="attach" size={13} /> Adjuntar acta(s)</Btn>
                 <Btn sm onClick={() => descargarActasElemento(elementoActivo, elementoActivo.numLC || (elementos.indexOf(elementoActivo) + 1))} disabled={seriesRellenas === 0}><Icon name="download" size={13} /> .zip</Btn>
               </div>
 
