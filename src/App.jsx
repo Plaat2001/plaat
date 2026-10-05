@@ -4790,7 +4790,10 @@ function ControlHormigon({ obra, onSave }) {
       num: i + 1,
       series: Array.from({ length: calc.seriesPorLote }, (_, j) => ({ id: uid(), num: j + 1, acta: null })),
     }));
-    const numLC = elementos.reduce((max, e) => Math.max(max, e.numLC || 0), 0) + 1;
+    // Math.max amb elementos.length evita repetir un número si algun element antic es va
+    // crear abans que existís aquest camp i per tant no té numLC guardat (es quedaria a 0
+    // i el nou xocaria amb el fallback LC{idx+1} dels elements ja existents).
+    const numLC = Math.max(elementos.length, elementos.reduce((max, e) => Math.max(max, e.numLC || 0), 0)) + 1;
     const elemento = {
       id: uid(),
       numLC,
@@ -4976,9 +4979,9 @@ function ControlHormigon({ obra, onSave }) {
               {elementos.map((el, idx) => {
                 const t = TIPOS_ELEMENTO[el.tipo] || TIPOS_ELEMENTO.flexion;
                 const numLotesMin = el.numLotes || (el.lotes || []).length;
-                const numLotesExtra = (el.lotes || []).filter(l => l.extra).length;
-                const numLotes = (el.lotes || []).length || numLotesMin;
-                const totalSeries = (el.lotes || []).reduce((s, l) => s + (l.series || []).length, 0) || (numLotes * (el.seriesPorLote || 0));
+                const numLotesReales = (el.lotes || []).length || numLotesMin;
+                const seriesMin = numLotesMin * (el.seriesPorLote || 0);
+                const seriesReales = (el.lotes || []).reduce((s, l) => s + (l.series || []).length, 0) || seriesMin;
                 return (
                   <tr key={el.id} style={{ borderTop: '1px solid #F2F1ED' }}>
                     <td style={{ ...tdCell, ...NUM_TAB }}>
@@ -4996,11 +4999,8 @@ function ControlHormigon({ obra, onSave }) {
                     <td style={tdCell}>
                       <input type="number" placeholder="25" value={el.fck || ''} onChange={e => actualizarElemento(el.id, 'fck', e.target.value)} style={{ fontSize: 12, padding: '4px 7px', width: 52, ...NUM_TAB }} />
                     </td>
-                    <td style={{ ...tdCell, ...NUM_TAB }}>
-                      {numLotes}
-                      {numLotesExtra > 0 && <span style={{ marginLeft: 5, fontSize: 10.5, fontWeight: 600, color: '#C47610', background: '#FEF3DB', borderRadius: 5, padding: '1.5px 5px' }}>+{numLotesExtra} extra</span>}
-                    </td>
-                    <td style={{ ...tdCell, ...NUM_TAB }}>{totalSeries}</td>
+                    <td style={{ ...tdCell, ...NUM_TAB }}>{numLotesMin}/{numLotesReales}</td>
+                    <td style={{ ...tdCell, ...NUM_TAB }}>{seriesMin}/{seriesReales}</td>
                     <td style={tdCell}>
                       <button onClick={() => setConfirmacion({ titulo: 'Eliminar lotificación', texto: `Vas a eliminar "${el.nombre}" y todos sus datos. Esta acción no se puede deshacer.`, onSi: () => { eliminar(el.id); setConfirmacion(null); } })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 16, padding: '0 2px', lineHeight: 1 }}>×</button>
                     </td>
