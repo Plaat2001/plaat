@@ -542,10 +542,30 @@ window.auth = {
   },
 }
 
+// Comprova si la xarxa ha tornat quan estem en mode "sense connexió". L'esdeveniment
+// 'online' del navegador NOMÉS es dispara si l'adaptador de xarxa canvia d'estat (p.ex.
+// es desconnecta i es torna a connectar el WiFi) — no si Supabase simplement va fallar
+// un cop (un timeout puntual, un TypeError intermitent...) i després ja respondria bé.
+// Sense aquesta comprovació activa, un sol error transitori deixa l'app "sense connexió"
+// fins que l'usuari recarrega la pàgina, encara que l'ordinador tingui internet.
+async function provarReconnexio() {
+  try {
+    await supabase.from('obras').select('id').limit(1)
+    // Si la petició arriba a completar-se (encara que torni un error de permisos),
+    // vol dir que la xarxa i Supabase són accessibles.
+    marcarOnline()
+  } catch {
+    // Segueix sense connexió real — ho tornarem a provar al següent interval.
+  }
+}
+
 // Buida la cua pendent en arrencar
 if (typeof window !== 'undefined') {
   idbAll('queue').then(q => { net.pendents = q.length; notificar(); if (q.length) flushCua() })
-  setInterval(() => { if (net.online && net.pendents > 0) flushCua() }, 30000)
+  setInterval(() => {
+    if (net.online) { if (net.pendents > 0) flushCua() }
+    else provarReconnexio()
+  }, 15000)
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(
