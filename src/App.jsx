@@ -3845,6 +3845,61 @@ function calcularLotificacion(tipo, volumen, superficie, conDOR, fck) {
   return { numLotes, seriesPorLote: N, totalSeries: numLotes * N, motivo };
 }
 
+// ── Control de hormigón dividido por edificios (bloques) ──────────────────────
+// Per defecte una obra es tracta com una sola estructura (`hormigonModo: 'unico'`,
+// el comportament de sempre). En obres grans amb blocs independents es pot passar a
+// `'bloques'`: cada bloc (edifici) té numeració LC pròpia des de 1 i el seu informe
+// PDF complet. Els dos camps viuen a nivell d'OBRA (`hormigonModo`, `hormigonBloques`)
+// i cada element de `obra.lotes` guarda el seu `bloqueId`.
+const CODIS_BLOQUE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+function esModoBloques(obra) {
+  return obra?.hormigonModo === 'bloques';
+}
+
+function bloquesObra(obra) {
+  return Array.isArray(obra?.hormigonBloques) ? obra.hormigonBloques : [];
+}
+
+function bloquePorId(obra, bloqueId) {
+  return bloqueId ? bloquesObra(obra).find(b => b.id === bloqueId) || null : null;
+}
+
+// Primer codi curt lliure (A, B, C…; si s'esgota l'abecedari, A2, B2…)
+function codiBloqueLibre(bloques) {
+  const usados = new Set((bloques || []).map(b => (b.codi || '').toUpperCase()));
+  for (const c of CODIS_BLOQUE) if (!usados.has(c)) return c;
+  for (let n = 2; n < 100; n++) for (const c of CODIS_BLOQUE) if (!usados.has(c + n)) return c + n;
+  return 'X';
+}
+
+// Referència visible de l'element: "LC3" en mode únic, "A·LC3" dividit per edificis.
+// `fallbackNum` cobreix elements antics creats abans que existís `numLC`.
+function refElemento(obra, el, fallbackNum) {
+  const num = el?.numLC || fallbackNum || '';
+  const b = esModoBloques(obra) ? bloquePorId(obra, el?.bloqueId) : null;
+  return b ? `${b.codi || '?'}·LC${num}` : `LC${num}`;
+}
+
+// Numeració LC: global en mode únic (bloqueId === undefined), reiniciada dins de cada
+// bloc en mode dividit. Es manté el Math.max amb la llargada per no repetir número si
+// algun element antic no té `numLC` guardat (es quedaria a 0).
+function siguienteNumLC(elementos, bloqueId) {
+  const ambito = bloqueId === undefined ? elementos : elementos.filter(e => (e.bloqueId || null) === (bloqueId || null));
+  return Math.max(ambito.length, ambito.reduce((max, e) => Math.max(max, e.numLC || 0), 0)) + 1;
+}
+
+// Agrupa els elements per bloc per pintar-los/exportar-los: en mode únic torna un sol
+// grup sense bloc; en mode dividit, un grup per edifici (en l'ordre dels blocs) i, si
+// cal, un últim grup "Sin asignar" amb els que encara no s'han repartit.
+function agruparPorBloque(obra, elementos) {
+  if (!esModoBloques(obra)) return [{ bloque: null, elementos }];
+  const grupos = bloquesObra(obra).map(b => ({ bloque: b, elementos: elementos.filter(e => e.bloqueId === b.id) }));
+  const huerfanos = elementos.filter(e => !bloquePorId(obra, e.bloqueId));
+  if (huerfanos.length) grupos.push({ bloque: null, elementos: huerfanos });
+  return grupos;
+}
+
 function ModuloCalidad({ obra, onSave }) {
   const [sub, setSub] = useState('hormigon'); // hormigon | materiales | ensayos
 
@@ -4459,7 +4514,7 @@ async function loadJsZip() {
 
 // Descarga en un único .zip todas las actas de un elemento, listas para copiar
 // en la carpeta de la lotificación en el servidor de la empresa.
-async function descargarActasElemento(elemento, refLC) {
+async function descargarActasElemento(elemento, ref) {
   const JSZip = await loadJsZip();
   const zip = new JSZip();
   const tareas = [];
@@ -4481,7 +4536,7 @@ async function descargarActasElemento(elemento, refLC) {
   const blob = await zip.generateAsync({ type: 'blob' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  const etiqueta = refLC ? `LC${refLC} · ${elemento.nombre}` : elemento.nombre;
+  const etiqueta = ref ? `${ref} · ${elemento.nombre}` : elemento.nombre;
   a.href = url; a.download = `${etiqueta}.zip`;
   document.body.appendChild(a); a.click();
   setTimeout(() => { if (a.parentNode) document.body.removeChild(a); URL.revokeObjectURL(url); }, 10 * 60 * 1000);
@@ -4496,8 +4551,22 @@ function ControlHormigon({ obra, onSave }) {
   const [sub, setSub] = useState('lotificacion'); // lotificacion | seguimiento
   const [showNuevo, setShowNuevo] = useState(false);
   const [elSeleccionado, setElSeleccionado] = useState(null); // elemento activo en Seguimiento (estilo pestañas LC-x)
-  const [form, setForm] = useState({ nombre: '', tipo: 'flexion', volumen: '', superficie: '', conDOR: false, designacion: '', fck: '' });
+  const [form, setForm] = useState({ nombre: '', tipo: 'flexion', volumen: '', superficie: '', conDOR: false, designacion: '', fck: '', bloqueId: '' });
   const [confirmacion, setConfirmacion] = useState(null);
+
+  // ── Modo de control: una sola estructura o dividido por edificios ───────────
+  const modoBloques = esModoBloques(obra);
+  const bloques = bloquesObra(obra);
+  const [bloqueSel, setBloqueSel] = useState(null);  // edificio activo (null = el primero)
+  const [showBloques, setShowBloques] = useState(false);
+  const [pickInforme, setPickInforme] = useState(false);
+  const bloqueActivo = modoBloques ? (bloques.find(b => b.id === bloqueSel) || bloques[0] || null) : null;
+  // Elementos del edificio activo (en modo único, todos). Los que quedaron sin repartir
+  // al pasar de modo único a dividido se ven en su propia pestaña "Sin asignar".
+  const sinAsignar = modoBloques ? elementos.filter(e => !bloquePorId(obra, e.bloqueId)) : [];
+  const elementosAmbito = !modoBloques
+    ? elementos
+    : bloqueSel === '__sin__' ? sinAsignar : elementos.filter(e => e.bloqueId === bloqueActivo?.id);
   const upd = (k, v) => setForm(f => {
     const next = { ...f, [k]: v };
     if (k === 'designacion') { const fckAuto = fckDesdeDesignacion(v); if (fckAuto) next.fck = fckAuto; }
@@ -4526,6 +4595,58 @@ function ControlHormigon({ obra, onSave }) {
         if (campo === 'designacion') { const fckAuto = fckDesdeDesignacion(valor); if (fckAuto) next.fck = fckAuto; }
         return next;
       }),
+    });
+  }
+
+  // ── Edificios (bloques) ────────────────────────────────────────────────────
+  // Canviar de mode no toca mai els elements ja creats: en passar a dividit es
+  // queden a "Sin asignar" fins que l'usuari els reparteix, i en tornar a únic
+  // simplement s'ignora el `bloqueId` (es recupera tal qual si torna a dividir).
+  function cambiarModo(nuevo) {
+    if (nuevo === obra.hormigonModo || (nuevo === 'unico' && !modoBloques)) return;
+    const next = { ...obra, hormigonModo: nuevo };
+    if (nuevo === 'bloques' && !bloques.length) {
+      next.hormigonBloques = [{ id: uid(), codi: 'A', nombre: 'Edificio A', creadoEn: now() }];
+    }
+    onSave(next);
+    setBloqueSel(null);
+    setShowBloques(nuevo === 'bloques');
+  }
+
+  function crearBloque() {
+    const codi = codiBloqueLibre(bloques);
+    const nuevo = { id: uid(), codi, nombre: `Edificio ${codi}`, creadoEn: now() };
+    onSave({ ...obra, hormigonModo: 'bloques', hormigonBloques: [...bloques, nuevo] });
+    setBloqueSel(nuevo.id);
+  }
+
+  function actualizarBloque(bloqueId, campo, valor) {
+    onSave({
+      ...obra,
+      hormigonBloques: bloques.map(b => b.id !== bloqueId ? b : { ...b, [campo]: campo === 'codi' ? valor.toUpperCase().slice(0, 4) : valor }),
+    });
+  }
+
+  // En eliminar un edifici els seus elements NO es perden: passen a "Sin asignar"
+  // conservant lots, series i actes, per poder reassignar-los a un altre edifici.
+  function eliminarBloque(bloqueId) {
+    onSave({
+      ...obra,
+      hormigonBloques: bloques.filter(b => b.id !== bloqueId),
+      lotes: elementos.map(e => e.bloqueId === bloqueId ? { ...e, bloqueId: null } : e),
+    });
+    setBloqueSel(null);
+  }
+
+  // Mou un element a un altre edifici i li dona el següent LC lliure d'allà — la
+  // numeració d'un edifici no depèn mai de la dels altres.
+  function moverElementoABloque(elementoId, bloqueId) {
+    const destino = bloqueId || null;
+    const resto = elementos.filter(e => e.id !== elementoId);
+    const numLC = siguienteNumLC(resto, destino);
+    onSave({
+      ...obra,
+      lotes: elementos.map(e => e.id !== elementoId ? e : { ...e, bloqueId: destino, numLC }),
     });
   }
 
@@ -4795,13 +4916,14 @@ function ControlHormigon({ obra, onSave }) {
       num: i + 1,
       series: Array.from({ length: calc.seriesPorLote }, (_, j) => ({ id: uid(), num: j + 1, acta: null })),
     }));
-    // Math.max amb elementos.length evita repetir un número si algun element antic es va
-    // crear abans que existís aquest camp i per tant no té numLC guardat (es quedaria a 0
-    // i el nou xocaria amb el fallback LC{idx+1} dels elements ja existents).
-    const numLC = Math.max(elementos.length, elementos.reduce((max, e) => Math.max(max, e.numLC || 0), 0)) + 1;
+    // En mode únic la numeració LC és global a l'obra; en mode dividit per edificis
+    // es reinicia dins de cada bloc (A·LC1, A·LC2, B·LC1…).
+    const bloqueId = modoBloques ? (form.bloqueId || bloqueActivo?.id || null) : null;
+    const numLC = siguienteNumLC(elementos, modoBloques ? bloqueId : undefined);
     const elemento = {
       id: uid(),
       numLC,
+      bloqueId,
       nombre: form.nombre.trim(),
       tipo: form.tipo,
       volumen: form.volumen,
@@ -4817,8 +4939,9 @@ function ControlHormigon({ obra, onSave }) {
     // Se añade al final (no al principio) para que la numeración LC de los elementos
     // ya creados no cambie nunca — es la referencia que usáis para archivar actas.
     onSave({ ...obra, lotes: [...elementos, elemento] });
-    setForm({ nombre: '', tipo: 'flexion', volumen: '', superficie: '', conDOR: false, designacion: '', fck: '' });
+    setForm({ nombre: '', tipo: 'flexion', volumen: '', superficie: '', conDOR: false, designacion: '', fck: '', bloqueId: '' });
     setShowNuevo(false);
+    if (bloqueId) setBloqueSel(bloqueId);
     setElSeleccionado(elemento.id);
   }
 
@@ -4826,11 +4949,21 @@ function ControlHormigon({ obra, onSave }) {
     onSave({ ...obra, lotes: elementos.filter(e => e.id !== id) });
   }
 
-  // Resumen global para la pestaña de seguimiento
-  const totalSeriesObra  = elementos.reduce((s, e) => s + (e.lotes || []).reduce((ss, l) => ss + (l.series || []).length, 0), 0);
-  const totalConActaObra = elementos.reduce((s, e) => s + (e.lotes || []).flatMap(l => l.series || []).filter(se => se.acta).length, 0);
-  const totalNoCumplenObra = elementos.reduce((s, e) => s + (e.lotes || []).flatMap(l => l.series || []).filter(se => evaluarActa(se.acta, e.fck).key === 'noCumple').length, 0);
-  const elementoActivo = elementos.find(e => e.id === elSeleccionado) || elementos[0] || null;
+  // Resumen para la pestaña de seguimiento — del ámbito activo (edificio o toda la
+  // obra en modo único) y, si está dividida, también el total de la obra entera.
+  function resumirSeries(lista) {
+    const series   = lista.flatMap(e => (e.lotes || []).flatMap(l => (l.series || []).map(s => ({ s, e }))));
+    const conActa  = series.filter(({ s }) => s.acta).length;
+    const noCumple = series.filter(({ s, e }) => evaluarActa(s.acta, e.fck).key === 'noCumple').length;
+    return { total: series.length, conActa, noCumple };
+  }
+  const resAmbito = resumirSeries(elementosAmbito);
+  const resObra   = resumirSeries(elementos);
+  const elementoActivo = elementosAmbito.find(e => e.id === elSeleccionado) || elementosAmbito[0] || null;
+  // Etiqueta del ámbito activo, para títulos, resúmenes y nombre del PDF
+  const etiquetaAmbito = !modoBloques ? ''
+    : bloqueSel === '__sin__' ? 'Sin asignar'
+    : bloqueActivo ? `${bloqueActivo.codi} · ${bloqueActivo.nombre}` : '';
 
   const thCell = { padding: '8px 10px', fontSize: 10.5, color: '#9B9B97', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600, whiteSpace: 'nowrap', textAlign: 'left' };
   const tdCell = { padding: '7px 10px', verticalAlign: 'middle', whiteSpace: 'nowrap' };
@@ -4862,18 +4995,100 @@ function ControlHormigon({ obra, onSave }) {
         </div>
       )}
 
+      {/* ── Alcance del control: una sola estructura o dividido por edificios ──
+          Es pot canviar en qualsevol moment; en passar a dividit els elements que ja
+          existien es queden a "Sin asignar" fins que es reparteixen. */}
+      <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, padding: elementos.length === 0 ? '16px' : '12px 14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: '#141412' }}>Alcance del control</div>
+            <div style={{ fontSize: 11.5, color: '#9B9B97', marginTop: 2 }}>
+              {modoBloques
+                ? 'Un control completo e independiente por cada edificio'
+                : 'Toda la obra como una sola estructura'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 4, background: '#F5F4F0', borderRadius: 8, padding: 3 }}>
+            {[['unico', 'Obra única'], ['bloques', 'Por edificios']].map(([id, label]) => (
+              <button key={id} onClick={() => cambiarModo(id)}
+                style={{ padding: '6px 13px', borderRadius: 6, border: 'none', background: (modoBloques ? 'bloques' : 'unico') === id ? '#fff' : 'transparent', color: (modoBloques ? 'bloques' : 'unico') === id ? '#141412' : '#6B6B66', fontSize: 12.5, fontWeight: (modoBloques ? 'bloques' : 'unico') === id ? 600 : 400, cursor: 'pointer', boxShadow: (modoBloques ? 'bloques' : 'unico') === id ? '0 1px 3px rgba(0,0,0,.08)' : 'none' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {modoBloques && (
+            <Btn sm onClick={() => setShowBloques(v => !v)}>{showBloques ? 'Hecho' : `Editar edificios (${bloques.length})`}</Btn>
+          )}
+        </div>
+
+        {/* Gestor de edificios: código corto (prefijo de las referencias) + nombre */}
+        {modoBloques && showBloques && (
+          <div style={{ marginTop: 12, borderTop: '1px solid #F2F1ED', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {bloques.map(b => {
+              const nEl = elementos.filter(e => e.bloqueId === b.id).length;
+              return (
+                <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input value={b.codi || ''} onChange={e => actualizarBloque(b.id, 'codi', e.target.value)} placeholder="A"
+                    style={{ width: 54, fontSize: 12, padding: '5px 7px', textAlign: 'center', fontWeight: 700, ...NUM_TAB }} />
+                  <input value={b.nombre || ''} onChange={e => actualizarBloque(b.id, 'nombre', e.target.value)} placeholder="Nombre del edificio o bloque"
+                    style={{ flex: 1, fontSize: 12, padding: '5px 8px' }} />
+                  <span style={{ fontSize: 11, color: '#9B9B97', whiteSpace: 'nowrap', minWidth: 62, textAlign: 'right' }}>{nEl} elem.</span>
+                  <button onClick={() => setConfirmacion({
+                        titulo: 'Eliminar edificio',
+                        texto: nEl
+                          ? `"${b.nombre}" tiene ${nEl} elemento(s). No se borran: pasarán a "Sin asignar" con sus lotes y actas, y podrás reasignarlos a otro edificio.`
+                          : `Vas a eliminar el edificio "${b.nombre}".`,
+                        onSi: () => { eliminarBloque(b.id); setConfirmacion(null); },
+                      })}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 17, padding: '0 2px', lineHeight: 1 }}>×</button>
+                </div>
+              );
+            })}
+            <div><Btn sm onClick={crearBloque}>+ Añadir edificio</Btn></div>
+          </div>
+        )}
+      </div>
+
       {/* Cabecera */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <div style={{ flex: 1, fontSize: 13, color: '#6B6B66' }}>
+          {modoBloques ? `${bloques.length} edificio${bloques.length !== 1 ? 's' : ''} · ` : ''}
           {elementos.length} elemento{elementos.length !== 1 ? 's' : ''} · Control estadístico Modalidad 1 (CE)
         </div>
-        <Btn primary onClick={() => setShowNuevo(v => !v)}>{showNuevo ? '✕ Cancelar' : '+ Nuevo elemento'}</Btn>
+        <Btn primary onClick={() => { if (!showNuevo && modoBloques) upd('bloqueId', bloqueActivo?.id || ''); setShowNuevo(v => !v); }}>{showNuevo ? '✕ Cancelar' : '+ Nuevo elemento'}</Btn>
       </div>
 
       {/* Formulario nuevo elemento */}
       {showNuevo && (
         <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, padding: '16px' }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 14 }}>Nuevo elemento</div>
+
+          {/* Edificio al que pertenece — decide el prefijo y la numeración LC del elemento */}
+          {modoBloques && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 6 }}>Edificio *</label>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {bloques.map(b => {
+                  const activo = (form.bloqueId || bloqueActivo?.id) === b.id;
+                  return (
+                    <button key={b.id} onClick={() => upd('bloqueId', b.id)}
+                      style={{ padding: '6px 13px', borderRadius: 20, border: `1.5px solid ${activo ? ACCENT : '#E0DFD9'}`, background: activo ? ACCENT : 'transparent', color: activo ? '#fff' : '#6B6B66', fontSize: 12, cursor: 'pointer', fontWeight: activo ? 600 : 400 }}>
+                      {b.codi} · {b.nombre}
+                    </button>
+                  );
+                })}
+              </div>
+              {(() => {
+                const bDestino = bloques.find(b => b.id === (form.bloqueId || bloqueActivo?.id));
+                if (!bDestino) return null;
+                return (
+                  <div style={{ fontSize: 11.5, color: '#9B9B97', marginTop: 6, ...NUM_TAB }}>
+                    Quedará como <strong style={{ color: '#52524E' }}>{bDestino.codi}·LC{siguienteNumLC(elementos, bDestino.id)}</strong>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
 
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Nombre del elemento *</label>
@@ -4977,42 +5192,74 @@ function ControlHormigon({ obra, onSave }) {
                 <th style={thCell}>fck</th>
                 <th style={thCell}>Lotes</th>
                 <th style={thCell}>Series</th>
+                {modoBloques && <th style={thCell}>Edificio</th>}
                 <th style={thCell}></th>
               </tr>
             </thead>
-            <tbody>
-              {elementos.map((el, idx) => {
-                const t = TIPOS_ELEMENTO[el.tipo] || TIPOS_ELEMENTO.flexion;
-                const numLotesMin = el.numLotes || (el.lotes || []).length;
-                const numLotesReales = (el.lotes || []).length || numLotesMin;
-                const seriesMin = numLotesMin * (el.seriesPorLote || 0);
-                const seriesReales = (el.lotes || []).reduce((s, l) => s + (l.series || []).length, 0) || seriesMin;
-                return (
-                  <tr key={el.id} style={{ borderTop: '1px solid #F2F1ED' }}>
-                    <td style={{ ...tdCell, ...NUM_TAB }}>
-                      <button onClick={() => { setElSeleccionado(el.id); setSub('seguimiento'); }} title="Ir al seguimiento de este elemento"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: ACCENT, fontWeight: 700, fontSize: 'inherit', padding: 0, textDecoration: 'underline', textDecorationColor: ACCENT_SOFT, textUnderlineOffset: 3 }}>
-                        LC{el.numLC || idx + 1}
-                      </button>
-                    </td>
-                    <td style={{ ...tdCell, fontWeight: 600, color: '#141412', whiteSpace: 'normal', minWidth: 140 }}>{el.nombre}</td>
-                    <td style={tdCell}>{t.label}</td>
-                    <td style={{ ...tdCell, ...NUM_TAB }}>{el.volumen} m³{el.superficie ? ` · ${el.superficie} m²` : ''}</td>
-                    <td style={tdCell}>
-                      <input placeholder="HA-25/B/20/IIa" value={el.designacion || ''} onChange={e => actualizarElemento(el.id, 'designacion', e.target.value)} style={{ fontSize: 12, padding: '4px 7px', width: 140 }} />
-                    </td>
-                    <td style={tdCell}>
-                      <input type="number" placeholder="25" value={el.fck || ''} onChange={e => actualizarElemento(el.id, 'fck', e.target.value)} style={{ fontSize: 12, padding: '4px 7px', width: 52, ...NUM_TAB }} />
-                    </td>
-                    <td style={{ ...tdCell, ...NUM_TAB }}>{numLotesMin}/{numLotesReales}</td>
-                    <td style={{ ...tdCell, ...NUM_TAB }}>{seriesMin}/{seriesReales}</td>
-                    <td style={tdCell}>
-                      <button onClick={() => setConfirmacion({ titulo: 'Eliminar lotificación', texto: `Vas a eliminar "${el.nombre}" y todos sus datos. Esta acción no se puede deshacer.`, onSi: () => { eliminar(el.id); setConfirmacion(null); } })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 16, padding: '0 2px', lineHeight: 1 }}>×</button>
+            {/* Un <tbody> por grupo: en modo único un solo grupo, y dividido por
+                edificios uno por bloque (más "Sin asignar" si queda algo por repartir). */}
+            {agruparPorBloque(obra, elementos).map(({ bloque, elementos: elsGrupo }, gi) => (
+              <tbody key={bloque?.id || `sin-${gi}`}>
+                {modoBloques && (
+                  <tr>
+                    <td colSpan={10} style={{ padding: '7px 10px', background: bloque ? '#F5F4F0' : '#FEF3DB', borderTop: gi === 0 ? 'none' : '2px solid #D8D7D1', borderBottom: '1px solid #E8E7E1' }}>
+                      <span style={{ fontSize: 11.5, fontWeight: 700, color: bloque ? '#141412' : '#7C4A00', letterSpacing: '0.03em' }}>
+                        {bloque ? `${bloque.codi} · ${(bloque.nombre || '').toUpperCase()}` : 'SIN ASIGNAR'}
+                      </span>
+                      <span style={{ fontSize: 11, color: bloque ? '#9B9B97' : '#A97A24', marginLeft: 8 }}>
+                        {elsGrupo.length} elemento{elsGrupo.length !== 1 ? 's' : ''}
+                        {!bloque && elsGrupo.length ? ' — asígnalos a un edificio en la última columna' : ''}
+                      </span>
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
+                )}
+                {elsGrupo.map((el, idx) => {
+                  const t = TIPOS_ELEMENTO[el.tipo] || TIPOS_ELEMENTO.flexion;
+                  const numLotesMin = el.numLotes || (el.lotes || []).length;
+                  const numLotesReales = (el.lotes || []).length || numLotesMin;
+                  const seriesMin = numLotesMin * (el.seriesPorLote || 0);
+                  const seriesReales = (el.lotes || []).reduce((s, l) => s + (l.series || []).length, 0) || seriesMin;
+                  return (
+                    <tr key={el.id} style={{ borderTop: '1px solid #F2F1ED' }}>
+                      <td style={{ ...tdCell, ...NUM_TAB }}>
+                        <button onClick={() => { setElSeleccionado(el.id); setBloqueSel(bloque ? bloque.id : (modoBloques ? '__sin__' : null)); setSub('seguimiento'); }} title="Ir al seguimiento de este elemento"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: ACCENT, fontWeight: 700, fontSize: 'inherit', padding: 0, textDecoration: 'underline', textDecorationColor: ACCENT_SOFT, textUnderlineOffset: 3 }}>
+                          {refElemento(obra, el, idx + 1)}
+                        </button>
+                      </td>
+                      <td style={{ ...tdCell, fontWeight: 600, color: '#141412', whiteSpace: 'normal', minWidth: 140 }}>{el.nombre}</td>
+                      <td style={tdCell}>{t.label}</td>
+                      <td style={{ ...tdCell, ...NUM_TAB }}>{el.volumen} m³{el.superficie ? ` · ${el.superficie} m²` : ''}</td>
+                      <td style={tdCell}>
+                        <input placeholder="HA-25/B/20/IIa" value={el.designacion || ''} onChange={e => actualizarElemento(el.id, 'designacion', e.target.value)} style={{ fontSize: 12, padding: '4px 7px', width: 140 }} />
+                      </td>
+                      <td style={tdCell}>
+                        <input type="number" placeholder="25" value={el.fck || ''} onChange={e => actualizarElemento(el.id, 'fck', e.target.value)} style={{ fontSize: 12, padding: '4px 7px', width: 52, ...NUM_TAB }} />
+                      </td>
+                      <td style={{ ...tdCell, ...NUM_TAB }}>{numLotesMin}/{numLotesReales}</td>
+                      <td style={{ ...tdCell, ...NUM_TAB }}>{seriesMin}/{seriesReales}</td>
+                      {modoBloques && (
+                        <td style={tdCell}>
+                          {/* Cambiar de edificio renumera el LC dentro del destino */}
+                          <select value={el.bloqueId || ''} onChange={e => moverElementoABloque(el.id, e.target.value)} style={{ fontSize: 12, padding: '4px 6px', maxWidth: 130 }}>
+                            <option value="">Sin asignar</option>
+                            {bloques.map(b => <option key={b.id} value={b.id}>{b.codi} · {b.nombre}</option>)}
+                          </select>
+                        </td>
+                      )}
+                      <td style={tdCell}>
+                        <button onClick={() => setConfirmacion({ titulo: 'Eliminar lotificación', texto: `Vas a eliminar "${el.nombre}" y todos sus datos. Esta acción no se puede deshacer.`, onSi: () => { eliminar(el.id); setConfirmacion(null); } })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 16, padding: '0 2px', lineHeight: 1 }}>×</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {modoBloques && !elsGrupo.length && (
+                  <tr style={{ borderTop: '1px solid #F2F1ED' }}>
+                    <td colSpan={10} style={{ ...tdCell, color: '#BFBEB9', fontSize: 12, textAlign: 'center' }}>Sin elementos en este edificio todavía</td>
+                  </tr>
+                )}
+              </tbody>
+            ))}
           </table>
         </div>
       )}
@@ -5030,10 +5277,58 @@ function ControlHormigon({ obra, onSave }) {
         </div>
       )}
 
+      {/* ── Pestañas de edificio: cada una es un control de hormigón independiente ── */}
+      {modoBloques && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 2, flex: 1, minWidth: 0 }}>
+            {bloques.map(b => {
+              const activo = bloqueSel !== '__sin__' && bloqueActivo?.id === b.id;
+              const res = resumirSeries(elementos.filter(e => e.bloqueId === b.id));
+              return (
+                <button key={b.id} onClick={() => { setBloqueSel(b.id); setElSeleccionado(null); }}
+                  style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', borderRadius: 8, border: `1.5px solid ${activo ? '#16160F' : '#E0DFD9'}`, background: activo ? '#16160F' : '#fff', color: activo ? '#fff' : '#52524E', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  <span style={NUM_TAB}>{b.codi}</span>
+                  <span style={{ fontWeight: 400, opacity: activo ? 0.85 : 1 }}>{b.nombre}</span>
+                  <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.7, ...NUM_TAB }}>{res.conActa}/{res.total}</span>
+                  {res.noCumple > 0 && <span style={{ width: 6, height: 6, borderRadius: '50%', background: activo ? '#FF9B9B' : '#C0392B' }} />}
+                </button>
+              );
+            })}
+            {sinAsignar.length > 0 && (
+              <button onClick={() => { setBloqueSel('__sin__'); setElSeleccionado(null); }}
+                style={{ flexShrink: 0, padding: '7px 13px', borderRadius: 8, border: `1.5px solid ${bloqueSel === '__sin__' ? '#C47610' : '#F5D98B'}`, background: bloqueSel === '__sin__' ? '#C47610' : '#FEF3DB', color: bloqueSel === '__sin__' ? '#fff' : '#7C4A00', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                Sin asignar ({sinAsignar.length})
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Resumen del ámbito activo + informe PDF. Va fora del detall de l'element
+          perquè es pugui exportar l'informe encara que l'edifici actiu estigui buit. */}
+      {elementos.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 12, color: '#6B6B66', flexWrap: 'wrap' }}>
+          <span>
+            {modoBloques && etiquetaAmbito ? <span style={{ color: '#9B9B97' }}>{etiquetaAmbito}: </span> : null}
+            <strong style={{ color: '#141412' }}>{resAmbito.conActa}</strong>/{resAmbito.total} series con acta
+          </span>
+          {resAmbito.noCumple > 0 && <span style={{ color: '#8A1F1F' }}><strong>{resAmbito.noCumple}</strong> no cumple{resAmbito.noCumple > 1 ? 'n' : ''}</span>}
+          {modoBloques && <span style={{ color: '#9B9B97' }}>· Obra entera: {resObra.conActa}/{resObra.total}</span>}
+          <div style={{ flex: 1 }} />
+          <Btn sm onClick={() => modoBloques ? setPickInforme(true) : generarInformeHormigon(obra)}>
+            <Icon name="download" size={13} /> Informe PDF{modoBloques ? ' ▾' : ''}
+          </Btn>
+        </div>
+      )}
+
       {!elementoActivo ? (
         <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, padding: '40px 20px', textAlign: 'center', color: '#A5A5A0' }}>
           <Icon name="attach" size={30} style={{ color: '#C5C4BE', marginBottom: 10 }} />
-          <div style={{ fontSize: 13, marginBottom: 14 }}>Primero crea la lotificación del elemento en la otra pestaña.</div>
+          <div style={{ fontSize: 13, marginBottom: 14 }}>
+            {modoBloques && etiquetaAmbito
+              ? `${etiquetaAmbito} todavía no tiene elementos lotificados. Créalos en la pestaña Lotificación.`
+              : 'Primero crea la lotificación del elemento en la otra pestaña.'}
+          </div>
           <Btn onClick={() => setSub('lotificacion')}>Ir a Lotificación</Btn>
         </div>
       ) : (() => {
@@ -5044,23 +5339,16 @@ function ControlHormigon({ obra, onSave }) {
         const arrastrando = dragOverId === elementoActivo.id;
         return (
           <>
-            {/* Resumen global de la obra */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 12, color: '#6B6B66' }}>
-              <span><strong style={{ color: '#141412' }}>{totalConActaObra}</strong>/{totalSeriesObra} series con acta</span>
-              {totalNoCumplenObra > 0 && <span style={{ color: '#8A1F1F' }}><strong>{totalNoCumplenObra}</strong> no cumple{totalNoCumplenObra > 1 ? 'n' : ''}</span>}
-              <div style={{ flex: 1 }} />
-              <Btn sm onClick={() => generarInformeHormigon(obra)}><Icon name="download" size={13} /> Informe PDF</Btn>
-            </div>
-
-            {/* Pestañas de elementos, una por cada LC — como las hojas LC-x del Excel */}
+            {/* Pestañas de elementos, una por cada LC — como las hojas LC-x del Excel.
+                En modo dividido solo salen los del edificio activo. */}
             <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 2 }}>
-              {elementos.map((el, idx) => {
+              {elementosAmbito.map((el, idx) => {
                 const activo = elementoActivo.id === el.id;
                 const noCumplenEl = (el.lotes || []).flatMap(l => l.series || []).filter(s => evaluarActa(s.acta, el.fck).key === 'noCumple').length;
                 return (
                   <button key={el.id} onClick={() => setElSeleccionado(el.id)}
                     style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: `1.5px solid ${activo ? ACCENT : '#E0DFD9'}`, background: activo ? ACCENT : '#fff', color: activo ? '#fff' : '#52524E', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', ...NUM_TAB }}>
-                    LC{el.numLC || idx + 1}
+                    {refElemento(obra, el, idx + 1)}
                     {noCumplenEl > 0 && <span style={{ width: 6, height: 6, borderRadius: '50%', background: activo ? '#FF9B9B' : '#C0392B' }} />}
                   </button>
                 );
@@ -5076,14 +5364,14 @@ function ControlHormigon({ obra, onSave }) {
 
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 200 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#141412', ...NUM_TAB }}>LC{elementoActivo.numLC || (elementos.indexOf(elementoActivo) + 1)} · {elementoActivo.nombre}</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#141412', ...NUM_TAB }}>{refElemento(obra, elementoActivo, elementosAmbito.indexOf(elementoActivo) + 1)} · {elementoActivo.nombre}</div>
                   <div style={{ fontSize: 12, color: '#9B9B97', marginTop: 2, ...NUM_TAB }}>
                     {t.label} · {elementoActivo.volumen} m³{elementoActivo.superficie ? ` · ${elementoActivo.superficie} m²` : ''}
                     {elementoActivo.designacion ? ` · ${elementoActivo.designacion}` : ''}{elementoActivo.fck ? ` · fck ${elementoActivo.fck} N/mm²` : ''}
                   </div>
                 </div>
                 <Btn sm onClick={() => abrirSelector(elementoActivo.id)}><Icon name="attach" size={13} /> Adjuntar acta(s)</Btn>
-                <Btn sm onClick={() => descargarActasElemento(elementoActivo, elementoActivo.numLC || (elementos.indexOf(elementoActivo) + 1))} disabled={seriesRellenas === 0}><Icon name="download" size={13} /> .zip</Btn>
+                <Btn sm onClick={() => descargarActasElemento(elementoActivo, refElemento(obra, elementoActivo, elementosAmbito.indexOf(elementoActivo) + 1))} disabled={seriesRellenas === 0}><Icon name="download" size={13} /> .zip</Btn>
               </div>
 
               {!elementoActivo.designacion && !elementoActivo.fck && (
@@ -5155,6 +5443,38 @@ function ControlHormigon({ obra, onSave }) {
       </>)}
 
       {confirmacion && <ConfirmMini titulo={confirmacion.titulo} texto={confirmacion.texto} onSi={confirmacion.onSi} onNo={() => setConfirmacion(null)} />}
+
+      {/* Selector de alcance del informe PDF (solo con la obra dividida por edificios).
+          Va per createPortal, com la resta de modals, per evitar bugs de position:fixed
+          dins de contenidors amb scroll en mòbil real. */}
+      {pickInforme && createPortal(
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999, backdropFilter: 'blur(3px)' }}
+          onClick={e => { if (e.target === e.currentTarget) setPickInforme(false); }}>
+          <div className="modal-in fade" style={{ background: '#fff', borderRadius: 14, width: 380, maxWidth: '92vw', padding: 20, border: '1px solid #E0DFD9', boxShadow: '0 16px 48px rgba(0,0,0,.15)' }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#141412', marginBottom: 4 }}>Informe de control de hormigón</div>
+            <div style={{ fontSize: 12.5, color: '#6B6B66', marginBottom: 14 }}>¿De qué quieres el informe?</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
+              {bloques.map(b => {
+                const res = resumirSeries(elementos.filter(e => e.bloqueId === b.id));
+                return (
+                  <button key={b.id} className="hov-row" onClick={() => { setPickInforme(false); generarInformeHormigon(obra, { bloqueId: b.id }); }} disabled={!res.total}
+                    style={{ textAlign: 'left', padding: '9px 12px', borderRadius: 9, border: '1px solid #E8E7E1', background: '#fff', cursor: res.total ? 'pointer' : 'not-allowed', opacity: res.total ? 1 : 0.45 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#141412' }}>{b.codi} · {b.nombre}</div>
+                    <div style={{ fontSize: 11.5, color: '#9B9B97', ...NUM_TAB }}>{elementos.filter(e => e.bloqueId === b.id).length} elementos · {res.conActa}/{res.total} series con acta</div>
+                  </button>
+                );
+              })}
+              <button className="hov-row" onClick={() => { setPickInforme(false); generarInformeHormigon(obra, { bloqueId: null }); }}
+                style={{ textAlign: 'left', padding: '9px 12px', borderRadius: 9, border: `1.5px solid ${ACCENT}`, background: ACCENT_SOFT, cursor: 'pointer' }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#141412' }}>Toda la obra</div>
+                <div style={{ fontSize: 11.5, color: '#6B6B66', ...NUM_TAB }}>Todos los edificios en un solo informe · {resObra.conActa}/{resObra.total} series</div>
+              </button>
+            </div>
+            <Btn full onClick={() => setPickInforme(false)}>Cancelar</Btn>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {revisarActa && (
         <ModalActa
@@ -9430,6 +9750,7 @@ export default function App() {
         deoFirmante: o.deoFirmante, numActaSeq: o.numActaSeq,
         fechaCFO: o.fechaCFO || '',
         fases: o.fases, disciplinas: o.disciplinas, lotes: o.lotes,
+        hormigonModo: o.hormigonModo || 'unico', hormigonBloques: o.hormigonBloques || [],
         creadaEn: o.creadaEn,
         climaLat: o.climaLat, climaLon: o.climaLon,
         geoLat: o.geoLat, geoLon: o.geoLon,
@@ -9451,6 +9772,7 @@ export default function App() {
       fechaCFO: d.fechaCFO || '',
       fases: d.fases || [], disciplinas: d.disciplinas || [],
       lotes: d.lotes || [], creadaEn: d.creadaEn,
+      hormigonModo: d.hormigonModo || 'unico', hormigonBloques: d.hormigonBloques || [],
       climaLat: d.climaLat, climaLon: d.climaLon,
       geoLat: d.geoLat, geoLon: d.geoLon,
       incidencias: (modulos?.incidencias || []).map(r => r.data),
@@ -10099,10 +10421,26 @@ function estadoGlobalElemento(seriesEl, fck) {
 // ── INFORME DE CONTROL DE HORMIGÓN — FORMAT PLAAT BRANDBOOK 2026 ────────────
 // Mateixa capçalera/peu/banda que generarActaVO_v2(), amb el contingut de lots i
 // series del mòdul de Control de hormigón (Lotificación + Seguimiento de actas).
-async function generarInformeHormigon(obra) {
+// `opts.bloqueId` limita l'informe a un edifici concret (control complet i
+// independent, entregable per separat); sense bloqueId surt tota l'obra, i si està
+// dividida per edificis els elements van agrupats sota la franja de cada bloc.
+async function generarInformeHormigon(obra, opts = {}) {
+  const bloqueScope = bloquePorId(obra, opts.bloqueId);
   const elementosRaw = obra.lotes || [];
-  const elementos = elementosRaw.filter(e => e && e.nombre && Array.isArray(e.lotes));
-  if (!elementos.length) { alert('Esta obra todavía no tiene elementos de hormigón con lotes.'); return; }
+  const todosElementos = elementosRaw.filter(e => e && e.nombre && Array.isArray(e.lotes));
+  const elementos = bloqueScope ? todosElementos.filter(e => e.bloqueId === bloqueScope.id) : todosElementos;
+  if (!elementos.length) {
+    alert(bloqueScope
+      ? `El edificio "${bloqueScope.nombre}" todavía no tiene elementos de hormigón con lotes.`
+      : 'Esta obra todavía no tiene elementos de hormigón con lotes.');
+    return;
+  }
+  // Grups a pintar (sense els buits). En mode únic és un sol grup sense bloc.
+  const grupos = agruparPorBloque(obra, elementos).filter(g => g.elementos.length);
+  const porEdificios = esModoBloques(obra) && grupos.length > 1;
+  const peuTitol = bloqueScope
+    ? `Informe de control de hormigón · ${bloqueScope.codi} ${bloqueScope.nombre}`
+    : 'Informe de control de hormigón';
 
   if (!window.jspdf) {
     await new Promise((res, rej) => {
@@ -10173,7 +10511,7 @@ async function generarInformeHormigon(obra) {
     const boldW = doc.getTextWidth(boldPart);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5);
     doc.text(normalPart, ML + boldW, peuY);
-    doc.text(`Informe de control de hormigón  |  ${pagActual}`, PW - MR, peuY, { align: 'right' });
+    doc.text(`${peuTitol}  |  ${pagActual}`, PW - MR, peuY, { align: 'right' });
   }
 
   function checkPage(h) {
@@ -10211,7 +10549,12 @@ async function generarInformeHormigon(obra) {
   const filaY = y + filaH / 2;
   doc.setFontSize(7.5);
   let fx = ML + 3;
-  [['FECHA', hoy], ['PERÍODO', periodo]].forEach(([label, val]) => {
+  // Abast de l'informe: un edifici concret o tota l'obra (només si està dividida)
+  const alcanceTxt = bloqueScope ? `${bloqueScope.codi} · ${bloqueScope.nombre}`.slice(0, 38)
+    : esModoBloques(obra) ? `Toda la obra · ${grupos.filter(g => g.bloque).length} edificios` : null;
+  const camposInfo = [['FECHA', hoy], ['PERÍODO', periodo]];
+  if (alcanceTxt) camposInfo.push(['ALCANCE', alcanceTxt]);
+  camposInfo.forEach(([label, val]) => {
     doc.setFont('helvetica', 'bold'); doc.setTextColor(0, 0, 0);
     doc.text(label, fx, filaY, { baseline: 'middle' });
     fx += doc.getTextWidth(label) + 2;
@@ -10239,7 +10582,9 @@ async function generarInformeHormigon(obra) {
   doc.text('RESUMEN DE ELEMENTOS DE HORMIGÓN', ML + 2 + 3 + doc.getTextWidth('A'), y + secH / 2, { baseline: 'middle' });
   y += secH + 2;
 
-  const wA = [10, 44, 20, 16, 24, 10, 14, 10, 12]; // + ~20 lliures per a l'estado (pastilla)
+  // Amb l'obra dividida les referències porten prefix (A·LC3): la columna REF necessita
+  // més ample, que es resta d'ELEMENTO per no desquadrar la taula.
+  const wA = esModoBloques(obra) ? [17, 37, 20, 16, 24, 10, 14, 10, 12] : [10, 44, 20, 16, 24, 10, 14, 10, 12]; // + ~20 lliures per a l'estado (pastilla)
   const hA = ['REF', 'ELEMENTO', 'TIPO', 'VOLUMEN', 'DESIGNACIÓN', 'FCK', 'LOTES', 'SERIES', 'CON ACTA'];
   setLW(); doc.line(ML, y, ML + CW, y);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); doc.setTextColor(0, 0, 0);
@@ -10248,42 +10593,58 @@ async function generarInformeHormigon(obra) {
   setLW(); doc.line(ML, y, ML + CW, y);
 
   const lhA = 7 * 0.3528 + 0.5;
-  elementos.forEach((el, idx) => {
-    const t = TIPOS_ELEMENTO[el.tipo] || TIPOS_ELEMENTO.flexion;
-    const seriesEl = (el.lotes || []).flatMap(l => l.series || []);
-    const conActa = seriesEl.filter(s => s.acta).length;
-    const numLotesExtra = (el.lotes || []).filter(l => l.extra).length;
-    const numLotes = (el.lotes || []).length;
-    const estadoG = estadoGlobalElemento(seriesEl, el.fck);
 
-    doc.setFontSize(7);
-    const colsTxt = [
-      `LC${el.numLC || idx + 1}`,
-      el.nombre || '—',
-      t.label,
-      `${el.volumen || '—'} m³${el.superficie ? ` · ${el.superficie} m²` : ''}`,
-      el.designacion || '—',
-      el.fck || '—',
-      numLotesExtra ? `${numLotes} (+${numLotesExtra})` : String(numLotes),
-      String(seriesEl.length),
-      `${conActa}/${seriesEl.length}`,
-    ];
-    const linesPerCol = colsTxt.map((txt, i) => doc.splitTextToSize(txt, wA[i] - 3));
-    const maxLines = Math.max(1, ...linesPerCol.map(l => l.length));
-    const rh = Math.max(6, maxLines * lhA + 2);
-    checkPage(rh);
+  // Franja separadora d'edifici — només quan l'informe cobreix més d'un bloc
+  function bandaEdificio(bloque) {
+    const h = 5.5;
+    checkPage(h + 8);
+    doc.setFillColor(236, 236, 233);
+    doc.rect(ML, y, CW, h, 'F');
+    setLW(); doc.rect(ML, y, CW, h, 'S');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(0, 0, 0);
+    doc.text(bloque ? `EDIFICIO ${bloque.codi} · ${(bloque.nombre || '').toUpperCase()}` : 'SIN ASIGNAR A NINGÚN EDIFICIO', ML + 2, y + h / 2, { baseline: 'middle' });
+    y += h;
+  }
 
-    let cx = ML;
-    linesPerCol.forEach((lines, i) => {
-      doc.setFont('helvetica', i === 1 ? 'bold' : 'normal'); doc.setTextColor(0, 0, 0);
-      const totalH = lines.length * lhA;
-      let ty = y + rh / 2 - totalH / 2 + lhA * 0.8;
-      lines.forEach(l => { doc.text(l, cx + 1.5, ty, { baseline: 'middle' }); ty += lhA; });
-      cx += wA[i];
+  grupos.forEach(grupo => {
+    if (porEdificios) bandaEdificio(grupo.bloque);
+    grupo.elementos.forEach((el, idx) => {
+      const t = TIPOS_ELEMENTO[el.tipo] || TIPOS_ELEMENTO.flexion;
+      const seriesEl = (el.lotes || []).flatMap(l => l.series || []);
+      const conActa = seriesEl.filter(s => s.acta).length;
+      const numLotesExtra = (el.lotes || []).filter(l => l.extra).length;
+      const numLotes = (el.lotes || []).length;
+      const estadoG = estadoGlobalElemento(seriesEl, el.fck);
+
+      doc.setFontSize(7);
+      const colsTxt = [
+        refElemento(obra, el, idx + 1),
+        el.nombre || '—',
+        t.label,
+        `${el.volumen || '—'} m³${el.superficie ? ` · ${el.superficie} m²` : ''}`,
+        el.designacion || '—',
+        el.fck || '—',
+        numLotesExtra ? `${numLotes} (+${numLotesExtra})` : String(numLotes),
+        String(seriesEl.length),
+        `${conActa}/${seriesEl.length}`,
+      ];
+      const linesPerCol = colsTxt.map((txt, i) => doc.splitTextToSize(txt, wA[i] - 3));
+      const maxLines = Math.max(1, ...linesPerCol.map(l => l.length));
+      const rh = Math.max(6, maxLines * lhA + 2);
+      checkPage(rh);
+
+      let cx = ML;
+      linesPerCol.forEach((lines, i) => {
+        doc.setFont('helvetica', i === 1 ? 'bold' : 'normal'); doc.setTextColor(0, 0, 0);
+        const totalH = lines.length * lhA;
+        let ty = y + rh / 2 - totalH / 2 + lhA * 0.8;
+        lines.forEach(l => { doc.text(l, cx + 1.5, ty, { baseline: 'middle' }); ty += lhA; });
+        cx += wA[i];
+      });
+      pill(cx + 1, y + rh / 2, estadoG.label, estadoG.bg, estadoG.color);
+      setLW(); doc.line(ML, y + rh, ML + CW, y + rh);
+      y += rh;
     });
-    pill(cx + 1, y + rh / 2, estadoG.label, estadoG.bg, estadoG.color);
-    setLW(); doc.line(ML, y + rh, ML + CW, y + rh);
-    y += rh;
   });
   y += 5;
 
@@ -10300,14 +10661,19 @@ async function generarInformeHormigon(obra) {
   const hB = ['LOTE', 'SERIE', 'LOCALIZACIÓN', 'REF. ALBARÁN', 'F. HORMIG.', 'R.7D', 'R.28D', 'R.56D'];
   const lhB = 7 * 0.3528 + 0.5;
 
-  elementos.forEach((el, idx) => {
+  // Numeració B.x correguda per tot l'informe, encara que vagi agrupat per edificis
+  let nB = 0;
+  const elementosB = grupos.flatMap(g => g.elementos.map((el, idx) => ({ el, idx, bloque: g.bloque, primeroDelGrupo: idx === 0 })));
+  elementosB.forEach(({ el, idx, bloque, primeroDelGrupo }) => {
     const t = TIPOS_ELEMENTO[el.tipo] || TIPOS_ELEMENTO.flexion;
+    if (porEdificios && primeroDelGrupo) { bandaEdificio(bloque); y += 1.5; }
+    nB++;
     checkPage(14);
     const subH = 6;
     doc.setFillColor(246, 246, 244); doc.rect(ML, y, CW, subH, 'F');
     setLW(); doc.rect(ML, y, CW, subH, 'S');
     doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(0, 0, 0);
-    doc.text(`B.${idx + 1}  LC${el.numLC || idx + 1} · ${el.nombre || ''}`, ML + 2, y + subH / 2, { baseline: 'middle' });
+    doc.text(`B.${nB}  ${refElemento(obra, el, idx + 1)} · ${el.nombre || ''}`, ML + 2, y + subH / 2, { baseline: 'middle' });
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
     const detalle = `${t.label}${el.volumen ? ` · ${el.volumen} m³` : ''}${el.designacion ? ` · ${el.designacion}` : ''}${el.fck ? ` · fck ${el.fck} N/mm²` : ''}`;
     doc.text(detalle, ML + CW - 2, y + subH / 2, { align: 'right', baseline: 'middle' });
@@ -10393,7 +10759,11 @@ async function generarInformeHormigon(obra) {
   for (let p = 1; p <= total; p++) { doc.setPage(p); dibuixarPeu(); }
 
   const nomObraSan = (obra.nombre || 'Obra').replace(/[^a-zA-Z0-9À-ÿ\s\-_]/g, '').trim().replace(/\s+/g, '_');
-  const fileName = `${nomObraSan}_InformeHormigon_${hoy}.pdf`;
+  // Amb l'informe limitat a un edifici, el codi i el nom del bloc van al nom del fitxer
+  const sufixBloque = bloqueScope
+    ? '_' + `${bloqueScope.codi}-${bloqueScope.nombre || ''}`.replace(/[^a-zA-Z0-9À-ÿ\s\-_]/g, '').trim().replace(/\s+/g, '_')
+    : '';
+  const fileName = `${nomObraSan}_InformeHormigon${sufixBloque}_${hoy}.pdf`;
   const pdfBlob = doc.output('blob');
   const url = URL.createObjectURL(pdfBlob);
   const a = document.createElement('a');
