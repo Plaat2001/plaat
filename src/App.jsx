@@ -1282,8 +1282,8 @@ function DiasPicker({ value, onChange }) {
 function ModalNuevaObra({ onClose, onCreate, obra }) {
   const editando = !!obra;
   const [form, setForm] = useState(obra
-    ? { nombre: obra.nombre || '', cliente: obra.cliente || '', direccion: obra.direccion || '', responsable: obra.responsable || RESPONSABLES[0], diasVisita: obra.diasVisita || [], emplazamiento: obra.emplazamiento || '', propiedad: obra.propiedad || '', proyectista: obra.proyectista || '', direccionObra: obra.direccionObra || '', constructora: obra.constructora || '', deoFirmante: obra.deoFirmante || '', fechaCFO: obra.fechaCFO || '' }
-    : { nombre: '', cliente: '', direccion: '', responsable: RESPONSABLES[0], diasVisita: [], emplazamiento: '', propiedad: '', proyectista: '', direccionObra: '', constructora: '', deoFirmante: '', fechaCFO: '' });
+    ? { nombre: obra.nombre || '', cliente: obra.cliente || '', direccion: obra.direccion || '', responsable: obra.responsable || RESPONSABLES[0], diasVisita: obra.diasVisita || [], emplazamiento: obra.emplazamiento || '', propiedad: obra.propiedad || '', proyectista: obra.proyectista || '', direccionObra: obra.direccionObra || '', constructora: obra.constructora || '', deoFirmante: obra.deoFirmante || '', fechaCFO: obra.fechaCFO || '', logoClienteB64: obra.logoClienteB64 || '' }
+    : { nombre: '', cliente: '', direccion: '', responsable: RESPONSABLES[0], diasVisita: [], emplazamiento: '', propiedad: '', proyectista: '', direccionObra: '', constructora: '', deoFirmante: '', fechaCFO: '', logoClienteB64: '' });
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const footer = (
     <>
@@ -1314,6 +1314,15 @@ function ModalNuevaObra({ onClose, onCreate, obra }) {
         <Field label="Constructora"><input placeholder="Certis" value={form.constructora} onChange={e => upd('constructora', e.target.value)} /></Field>
         <Field label="DEO firmante"><input placeholder="Nombre del director de ejecución" value={form.deoFirmante} onChange={e => upd('deoFirmante', e.target.value)} /></Field>
         <Field label="Fecha CFO (Certificat Final d'Obra)"><input type="date" value={form.fechaCFO} onChange={e => upd('fechaCFO', e.target.value)} /></Field>
+        <Field label="Logo adicional en la cabecera del Acta VO" hint="Sale a la izquierda del logo de PLAAT. Déjalo vacío para no mostrar ninguno.">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {form.logoClienteB64 && (
+              <img src={form.logoClienteB64} alt="" style={{ height: 32, maxWidth: 120, objectFit: 'contain', border: '1px solid #E0DFD9', borderRadius: 6, padding: 4, background: '#fff' }} />
+            )}
+            <Btn onClick={() => pickLogoCliente(b64 => upd('logoClienteB64', b64))}>{form.logoClienteB64 ? 'Cambiar' : 'Subir logo'}</Btn>
+            {form.logoClienteB64 && <Btn onClick={() => upd('logoClienteB64', '')}>Quitar</Btn>}
+          </div>
+        </Field>
       </div>
     </Modal>
   );
@@ -2187,6 +2196,40 @@ async function renovarUrlsFotos(fotos) {
     }
     return f;
   }));
+}
+
+// Logo d'una altra empresa per a la capçalera de l'Acta VO (al costat del de PLAAT).
+// És una sola imatge petita i reutilitzada sempre, per això es guarda com a PNG en
+// base64 directament al camp `logoClienteB64` de l'obra — no passa per Storage com
+// `pickFiles` (que és per a galeries de fotos que s'acumulen).
+function pickLogoCliente(cb) {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*';
+  inp.style.position = 'fixed'; inp.style.left = '-9999px';
+  document.body.appendChild(inp);
+  const neteja = () => { if (inp.parentNode) document.body.removeChild(inp); };
+  inp.onchange = e => {
+    const f = e.target.files[0];
+    if (!f) { neteja(); return; }
+    const r = new FileReader();
+    r.onload = ev => {
+      const img = new Image();
+      img.onload = () => {
+        const maxW = 500, ratio = Math.min(1, maxW / img.width);
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * ratio);
+        c.height = Math.round(img.height * ratio);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        cb(c.toDataURL('image/png')); // PNG: conserva la transparència del logo
+        neteja();
+      };
+      img.onerror = () => { alert('No se pudo procesar la imagen: ' + f.name); neteja(); };
+      img.src = ev.target.result;
+    };
+    r.onerror = () => { alert('No se pudo leer el archivo: ' + f.name); neteja(); };
+    r.readAsDataURL(f);
+  };
+  inp.click();
 }
 
 function pickFiles(accept, cb, obraId) {
@@ -7965,12 +8008,29 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
     // Ratio PNG: 414×128 = 3.234375
     const logoH = 11;
     const logoW = logoH * (515/152); // ratio comprimit
+    const xLogoPlaat = PW - MR - logoW;
     try {
-      doc.addImage(PLAAT_LOGO_B64, 'PNG', PW - MR - logoW, MT + 0.5, logoW, logoH);
+      doc.addImage(PLAAT_LOGO_B64, 'PNG', xLogoPlaat, MT + 0.5, logoW, logoH);
     } catch(e) {
       doc.setFont('helvetica','bold'); doc.setFontSize(20);
       doc.setTextColor(0,0,0);
       doc.text('Plaat.', PW - MR, MT + 8, { align:'right' });
+    }
+
+    // Logo d'una altra empresa (opcional, per obra) — a l'esquerra del de PLAAT, amb
+    // un marge de separació. S'ajusta sempre dins d'una caixa fixa de 26×11mm (mateixa
+    // alçada que el de PLAAT) sense sobrepassar-la, així mai xoca amb res ni trenca el
+    // format encara que la imatge pujada tingui una proporció molt diferent.
+    if (obra.logoClienteB64) {
+      try {
+        const propsCli = doc.getImageProperties(obra.logoClienteB64);
+        const boxW = 26, gap = 6;
+        let w2 = boxW, h2 = boxW * (propsCli.height / propsCli.width);
+        if (h2 > logoH) { h2 = logoH; w2 = logoH * (propsCli.width / propsCli.height); }
+        const x2 = xLogoPlaat - gap - w2;
+        const y2 = MT + 0.5 + (logoH - h2) / 2;
+        doc.addImage(obra.logoClienteB64, 'PNG', x2, y2, w2, h2);
+      } catch(e) { /* logo guardat il·legible: s'ometria sense trencar la resta del PDF */ }
     }
 
     // Banda negra TIPUS DOCUMENT — SOLO PÀGINA 1
@@ -9879,6 +9939,7 @@ export default function App() {
         creadaEn: o.creadaEn,
         climaLat: o.climaLat, climaLon: o.climaLon,
         geoLat: o.geoLat, geoLon: o.geoLon,
+        logoClienteB64: o.logoClienteB64 || '',
       },
       updated_at: now(),
     };
@@ -9900,6 +9961,7 @@ export default function App() {
       hormigonModo: d.hormigonModo || 'unico', hormigonBloques: d.hormigonBloques || [],
       climaLat: d.climaLat, climaLon: d.climaLon,
       geoLat: d.geoLat, geoLon: d.geoLon,
+      logoClienteB64: d.logoClienteB64 || '',
       incidencias: (modulos?.incidencias || []).map(r => r.data),
       actaVO: modulos?.actas_vo?.[0]?.data || null,
       actasInsp: (modulos?.actas_insp || []).map(r => r.data),
@@ -10134,7 +10196,7 @@ export default function App() {
       emplazamiento: data.emplazamiento || '', propiedad: data.propiedad || '',
       proyectista: data.proyectista || '', direccionObra: data.direccionObra || '',
       constructora: data.constructora || '', deoFirmante: data.deoFirmante || '',
-      fechaCFO: data.fechaCFO || '',
+      fechaCFO: data.fechaCFO || '', logoClienteB64: data.logoClienteB64 || '',
       numActaSeq: 0, estado: 'en_curso',
       disciplinas: [], lotes: [], incidencias: [], apuntes: [],
       materiales: [], seguimientoCQ: [], actasInsp: [],
@@ -10154,7 +10216,7 @@ export default function App() {
           propiedad: obra.propiedad, proyectista: obra.proyectista,
           direccionObra: obra.direccionObra, constructora: obra.constructora,
           deoFirmante: obra.deoFirmante, numActaSeq: obra.numActaSeq,
-          fechaCFO: obra.fechaCFO || '',
+          fechaCFO: obra.fechaCFO || '', logoClienteB64: obra.logoClienteB64 || '',
           fases: obra.fases, disciplinas: obra.disciplinas, lotes: obra.lotes,
           creadaEn: obra.creadaEn,
         },
