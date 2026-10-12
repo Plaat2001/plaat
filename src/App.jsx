@@ -5872,6 +5872,82 @@ function migrateVO(raw) {
   return vo;
 }
 
+// Aplica el mateix canvi de camp a l'entrada (per id) d'un altre `vo` (l'acta viva
+// o una altra versió arxivada). Si no la troba (p. ex. el tema ja no hi és en aquella
+// còpia) retorna el mateix objecte sense tocar-lo. Mai recalcula `resuelto`/`resueltoEnActa`
+// del tema destí: la correcció es propaga tal qual, sense alterar l'estat de resolt de cap altra acta.
+function patchEntradaVO(voObj, secId, temaId, entId, campo, val) {
+  let trobat = false;
+  const secciones = voObj.secciones.map(s => {
+    if (s.id !== secId) return s;
+    return { ...s, temas: s.temas.map(t => {
+      if (t.id !== temaId) return t;
+      const idxActual = t.entradas.findIndex(e => e.id === entId);
+      if (idxActual === -1) return t;
+      trobat = true;
+      const entradaNova = { ...t.entradas[idxActual], [campo]: val };
+      let entradas = t.entradas.map((e, i) => i === idxActual ? entradaNova : e);
+      // Si es corregeix la data, recol·loca l'entrada al seu lloc cronològic
+      // (les entrades es llisten per data, no es queda allà on era).
+      if (campo === 'fecha') entradas = inserirPerData(entradas.filter(e => e.id !== entId), entradaNova);
+      return { ...t, entradas };
+    }) };
+  });
+  return trobat ? { ...voObj, secciones } : voObj;
+}
+function patchTemaVO(voObj, secId, temaId, campo, val) {
+  let trobat = false;
+  const secciones = voObj.secciones.map(s => {
+    if (s.id !== secId) return s;
+    return { ...s, temas: s.temas.map(t => {
+      if (t.id !== temaId) return t;
+      trobat = true;
+      return { ...t, [campo]: val };
+    }) };
+  });
+  return trobat ? { ...voObj, secciones } : voObj;
+}
+// Insereix `item` dins `llista` a la posició que li correspon segons `item.fecha`
+// (abans del primer que tingui una data posterior; al final si no n'hi ha cap).
+function inserirPerData(llista, item) {
+  let idx = llista.findIndex(e => (e.fecha||'') > (item.fecha||''));
+  if (idx === -1) idx = llista.length;
+  return [...llista.slice(0, idx), item, ...llista.slice(idx)];
+}
+// Insereix una entrada nova (p. ex. un punt de seguiment afegit des d'una acta antiga)
+// al tema (per id) d'un altre `vo`, per ordre de data entre les entrades existents.
+function insertEntradaVO(voObj, secId, temaId, entrada) {
+  let trobat = false;
+  const secciones = voObj.secciones.map(s => {
+    if (s.id !== secId) return s;
+    return { ...s, temas: s.temas.map(t => {
+      if (t.id !== temaId) return t;
+      if (t.entradas.some(e => e.id === entrada.id)) return t; // ja hi és, no duplicar
+      trobat = true;
+      return { ...t, entradas: inserirPerData(t.entradas, entrada) };
+    }) };
+  });
+  return trobat ? { ...voObj, secciones } : voObj;
+}
+// Insereix un tema nou (p. ex. creat des d'una acta antiga) a la secció (per id) d'un
+// altre `vo`, per ordre de data (de la seva primera entrada) entre els temes existents.
+// El `num` es reassigna al següent lliure d'aquella secció al destí — mai renumera la resta.
+function insertTemaVO(voObj, secId, tema) {
+  let trobat = false;
+  const secciones = voObj.secciones.map(s => {
+    if (s.id !== secId) return s;
+    if (s.temas.some(t => t.id === tema.id)) return s; // ja hi és, no duplicar
+    trobat = true;
+    const nums = s.temas.map(t => parseInt((t.num||'').split('.').pop()||'0', 10));
+    const n = (nums.length ? Math.max(...nums) : 0) + 1;
+    const temaAmbNum = { ...tema, num: `${s.codigo}.${String(n).padStart(2,'0')}` };
+    const dataTema = tema.entradas?.[0]?.fecha || '';
+    const idx = (() => { const i = s.temas.findIndex(t => (t.entradas?.[0]?.fecha||'') > dataTema); return i === -1 ? s.temas.length : i; })();
+    return { ...s, temas: [...s.temas.slice(0, idx), temaAmbNum, ...s.temas.slice(idx)] };
+  });
+  return trobat ? { ...voObj, secciones } : voObj;
+}
+
 // ── ModuloActaVO ─────────────────────────────────────────────────────────────
 function ModuloActaVO({ obra, onSave }) {
   const isMobile = useIsMobile();
@@ -5993,6 +6069,38 @@ function ModuloActaVO({ obra, onSave }) {
     setEditingVersion(null);
   }
 
+  // Propaga una correcció feta mentre s'edita una acta arxivada (`editingVersion`) cap
+  // endavant: a l'acta viva i a totes les altres versions ja exportades amb número superior.
+  // És un acta viva — si es corregeix un tema/entrada antic, la correcció es manté en totes
+  // les actes posteriors tret que aquell tema s'hagi resolt pel mig (llavors `patchFn` no
+  // toca `resuelto`/`resueltoEnActa` de cap versió, només el camp corregit).
+  async function propagarForward(patchFn) {
+    if (!editingVersion) return;
+    const numEditat = editingVersion.data.num;
+
+    const liveBase = migrateVO(obra.actaVO);
+    const liveNou = patchFn(liveBase);
+    if (liveNou !== liveBase) {
+      setVoLocal(liveNou);
+      onSave({ ...obra, actaVO: liveNou });
+    }
+
+    let llista = versiones;
+    if (llista === null) {
+      try { llista = await window.db.getModulo('actas_vo_versions', obra.id); } catch { llista = []; }
+    }
+    const posteriors = (llista || []).filter(r => r.id !== editingVersion.id && (r.data?.num || 0) > numEditat);
+    for (const r of posteriors) {
+      const base = migrateVO(r.data);
+      const nouData = patchFn(base);
+      if (nouData !== base) {
+        const actualitzada = { ...r, data: nouData, updated_at: now() };
+        window.db.upsertModulo('actas_vo_versions', actualitzada);
+        setVersiones(list => list ? list.map(x => x.id === r.id ? actualitzada : x) : list);
+      }
+    }
+  }
+
   // Equipo
   function updRol(id, campo, val) {
     guardarVO({ ...vo, equipo: vo.equipo.map(r => r.id === id ? { ...r, [campo]: val } : r) });
@@ -6036,27 +6144,28 @@ function ModuloActaVO({ obra, onSave }) {
     const n = (nums.length ? Math.max(...nums) : 0) + 1;
     return `${sec.codigo}.${String(n).padStart(2,'0')}`;
   }
-  // Data per defecte en crear un punt nou: no "avui" (quan s'omple l'acta), sinó el dia de
-  // visita més recent segons els dies configurats a l'obra (avui mateix o algun dels últims 7 dies)
-  function dataVisitaRecent() {
-    const dv = (obra.diasVisita && obra.diasVisita.length) ? obra.diasVisita : DIAS_DEFAULT;
-    const avui = new Date();
-    for (let back = 0; back <= 6; back++) {
-      const d = new Date(avui); d.setDate(d.getDate() - back);
-      if (dv.includes(d.getDay())) return d.toISOString().slice(0,10);
-    }
-    return today();
-  }
   function addTema(secId, titulo, texto, extra = {}) {
     if (!titulo.trim()) return;
+    const sec = vo.secciones.find(s => s.id === secId);
+    if (!sec) return;
+    // Data per defecte: la de l'acta que s'està editant (`vo.fechaActa`, dalt de tot) —
+    // mai "avui", perquè quan s'edita una acta antiga "avui" no té cap relació amb ella.
     const entrades = (texto || extra.fotos?.length)
-      ? [{ id: uid(), texto: (texto||'').trim(), estado: extra.estado || 'P', fecha: extra.fecha || dataVisitaRecent(), fin: '', resp: extra.resp || [], fotos: extra.fotos || [], nueva: extra.nueva !== undefined ? extra.nueva : true }]
+      ? [{ id: uid(), texto: (texto||'').trim(), estado: extra.estado || 'P', fecha: extra.fecha || vo.fechaActa, fin: '', resp: extra.resp || [], fotos: extra.fotos || [], nueva: extra.nueva !== undefined ? extra.nueva : true }]
       : [];
-    guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: [...(s.temas||[]), { id: uid(), num: nextNum(s), titulo: titulo.trim(), resuelto: false, resueltoEnActa: null, entradas: entrades }] }) });
+    const tema = { id: uid(), num: nextNum(sec), titulo: titulo.trim(), resuelto: false, resueltoEnActa: null, entradas: entrades };
+    guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: [...(s.temas||[]), tema] }) });
+    // Un tema creat des d'una acta antiga també es propaga endavant (a l'acta viva i a
+    // les versions posteriors), col·locat per data entre els temes ja existents a cada destí.
+    if (editingVersion) propagarForward(v => insertTemaVO(v, secId, tema));
   }
   function addEntrada(secId, temaId, texto) {
     if (!texto.trim()) return;
-    guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: s.temas.map(t => t.id !== temaId ? t : { ...t, entradas: [...t.entradas, { id: uid(), texto: texto.trim(), estado: 'P', fecha: dataVisitaRecent(), fin: '', resp: '', nueva: true }] }) }) });
+    const entrada = { id: uid(), texto: texto.trim(), estado: 'P', fecha: vo.fechaActa, fin: '', resp: '', nueva: true };
+    guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: s.temas.map(t => t.id !== temaId ? t : { ...t, entradas: [...t.entradas, entrada] }) }) });
+    // Idem per a un punt de seguiment nou afegit des d'una acta antiga: es propaga
+    // endavant col·locat per data entre les entrades existents del mateix tema.
+    if (editingVersion) propagarForward(v => insertEntradaVO(v, secId, temaId, entrada));
   }
   function updEntrada(secId, temaId, entId, campo, val) {
     guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: s.temas.map(t => {
@@ -6071,18 +6180,34 @@ function ModuloActaVO({ obra, onSave }) {
       const resueltoEnActa = resuelto ? (t.resueltoEnActa || vo.num) : null;
       return { ...t, entradas, resuelto, resueltoEnActa };
     }) }) });
+    // Acta viva: una correcció a una entrada d'una acta antiga es manté cap endavant
+    // (a l'acta viva i a totes les ja exportades amb número superior), sense tocar
+    // el "resuelto" de cap d'elles.
+    if (editingVersion) propagarForward(v => patchEntradaVO(v, secId, temaId, entId, campo, val));
   }
   function updTema(secId, temaId, campo, val) {
     guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: s.temas.map(t => t.id === temaId ? { ...t, [campo]: val } : t) }) });
+    if (editingVersion) propagarForward(v => patchTemaVO(v, secId, temaId, campo, val));
   }
   function addFotoEntrada(secId, temaId, entId) {
-    pickFiles('image/*', f => guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: s.temas.map(t => t.id !== temaId ? t : { ...t, entradas: t.entradas.map(e => e.id !== entId ? e : { ...e, fotos: [...(e.fotos||[]), f] }) }) }) }), obra?.id);
+    pickFiles('image/*', f => {
+      const actual = vo.secciones.find(s => s.id === secId)?.temas.find(t => t.id === temaId)?.entradas.find(e => e.id === entId);
+      const fotos = [...(actual?.fotos||[]), f];
+      guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: s.temas.map(t => t.id !== temaId ? t : { ...t, entradas: t.entradas.map(e => e.id !== entId ? e : { ...e, fotos }) }) }) });
+      if (editingVersion) propagarForward(v => patchEntradaVO(v, secId, temaId, entId, 'fotos', fotos));
+    }, obra?.id);
   }
   function delFotoEntrada(secId, temaId, entId, fotoId) {
-    guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: s.temas.map(t => t.id !== temaId ? t : { ...t, entradas: t.entradas.map(e => e.id !== entId ? e : { ...e, fotos: (e.fotos||[]).filter(ft => ft.id !== fotoId) }) }) }) });
+    const actual = vo.secciones.find(s => s.id === secId)?.temas.find(t => t.id === temaId)?.entradas.find(e => e.id === entId);
+    const fotos = (actual?.fotos||[]).filter(ft => ft.id !== fotoId);
+    guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: s.temas.map(t => t.id !== temaId ? t : { ...t, entradas: t.entradas.map(e => e.id !== entId ? e : { ...e, fotos }) }) }) });
+    if (editingVersion) propagarForward(v => patchEntradaVO(v, secId, temaId, entId, 'fotos', fotos));
   }
   function updFotoEntrada(secId, temaId, entId, fotoNova) {
-    guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: s.temas.map(t => t.id !== temaId ? t : { ...t, entradas: t.entradas.map(e => e.id !== entId ? e : { ...e, fotos: (e.fotos||[]).map(ft => ft.id === fotoNova.id ? fotoNova : ft) }) }) }) });
+    const actual = vo.secciones.find(s => s.id === secId)?.temas.find(t => t.id === temaId)?.entradas.find(e => e.id === entId);
+    const fotos = (actual?.fotos||[]).map(ft => ft.id === fotoNova.id ? fotoNova : ft);
+    guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: s.temas.map(t => t.id !== temaId ? t : { ...t, entradas: t.entradas.map(e => e.id !== entId ? e : { ...e, fotos }) }) }) });
+    if (editingVersion) propagarForward(v => patchEntradaVO(v, secId, temaId, entId, 'fotos', fotos));
   }
   function delEntrada(secId, temaId, entId) {
     guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: s.temas.map(t => t.id !== temaId ? t : { ...t, entradas: t.entradas.filter(e => e.id !== entId) }) }) });
@@ -6899,7 +7024,7 @@ function ModuloActaVO({ obra, onSave }) {
         <QuickAddTema
           secciones={vo.secciones||[]}
           obraId={obra?.id}
-          fechaDefault={dataVisitaRecent()}
+          fechaDefault={vo.fechaActa}
           onAdd={(secId, dades) => { addTema(secId, dades.titulo, dades.texto, dades); setShowQuickAdd(false); }}
           onCancel={() => setShowQuickAdd(false)}
         />

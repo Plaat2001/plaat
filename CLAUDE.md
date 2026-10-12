@@ -65,7 +65,12 @@ Aquest ha estat el focus de la majoria de sessions recents. Estructura de `vo` (
 - Capçalera *sticky* (compte amb marges negatius verticals combinats amb `position: sticky` — ja va causar un bug de solapament; només s'usen marges negatius horitzontals)
 - Botó flotant "+" (crear tema nou) i tots els modals (`Modal`, `ConfirmMini`) usen **`createPortal` a `document.body`** — necessari per YouTube evitar bugs de `position: fixed` dins de contenidors amb scroll niat en mòbil real. **Advertència**: l'entorn de previsualització d'artefactes de Claude (dins del xat) NO permet `import ... from "react-dom"` i mostrarà error — això només afecta la previsualització en aquest xat, no el desplegament real a Vercel.
 - Totes les seccions de temes es poden plegar; els temes es llisten en **ordre d'inserció** (no ordenats per estat — es va provar i es va revertir perquè feia que els punts nous no aparegueguessin al final)
-- Data per defecte en crear un tema/seguiment: **no és "avui"**, és el dia de visita configurat més recent (`obra.diasVisita`), calculat amb `dataVisitaRecent()`
+- Data per defecte en crear un tema/seguiment: **no és "avui"**, és `vo.fechaActa` (la data de dalt de tot de l'acta que s'estigui editant, viva o antiga) — mai es calcula a partir de la data real del sistema, perquè en editar una acta antiga "avui" no hi té cap relació
+- **Edició d'actes antigues arxivades** (`actas_vo_versions`, obrir-ne una des de "Versions" per corregir-la): com que és una acta viva, els canvis fets a una acta antiga es propaguen **cap endavant** (a l'acta viva i a totes les versions ja exportades amb número superior), buscant el mateix tema/entrada per `id`:
+  - Editar un camp d'un tema o entrada existent (`updTema`/`updEntrada`, fotos): es corregeix igual a totes les posteriors, sense tocar mai `resuelto`/`resueltoEnActa` de cap d'elles
+  - Afegir un tema o un punt de seguiment nou (`addTema`/`addEntrada`): també es crea a totes les posteriors, **col·locat per data** entre els temes/entrades ja existents (no sempre al final); el número del tema es reassigna al següent lliure de cada destí, sense renumerar la resta
+  - Esborrar un tema/entrada des d'una acta antiga **no** es propaga (de moment, decisió pendent de confirmar)
+  - Helpers: `patchEntradaVO`, `patchTemaVO`, `insertEntradaVO`, `insertTemaVO`, `inserirPerData` (a nivell de mòdul, a sobre de `ModuloActaVO`), orquestrats per `propagarForward()` dins del component
 
 ## Convencions i patrons a seguir
 
