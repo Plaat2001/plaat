@@ -4475,15 +4475,29 @@ function diasEntreISO(isoA, isoB) {
 function extraerTablaRoturas(texto) {
   const idxNotas = texto.search(/notas/i);
   const zona = idxNotas >= 0 ? texto.slice(idxNotas) : texto;
+
+  // Formato EPTISA: entre Edad y la Resistencia hay DOS columnas numéricas más —
+  // "Curado (días)" y "Carga de rotura (kN)" — así que la regex genérica (que solo se salta
+  // una) confunde la Carga de rotura con la Resistencia. Aquí anclamos por el final de fila
+  // ("Dim. prob." tipo "15x15", que siempre sigue a la Resistencia) en vez de contar columnas.
+  const filaEptisaRe = /(\d{1,2})\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+(\d{1,3})\s+\d{1,3}\s+(?:\d{1,2}[.,]\d{1,2}\s+)?\d{1,4}[.,]\d{1,2}\s+(\d{1,3}[.,]\d{1,2})\s*(?:\d{1,3}[.,]\d{1,2})?\s+\d{1,2}[xX]\d{1,2}/g;
+  const filasEptisa = [...zona.matchAll(filaEptisaRe)].map(m => ({
+    edad: parseInt(m[3], 10),
+    fecha: m[2],
+    tension: parseFloat(m[4].replace(',', '.')),
+  })).filter(f => Number.isFinite(f.edad) && Number.isFinite(f.tension));
+
   // El grupo final opcional (3-4 dígitos sin decimales) absorbe la columna "kp/cm²" que
   // algunos laboratorios imprimen justo después del N/mm² — si no se consume aquí, esos
   // dígitos sueltos confunden al motor de regex y rompe el reconocimiento de la fila siguiente.
   const filaRe = /(\d{1,2})\s+(?:(\d{1,3})\s+(\d{1,2}\/\d{1,2}\/\d{2,4})|(\d{1,2}\/\d{1,2}\/\d{2,4})\s+(\d{1,3}))\s+\d{1,4}(?:[.,]\d{1,2})?\s+(\d{1,3}[.,]\d{1,2})(?:\s+\d{3,4}(?![.,\d]))?/g;
-  const filas = [...zona.matchAll(filaRe)].map(m => ({
+  const filasGenerico = [...zona.matchAll(filaRe)].map(m => ({
     edad: parseInt(m[2] ?? m[5], 10),
     fecha: m[3] ?? m[4],
     tension: parseFloat(m[6].replace(',', '.')),
   })).filter(f => Number.isFinite(f.edad) && Number.isFinite(f.tension));
+
+  const filas = filasEptisa.length ? filasEptisa : filasGenerico;
   if (!filas.length) return null;
 
   const grupos = {};
@@ -4520,13 +4534,26 @@ function extraerDatosActa(textoOriginal) {
   if (mDes) datos.designacion = mDes[0].toUpperCase().replace(/\s+/g, '');
 
   // Localización de la muestra: cada laboratorio la marca de forma distinta, así que
-  // probamos dos anclas conocidas — TPF (el texto libre entre el código postal del
-  // destinatario y el disclaimer "Los ensayos comprendidos") y LABOCAT (etiqueta explícita
-  // "LOCALITZACIO:" hasta la línea de firma "Ciudad, a dd/mm/aaaa").
+  // probamos tres anclas conocidas — TPF (el texto libre entre el código postal del
+  // destinatario y el disclaimer "Los ensayos comprendidos"), LABOCAT (etiqueta explícita
+  // "LOCALITZACIO:" hasta la línea de firma "Ciudad, a dd/mm/aaaa") y EPTISA.
+  // EPTISA genera el PDF como formulario relleno (AcroForm): Peticionario/Dirección/Obra/
+  // Localización salen como texto plano SEGUIDOS unos de otros, sin su etiqueta al lado (las
+  // etiquetas quedan en otra parte del documento). Anclamos el final del bloque por el dominio
+  // de correo del laboratorio (@eptisa.com, estable en todas las sedes) y, como Obra suele ser
+  // una descripción larga del proyecto y Localización un apunte corto al final (a veces con un
+  // nombre antiguo entre paréntesis, p.ej. "(Antiga Quirón) Pilares PAN 98..."), nos quedamos
+  // con el último paréntesis en adelante si lo hay; si no, con el bloque entero.
   const mLocTpf = t.match(/\d{5}-[A-ZÀ-Úa-zà-ú]+\s+([A-ZÀ-ÚÑ0-9][^.]{4,160})\.\s*Los ensayos comprendidos/);
   const mLocLabocat = t.match(/LOCALITZACIO\s*:?\s*([^.]{4,160}?)\s+[A-ZÀ-Úa-zà-ú]+,\s*a\s*\d{1,2}\/\d{1,2}\/\d{2,4}/i);
+  const mLocEptisa = t.match(/\d{5}\s+[A-ZÀ-Úa-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)*\s*\([A-ZÀ-Úa-zà-ú\s]+\)\s+([\s\S]{3,400}?)\s+\S+@eptisa\.com/i);
   if (mLocTpf) datos.localizacion = mLocTpf[1].trim();
   else if (mLocLabocat) datos.localizacion = mLocLabocat[1].trim();
+  else if (mLocEptisa) {
+    const bloque = mLocEptisa[1].trim();
+    const idxParen = bloque.lastIndexOf('(');
+    datos.localizacion = (idxParen > bloque.length * 0.4 ? bloque.slice(idxParen) : bloque).trim();
+  }
 
   // Cabecera "ALBARÁN Nº / MUESTRA Nº / ACTA OBRA Nº / ACTA Nº / FECHA ACTA" (formato TPF
   // Getinsa) — se reconoce por la FORMA de cada valor (no por estar junto a su etiqueta: en
@@ -4540,6 +4567,13 @@ function extraerDatosActa(textoOriginal) {
     // Formato LABOCAT: "<albarán>-n ... ALBARA <fecha> DATA DE PRESA <acta> ACTA"
     const mLabocat = t.match(/(\d{3,7}-\d{1,3})[\s\S]{0,120}?ALBARA\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+DATA DE PRESA\s+(\d{1,5})\s+ACTA/i);
     if (mLabocat) { datos.refAlbaran = mLabocat[1]; datos.numActa = mLabocat[3]; fechaPresaDirecta = mLabocat[2]; }
+    else if (/eptisa/i.test(t)) {
+      // Formato EPTISA: no hay "Nº de acta" en el documento — usamos el Nº de muestra (p.ej.
+      // "IBHP187726") como referencia de albarán, que es el dato que de verdad identifica la
+      // probeta en este formato. Aparece junto al Nº de trabajo y la Clave, en ese orden.
+      const mEptisa = t.match(/\b([A-Z]{2,8}\d{5,10})\s+(\d{4,6})\s+([A-Z0-9]{6,20}-\d{1,6})\b/);
+      if (mEptisa) datos.refAlbaran = mEptisa[1];
+    }
   }
 
   const tabla = extraerTablaRoturas(t);
