@@ -4593,8 +4593,10 @@ function ControlHormigon({ obra, onSave }) {
   const hayAntiguos = elementosRaw.length > elementos.length;
   const [sub, setSub] = useState('lotificacion'); // lotificacion | seguimiento
   const [showNuevo, setShowNuevo] = useState(false);
+  const [editando, setEditando] = useState(null); // id de l'element en edició (null = formulari de creació)
   const [elSeleccionado, setElSeleccionado] = useState(null); // elemento activo en Seguimiento (estilo pestañas LC-x)
   const [form, setForm] = useState({ nombre: '', tipo: 'flexion', volumen: '', superficie: '', conDOR: false, designacion: '', fck: '', bloqueId: '' });
+  const panelAbierto = showNuevo || !!editando;
   const [confirmacion, setConfirmacion] = useState(null);
 
   // ── Modo de control: una sola estructura o dividido por edificios ───────────
@@ -4982,10 +4984,91 @@ function ControlHormigon({ obra, onSave }) {
     // Se añade al final (no al principio) para que la numeración LC de los elementos
     // ya creados no cambie nunca — es la referencia que usáis para archivar actas.
     onSave({ ...obra, lotes: [...elementos, elemento] });
-    setForm({ nombre: '', tipo: 'flexion', volumen: '', superficie: '', conDOR: false, designacion: '', fck: '', bloqueId: '' });
-    setShowNuevo(false);
+    cerrarFormulario();
     if (bloqueId) setBloqueSel(bloqueId);
     setElSeleccionado(elemento.id);
+  }
+
+  function cerrarFormulario() {
+    setShowNuevo(false);
+    setEditando(null);
+    setForm({ nombre: '', tipo: 'flexion', volumen: '', superficie: '', conDOR: false, designacion: '', fck: '', bloqueId: '' });
+  }
+
+  function abrirEdicion(el) {
+    setForm({
+      nombre: el.nombre || '',
+      tipo: el.tipo || 'flexion',
+      volumen: el.volumen || '',
+      superficie: el.superficie || '',
+      conDOR: !!el.conDOR,
+      designacion: el.designacion || '',
+      fck: el.fck || '',
+      bloqueId: el.bloqueId || '',
+    });
+    setEditando(el.id);
+    setShowNuevo(false);
+  }
+
+  // Corrige los datos de un elemento ya creado (p.ej. se eligió mal el tipo o el volumen).
+  // Si el nuevo cálculo normativo da menos lotes o series que antes, las actas que sobren
+  // se perderían — se pide confirmación y se borra su archivo de Storage si la hay.
+  function guardarEdicion() {
+    if (!form.nombre.trim() || !form.volumen || !editando) return;
+    const el = elementos.find(e => e.id === editando);
+    if (!el) return;
+    const calc = calcularLotificacion(form.tipo, form.volumen, form.superficie, form.conDOR, form.fck);
+    const lotesMinViejos = (el.lotes || []).filter(l => !l.extra);
+    const lotesExtra = (el.lotes || []).filter(l => l.extra);
+    // Los lotes extra (más allá del mínimo, añadidos a mano) no se tocan nunca.
+    const lotesMin = Array.from({ length: calc.numLotes }, (_, i) => {
+      const viejo = lotesMinViejos[i];
+      return {
+        id: viejo?.id || uid(),
+        num: i + 1,
+        series: Array.from({ length: calc.seriesPorLote }, (_, j) => {
+          const serieVieja = viejo?.series?.[j];
+          return { id: serieVieja?.id || uid(), num: j + 1, acta: serieVieja?.acta || null };
+        }),
+      };
+    });
+    const actasQueSePierden = [];
+    lotesMinViejos.forEach((l, i) => {
+      (l.series || []).forEach((s, j) => {
+        if (s.acta && (i >= calc.numLotes || j >= calc.seriesPorLote)) actasQueSePierden.push(s.acta);
+      });
+    });
+
+    const aplicar = () => {
+      actasQueSePierden.forEach(acta => { if (acta?.archivo?.path) window.db?.eliminarFoto?.(acta.archivo.path).catch(() => {}); });
+      onSave({
+        ...obra,
+        lotes: elementos.map(e => e.id !== editando ? e : {
+          ...e,
+          nombre: form.nombre.trim(),
+          tipo: form.tipo,
+          volumen: form.volumen,
+          superficie: form.superficie,
+          conDOR: form.conDOR,
+          designacion: form.designacion.trim(),
+          fck: form.fck,
+          numLotes: calc.numLotes,
+          seriesPorLote: calc.seriesPorLote,
+          lotes: [...lotesMin, ...lotesExtra],
+        }),
+      });
+      cerrarFormulario();
+    };
+
+    if (actasQueSePierden.length) {
+      setConfirmacion({
+        titulo: 'Se perderán actas',
+        texto: `Con estos datos la lotificación mínima tiene menos lotes o series que antes: ${actasQueSePierden.length} acta${actasQueSePierden.length > 1 ? 's' : ''} ya cargada${actasQueSePierden.length > 1 ? 's' : ''} se perderá${actasQueSePierden.length > 1 ? 'n' : ''}. ¿Seguro que quieres continuar?`,
+        onSi: () => { aplicar(); setConfirmacion(null); },
+      });
+      return;
+    }
+    aplicar();
   }
 
   function eliminar(id) {
@@ -5098,16 +5181,17 @@ function ControlHormigon({ obra, onSave }) {
           {modoBloques ? `${bloques.length} edificio${bloques.length !== 1 ? 's' : ''} · ` : ''}
           {elementos.length} elemento{elementos.length !== 1 ? 's' : ''} · Control estadístico Modalidad 1 (CE)
         </div>
-        <Btn primary onClick={() => { if (!showNuevo && modoBloques) upd('bloqueId', bloqueActivo?.id || ''); setShowNuevo(v => !v); }}>{showNuevo ? '✕ Cancelar' : '+ Nuevo elemento'}</Btn>
+        <Btn primary onClick={() => { if (panelAbierto) { cerrarFormulario(); } else { if (modoBloques) upd('bloqueId', bloqueActivo?.id || ''); setShowNuevo(true); } }}>{panelAbierto ? '✕ Cancelar' : '+ Nuevo elemento'}</Btn>
       </div>
 
-      {/* Formulario nuevo elemento */}
-      {showNuevo && (
+      {/* Formulario nuevo elemento / edición de uno existente */}
+      {panelAbierto && (
         <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, padding: '16px' }}>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 14 }}>Nuevo elemento</div>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 14 }}>{editando ? 'Editar elemento' : 'Nuevo elemento'}</div>
 
-          {/* Edificio al que pertenece — decide el prefijo y la numeración LC del elemento */}
-          {modoBloques && (
+          {/* Edificio al que pertenece — decide el prefijo y la numeración LC del elemento.
+              En edición no se toca aquí: ya existe un selector propio en la tabla. */}
+          {modoBloques && !editando && (
             <div style={{ marginBottom: 12 }}>
               <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 6 }}>Edificio *</label>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -5209,8 +5293,8 @@ function ControlHormigon({ obra, onSave }) {
           )}
 
           <div style={{ display: 'flex', gap: 8 }}>
-            <Btn onClick={() => setShowNuevo(false)} full>Cancelar</Btn>
-            <Btn primary onClick={crearElemento} disabled={!form.nombre.trim() || !form.volumen} full>Crear lotificación</Btn>
+            <Btn onClick={cerrarFormulario} full>Cancelar</Btn>
+            <Btn primary onClick={editando ? guardarEdicion : crearElemento} disabled={!form.nombre.trim() || !form.volumen} full>{editando ? 'Guardar cambios' : 'Crear lotificación'}</Btn>
           </div>
         </div>
       )}
@@ -5291,7 +5375,12 @@ function ControlHormigon({ obra, onSave }) {
                         </td>
                       )}
                       <td style={tdCell}>
-                        <button onClick={() => setConfirmacion({ titulo: 'Eliminar lotificación', texto: `Vas a eliminar "${el.nombre}" y todos sus datos. Esta acción no se puede deshacer.`, onSi: () => { eliminar(el.id); setConfirmacion(null); } })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 16, padding: '0 2px', lineHeight: 1 }}>×</button>
+                        <div style={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+                          <button onClick={() => abrirEdicion(el)} title="Editar esta lotificación" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#B5B4AE', padding: '0 2px', lineHeight: 1, display: 'flex' }}>
+                            <Icon name="edit" size={13.5} />
+                          </button>
+                          <button onClick={() => setConfirmacion({ titulo: 'Eliminar lotificación', texto: `Vas a eliminar "${el.nombre}" y todos sus datos. Esta acción no se puede deshacer.`, onSi: () => { eliminar(el.id); setConfirmacion(null); } })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 16, padding: '0 2px', lineHeight: 1 }}>×</button>
+                        </div>
                       </td>
                     </tr>
                   );
