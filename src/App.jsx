@@ -5317,8 +5317,8 @@ function ControlHormigon({ obra, onSave }) {
                 <th style={thCell}>Volumen</th>
                 <th style={thCell}>Designación</th>
                 <th style={thCell}>fck</th>
-                <th style={thCell}>Lotes</th>
-                <th style={thCell}>Series</th>
+                <th style={thCell} title="Mínimo normativo / lotes con todas sus actas cargadas">Lotes</th>
+                <th style={thCell} title="Mínimo normativo / series con acta cargada">Series</th>
                 {modoBloques && <th style={thCell}>Edificio</th>}
                 <th style={thCell}></th>
               </tr>
@@ -5343,9 +5343,12 @@ function ControlHormigon({ obra, onSave }) {
                 {elsGrupo.map((el, idx) => {
                   const t = TIPOS_ELEMENTO[el.tipo] || TIPOS_ELEMENTO.flexion;
                   const numLotesMin = el.numLotes || (el.lotes || []).length;
-                  const numLotesReales = (el.lotes || []).length || numLotesMin;
                   const seriesMin = numLotesMin * (el.seriesPorLote || 0);
-                  const seriesReales = (el.lotes || []).reduce((s, l) => s + (l.series || []).length, 0) || seriesMin;
+                  // "Reales" cuenta lo que hay de verdad (actas cargadas / lotes con todas sus
+                  // series cubiertas), no las plazas vacías que ya existen desde que se creó
+                  // la lotificación — si no, un elemento recién creado parecía ya completo.
+                  const seriesReales = (el.lotes || []).reduce((s, l) => s + (l.series || []).filter(se => se.acta).length, 0);
+                  const numLotesReales = (el.lotes || []).filter(l => (l.series || []).length > 0 && (l.series || []).every(se => se.acta)).length;
                   return (
                     <tr key={el.id} style={{ borderTop: '1px solid #F2F1ED' }}>
                       <td style={{ ...tdCell, ...NUM_TAB }}>
