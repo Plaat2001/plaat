@@ -9807,6 +9807,7 @@ export default function App() {
   const [xarxa, setXarxa] = useState({ online: true, pendents: 0, sincronitzant: false });
   const desatTimers  = useRef({});
   const desatPendent = useRef({});
+  const userCarregatRef = useRef(null); // id d'usuari pel qual ja s'han carregat les obres
 
   // No perdre res en tancar la pestanya
   useEffect(() => {
@@ -9981,6 +9982,7 @@ export default function App() {
         setObras([]);
         setObraActiva(null);
         setNav('alertas');
+        userCarregatRef.current = null;
       }
     });
   }, []);
@@ -9989,6 +9991,11 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     const userId = user.id || user.sub || 'local';
+    // Supabase revalida la sessió sola cada cop que la pestanya torna a estar visible,
+    // i això refa disparar `onChange` encara que sigui el mateix usuari — sense aquest
+    // guard, tornar a l'app recarregava totes les obres de zero cada cop (flaix molest).
+    if (userCarregatRef.current === userId) return;
+    userCarregatRef.current = userId;
     cargarObras(userId);
     // Asegura que este usuario tiene fila en "perfiles" (si no, al compartir una obra con él
     // sale su ID truncado en vez de su nombre/email en la lista de "Con acceso"). Se hace en
