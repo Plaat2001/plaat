@@ -531,19 +531,19 @@ function MapaClimaModal({ latInicial, lonInicial, onConfirmar, onCancelar }) {
   }, []);
 
   return (
-    <Modal title="Marca la ubicació de l'obra" onClose={onCancelar} footer={
+    <Modal title="Marca la ubicación de la obra" onClose={onCancelar} footer={
       <>
-        <Btn onClick={onCancelar}>Cancel·lar</Btn>
-        <Btn primary onClick={() => onConfirmar(seleccio.lat, seleccio.lon)}>Confirmar ubicació</Btn>
+        <Btn onClick={onCancelar}>Cancelar</Btn>
+        <Btn primary onClick={() => onConfirmar(seleccio.lat, seleccio.lon)}>Confirmar ubicación</Btn>
       </>
     }>
       <p style={{ fontSize: 12.5, color: '#6B6B66', marginBottom: 10 }}>
-        Fes clic al mapa o arrossega el marcador fins a la posició exacta de l'obra. Aquesta ubicació s'usarà per obtenir el clima real.
+        Haz clic en el mapa o arrastra el marcador hasta la posición exacta de la obra. Esta ubicación se usará para obtener el clima real.
       </p>
       <div style={{ position: 'relative', width: '100%', height: 340, borderRadius: 10, overflow: 'hidden', background: '#F0EFEA' }}>
         {carregant && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, color: '#9B9B97' }}>
-            Carregant mapa…
+            Cargando mapa…
           </div>
         )}
         <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
@@ -2118,11 +2118,11 @@ const RESP_VO = ['EC', 'DO', 'DEO', 'PR', 'DOE', 'DOI', 'CSS', 'ATE', 'INT'];
 // Editor de fotos de l'Acta VO — colors i eines de marcatge disponibles
 const COLORS_EDITOR_FOTO = ['#E53935', '#FDD835', '#1E88E5', '#43A047', '#FFFFFF', '#111111'];
 const EINES_EDITOR_FOTO = [
-  { id: 'pen',    label: '✏️',  title: 'Llapis' },
-  { id: 'line',   label: '╱',  title: 'Línia' },
-  { id: 'arrow',  label: '↗',  title: 'Fletxa' },
-  { id: 'rect',   label: '▭',  title: 'Rectangle' },
-  { id: 'circle', label: '◯',  title: 'Cercle' },
+  { id: 'pen',    label: '✏️',  title: 'Lápiz' },
+  { id: 'line',   label: '╱',  title: 'Línea' },
+  { id: 'arrow',  label: '↗',  title: 'Flecha' },
+  { id: 'rect',   label: '▭',  title: 'Rectángulo' },
+  { id: 'circle', label: '◯',  title: 'Círculo' },
 ];
 const GROSSORS_EDITOR_FOTO = [3, 6, 11];
 // Rols possibles al quadre de firmes — l'usuari tria quins hi apareixen (no totes les obres tenen els mateixos signants)
@@ -2409,21 +2409,21 @@ function EditorFoto({ foto, obraId, onSave, onClose }) {
         ))}
         <div style={{ width: 1, alignSelf: 'stretch', background: 'rgba(255,255,255,.12)', margin: '0 4px' }} />
         {GROSSORS_EDITOR_FOTO.map(g => (
-          <button key={g} title={`Gruix ${g}`} onClick={() => setGrossor(g)} style={btnEina(grossor === g)}>
+          <button key={g} title={`Grosor ${g}`} onClick={() => setGrossor(g)} style={btnEina(grossor === g)}>
             <span style={{ width: g, height: g, borderRadius: '50%', background: '#fff', display: 'block' }} />
           </button>
         ))}
         <div style={{ flex: 1, minWidth: 8 }} />
         <button onClick={() => setStrokes(s => s.slice(0, -1))} disabled={!strokes.length}
-          style={{ ...btnEina(false), width: 'auto', padding: '0 10px', opacity: strokes.length ? 1 : 0.35 }}>↺ Desfer</button>
+          style={{ ...btnEina(false), width: 'auto', padding: '0 10px', opacity: strokes.length ? 1 : 0.35 }}>↺ Deshacer</button>
         <button onClick={() => setStrokes([])} disabled={!strokes.length}
-          style={{ ...btnEina(false), width: 'auto', padding: '0 10px', opacity: strokes.length ? 1 : 0.35 }}>Netejar</button>
+          style={{ ...btnEina(false), width: 'auto', padding: '0 10px', opacity: strokes.length ? 1 : 0.35 }}>Limpiar</button>
       </div>
 
       {/* Àrea de dibuix */}
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: 12, position: 'relative' }}>
-        {cargant && <div style={{ color: 'rgba(255,255,255,.5)', fontSize: 13 }}>Carregant foto…</div>}
-        {errorCarrega && <div style={{ color: 'rgba(255,255,255,.5)', fontSize: 13 }}>No s'ha pogut carregar la foto.</div>}
+        {cargant && <div style={{ color: 'rgba(255,255,255,.5)', fontSize: 13 }}>Cargando foto…</div>}
+        {errorCarrega && <div style={{ color: 'rgba(255,255,255,.5)', fontSize: 13 }}>No se ha podido cargar la foto.</div>}
         {!cargant && !errorCarrega && (
           <div style={{ position: 'relative', maxWidth: '100%', maxHeight: '100%', aspectRatio: `${size.w} / ${size.h}` }}>
             <canvas ref={baseRef} style={{ width: '100%', height: '100%', display: 'block', borderRadius: 4 }} />
@@ -2437,9 +2437,9 @@ function EditorFoto({ foto, obraId, onSave, onClose }) {
       {/* Peu */}
       <div style={{ display: 'flex', gap: 10, padding: isMobile ? '10px 12px calc(10px + env(safe-area-inset-bottom))' : '12px 16px', borderTop: '1px solid rgba(255,255,255,.1)', flexShrink: 0 }}>
         <button onClick={onClose} disabled={desant}
-          style={{ flex: 1, padding: '11px', borderRadius: 9, border: '1px solid rgba(255,255,255,.2)', background: 'transparent', color: '#fff', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>Cancel·lar</button>
+          style={{ flex: 1, padding: '11px', borderRadius: 9, border: '1px solid rgba(255,255,255,.2)', background: 'transparent', color: '#fff', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>Cancelar</button>
         <button onClick={guardar} disabled={desant || cargant || errorCarrega}
-          style={{ flex: 1, padding: '11px', borderRadius: 9, border: 'none', background: '#fff', color: '#141412', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: desant ? 0.6 : 1 }}>{desant ? 'Desant…' : 'Desar'}</button>
+          style={{ flex: 1, padding: '11px', borderRadius: 9, border: 'none', background: '#fff', color: '#141412', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: desant ? 0.6 : 1 }}>{desant ? 'Guardando…' : 'Guardar'}</button>
       </div>
     </div>,
     document.body
@@ -4250,9 +4250,9 @@ function SeguimientoCQ({ obra, onSave }) {
 
                   <Pill label={est.label} bg={est.bg} color={est.color} />
 
-                  <button onClick={e => { e.stopPropagation(); setEditCap(c.id); }} title="Editar nom"
+                  <button onClick={e => { e.stopPropagation(); setEditCap(c.id); }} title="Editar nombre"
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C5C4BE', fontSize: 12, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}>✎</button>
-                  <button onClick={e => { e.stopPropagation(); setConfirmacion({ titulo: 'Eliminar capítol', texto: `Vas a eliminar "${c.titulo}" i tots els seus elements.`, onSi: () => delCap(c.id) }); }}
+                  <button onClick={e => { e.stopPropagation(); setConfirmacion({ titulo: 'Eliminar capítulo', texto: `Vas a eliminar "${c.titulo}" y todos sus elementos.`, onSi: () => delCap(c.id) }); }}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 16, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}>×</button>
                   <Icon name="chevronRight" size={11} onClick={() => setAbierto(a => ({ ...a, [c.id]: !a[c.id] }))}
                     style={{ color: '#C4C3BE', cursor: 'pointer', flexShrink: 0, transition: 'transform .2s', transform: open ? 'rotate(90deg)' : 'none' }} />
@@ -4289,7 +4289,7 @@ function SeguimientoCQ({ obra, onSave }) {
                                   style={{ flex: 1, fontSize: 13, padding: '4px 8px' }} />
                               : <span style={{ flex: 1, fontSize: 13, color: '#18180F', lineHeight: 1.4 }}>{i.nombre}</span>}
                             <span style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-                              <button onClick={() => setEditItem(i.id)} title="Editar nom"
+                              <button onClick={() => setEditItem(i.id)} title="Editar nombre"
                                 style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C3BE', padding:'2px 4px', display: 'inline-flex' }}>✏️</button>
                               <button onClick={() => setConfirmacion({ titulo: 'Eliminar element', texto: `Vas a eliminar "${i.nombre}".`, onSi: () => delItem(c.id, i.id) })}
                                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 15, lineHeight: 1, padding: '0 3px' }}>×</button>
@@ -4297,7 +4297,7 @@ function SeguimientoCQ({ obra, onSave }) {
                           </div>
                           <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
                             <Seg estado={i.estado} onChange={e => setEstado(c.id, i.id, e)} />
-                            <input placeholder="Nota — què falta, referència…" value={i.nota || ''} onChange={e => setNota(c.id, i.id, e.target.value)}
+                            <input placeholder="Nota — qué falta, referencia…" value={i.nota || ''} onChange={e => setNota(c.id, i.id, e.target.value)}
                               style={{ flex: 1, minWidth: isMobile ? '100%' : 160, fontSize: 12 }} />
                           </div>
                         </div>
@@ -4306,7 +4306,7 @@ function SeguimientoCQ({ obra, onSave }) {
                   })}
                   <button onClick={() => addItem(c.id)}
                     style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%', padding: '8px', marginTop: 11, borderRadius: 8, border: '1.5px dashed #E5E4DF', background: '#FAFAF8', cursor: 'pointer', fontSize: 12.5, color: '#8A8A85' }}>
-                    <span style={{ fontSize: 14, lineHeight: 1, color: '#C5C4BE' }}>+</span> Afegir element
+                    <span style={{ fontSize: 14, lineHeight: 1, color: '#C5C4BE' }}>+</span> Añadir elemento
                   </button>
                 </div>
               )}
@@ -4318,7 +4318,7 @@ function SeguimientoCQ({ obra, onSave }) {
       {/* Afegir capítol */}
       <button onClick={addCap}
         style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%', padding: '10px', borderRadius: 9, border: '1.5px dashed #E0DFD9', background: 'transparent', cursor: 'pointer', fontSize: 12.5, color: '#8A8A85', fontWeight: 500, marginTop: 8 }}>
-        <span style={{ fontSize: 14, lineHeight: 1, color: '#C5C4BE' }}>+</span> Afegir capítol
+        <span style={{ fontSize: 14, lineHeight: 1, color: '#C5C4BE' }}>+</span> Añadir capítulo
       </button>
 
       {confirmacion && <ConfirmMini titulo={confirmacion.titulo} texto={confirmacion.texto} onSi={confirmacion.onSi} onNo={() => setConfirmacion(null)} />}
@@ -6615,7 +6615,7 @@ function ModuloActaVO({ obra, onSave }) {
   if (cargandoVO) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 20px', flexDirection: 'column', gap: 12 }}>
       <div style={{ width: 28, height: 28, border: '2.5px solid #E0DFD9', borderTopColor: '#1C1C1A', borderRadius: '50%', animation: 'spin .7s linear infinite' }} />
-      <div style={{ fontSize: 13, color: '#A5A5A0' }}>Carregant acta...</div>
+      <div style={{ fontSize: 13, color: '#A5A5A0' }}>Cargando acta...</div>
     </div>
   );
 
@@ -6638,11 +6638,11 @@ function ModuloActaVO({ obra, onSave }) {
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 16, fontWeight: 600, color: '#141412', display: 'flex', alignItems: 'center', gap: 8 }}>
               Acta de Visita de Obra
-              {editingVersion && <span style={{ fontSize: 11, fontWeight: 700, color: '#8A6D1F', background: '#FBF0D9', padding: '2px 9px', borderRadius: 20 }}>Arxivada</span>}
+              {editingVersion && <span style={{ fontSize: 11, fontWeight: 700, color: '#8A6D1F', background: '#FBF0D9', padding: '2px 9px', borderRadius: 20 }}>Archivada</span>}
             </div>
             {editingVersion ? (
               <button onClick={tancarVersion} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12, color: '#6B6B66', marginTop: 3 }}>
-                ← Tornar a l'acta actual en curs
+                ← Volver al acta actual en curso
               </button>
             ) : (
               <div style={{ fontSize: 12, color: '#9B9B97', display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
@@ -6660,10 +6660,10 @@ function ModuloActaVO({ obra, onSave }) {
         </div>
 
         {showIdioma && (
-          <Modal title="Idioma de l'acta" onClose={() => setShowIdioma(false)} footer={<Btn onClick={() => setShowIdioma(false)}>Cancel·lar</Btn>}>
-            <p style={{ fontSize: 13, color: '#6B6B66', marginBottom: 16 }}>Tria l'idioma per exportar l'Acta Nº {String(vo.num).padStart(2,'0')}.</p>
+          <Modal title="Idioma del acta" onClose={() => setShowIdioma(false)} footer={<Btn onClick={() => setShowIdioma(false)}>Cancelar</Btn>}>
+            <p style={{ fontSize: 13, color: '#6B6B66', marginBottom: 16 }}>Elige el idioma para exportar el Acta Nº {String(vo.num).padStart(2,'0')}.</p>
             <div style={{ display: 'flex', gap: 10 }}>
-              <Btn full onClick={() => exportar('ca')}>Català</Btn>
+              <Btn full onClick={() => exportar('ca')}>Catalán</Btn>
               <Btn primary full onClick={() => exportar('es')}>Castellano</Btn>
             </div>
           </Modal>
@@ -6673,13 +6673,13 @@ function ModuloActaVO({ obra, onSave }) {
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999, backdropFilter: 'blur(3px)' }}
             onClick={e => { if (e.target === e.currentTarget) setColisioPendent(null); }}>
             <div className="modal-in fade" style={{ background: '#fff', borderRadius: 14, width: 360, maxWidth: '92vw', padding: 20, border: '1px solid #E0DFD9', boxShadow: '0 16px 48px rgba(0,0,0,.15)' }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#141412', marginBottom: 8 }}>Ja existeix una Acta Nº {String(colisioPendent).padStart(2,'0')} exportada</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#141412', marginBottom: 8 }}>Ya existe un Acta Nº {String(colisioPendent).padStart(2,'0')} exportada</div>
               <div style={{ fontSize: 13, color: '#52524E', lineHeight: 1.55, marginBottom: 18 }}>
-                Si vols corregir-la, fes-ho des de "Actas exportadas" → Acta {String(colisioPendent).padStart(2,'0')} → Editar. Vols exportar-la igualment com a nova versió i sobreescriure el contingut arxivat anterior?
+                Si quieres corregirla, hazlo desde "Actas exportadas" → Acta {String(colisioPendent).padStart(2,'0')} → Editar. ¿Quieres exportarla igualmente como nueva versión y sobrescribir el contenido archivado anterior?
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <Btn full onClick={() => setColisioPendent(null)}>Cancel·lar</Btn>
-                <Btn full primary onClick={() => { setColisioPendent(null); setShowIdioma(true); }}>Sobreescriure</Btn>
+                <Btn full onClick={() => setColisioPendent(null)}>Cancelar</Btn>
+                <Btn full primary onClick={() => { setColisioPendent(null); setShowIdioma(true); }}>Sobrescribir</Btn>
               </div>
             </div>
           </div>,
@@ -6706,9 +6706,9 @@ function ModuloActaVO({ obra, onSave }) {
         {/* Navegació interna — separa el que es toca constantment (Temes) de la configuració ocasional */}
         <div style={{ display: 'flex', gap: 3, marginBottom: 10, background: '#F0EFEA', borderRadius: 10, padding: 3 }}>
           {[
-            { id: 'temes', label: 'Temes' },
-            { id: 'equip', label: 'Equip' },
-            { id: 'dades', label: 'Dades' },
+            { id: 'temes', label: 'Temas' },
+            { id: 'equip', label: 'Equipo' },
+            { id: 'dades', label: 'Datos' },
           ].map(v => (
             <button key={v.id} onClick={() => setVistaVO(v.id)}
               style={{
@@ -6727,7 +6727,7 @@ function ModuloActaVO({ obra, onSave }) {
 
       {/* Data + Fase + lugar */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr', gap: 10, marginBottom: 14 }}>
-        <Field label="Data de l'acta"><input type="date" value={vo.fechaActa||today()} onChange={e => guardarVO({...vo, fechaActa: e.target.value})} /></Field>
+        <Field label="Fecha del acta"><input type="date" value={vo.fechaActa||today()} onChange={e => guardarVO({...vo, fechaActa: e.target.value})} /></Field>
         <Field label="Fase"><input value={vo.fase||''} onChange={e => guardarVO({...vo, fase: e.target.value})} placeholder="Estructura, acabados..." /></Field>
         <Field label="Lugar"><input value={vo.lloc||''} onChange={e => guardarVO({...vo, lloc: e.target.value})} placeholder="Obra / oficina" /></Field>
       </div>
@@ -6804,12 +6804,12 @@ function ModuloActaVO({ obra, onSave }) {
                             guardarVO({ ...vo, equipo: vo.equipo.map(r => (r.grupo||'') === g ? { ...r, grupo: nouGrup } : r) });
                           }}
                           style={{ flex: 1, fontSize: 10, fontWeight: 700, color: '#6B6B66', textTransform: 'uppercase', letterSpacing: '0.08em', background: 'transparent', border: 'none', padding: 0, boxShadow: 'none' }}
-                          placeholder="Nom del grup"
+                          placeholder="Nombre del grupo"
                         />
                         <button
                           onClick={() => {
                             // Afegir un nou rol buit al MATEIX grup
-                            guardarVO({ ...vo, equipo: [...vo.equipo, { id: uid(), nombre: 'NOU ROL', grupo: g, personas: [{ id: uid(), empresa: '', nombre: '', email: '', tel: '', asistio: false }] }] });
+                            guardarVO({ ...vo, equipo: [...vo.equipo, { id: uid(), nombre: 'NUEVO ROL', grupo: g, personas: [{ id: uid(), empresa: '', nombre: '', email: '', tel: '', asistio: false }] }] });
                           }}
                           title="Añadir rol a este grupo"
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#A5A5A0', fontSize: 13, lineHeight: 1 }}>+</button>
@@ -6827,8 +6827,8 @@ function ModuloActaVO({ obra, onSave }) {
 
       {/* Quins rols signen aquesta obra — no totes tenen els mateixos signants */}
       <div style={{ border: '1px solid #E8E7E1', borderRadius: 10, padding: '12px 14px', marginBottom: 14 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: '#141412', marginBottom: 3 }}>Firmes de l'acta</div>
-        <div style={{ fontSize: 11.5, color: '#9B9B97', marginBottom: 10 }}>Tria quins rols han de signar aquesta obra concreta.</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#141412', marginBottom: 3 }}>Firmas del acta</div>
+        <div style={{ fontSize: 11.5, color: '#9B9B97', marginBottom: 10 }}>Elige qué roles deben firmar esta obra en concreto.</div>
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr', gap: 8 }}>
           {ROLES_FIRMA.map(r => {
             const actiu = (vo.firmasSeleccionadas||[]).includes(r.id);
@@ -6863,7 +6863,7 @@ function ModuloActaVO({ obra, onSave }) {
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12, padding: '8px 12px', background: '#FEF3DB', borderRadius: 9, fontSize: 12.5, color: '#7C4A00' }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#D48A0C', flexShrink: 0 }} />
-            <strong>{totalPend}</strong> tema{totalPend !== 1 ? 's' : ''} pendent{totalPend !== 1 ? 's' : ''} de resoldre
+            <strong>{totalPend}</strong> tema{totalPend !== 1 ? 's' : ''} pendiente{totalPend !== 1 ? 's' : ''} de resolver
           </div>
         );
       })()}
@@ -6881,10 +6881,10 @@ function ModuloActaVO({ obra, onSave }) {
               <input
                 value={ub.nom||''}
                 onChange={e => updUbicacio(ub.id, 'nom', e.target.value)}
-                placeholder="Nom de la ubicació (p.ex. Façana Sud, Coberta, PB...)..."
+                placeholder="Nombre de la ubicación (p.ej. Fachada Sur, Cubierta, PB...)..."
                 style={{ flex: 1, fontSize: 12, fontWeight: 500 }}
               />
-              <button onClick={() => setConfirmacion({ titulo: 'Eliminar ubicació', texto: `Vas a eliminar la ubicació "${ub.nom||'sense nom'}" i totes les seves fotos.`, onSi: () => { delUbicacio(ub.id); setConfirmacion(null); } })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 16, lineHeight: 1 }}>×</button>
+              <button onClick={() => setConfirmacion({ titulo: 'Eliminar ubicación', texto: `Vas a eliminar la ubicación "${ub.nom||'sin nombre'}" y todas sus fotos.`, onSi: () => { delUbicacio(ub.id); setConfirmacion(null); } })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 16, lineHeight: 1 }}>×</button>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {(ub.fotos||[]).map(f => (
@@ -6898,7 +6898,7 @@ function ModuloActaVO({ obra, onSave }) {
             </div>
           </div>
         ))}
-        <button onClick={addUbicacio} style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1.5px dashed #E0DFD9', background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#6B6B66', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, marginTop: 4 }}>+ Afegir ubicació</button>
+        <button onClick={addUbicacio} style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1.5px dashed #E0DFD9', background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#6B6B66', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, marginTop: 4 }}>+ Añadir ubicación</button>
       </div>
       </>
       )}
@@ -6909,13 +6909,13 @@ function ModuloActaVO({ obra, onSave }) {
       <div style={{ marginBottom: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: '#8A8A85' }}>B</span>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#141412' }}>Treballs en curs</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#141412' }}>Trabajos en curso</span>
         </div>
         {(vo.trabajosEnCurso||[]).map((tr, i) => (
           <div key={tr.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
             <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, color: '#BFBEB9', flexShrink: 0, minWidth: 26 }}>B.{i+1}</span>
             <input value={tr.descripcion||''} onChange={e => updTrabajo(tr.id, 'descripcion', e.target.value)}
-              placeholder="Descripció del treball..." style={{ flex: 1, fontSize: 12.5 }} />
+              placeholder="Descripción del trabajo..." style={{ flex: 1, fontSize: 12.5 }} />
             <input value={tr.porcentaje||''} onChange={e => updTrabajo(tr.id, 'porcentaje', e.target.value.replace(/[^0-9]/g,''))}
               placeholder="%" style={{ width: 52, fontSize: 12.5, textAlign: 'center', flexShrink: 0 }} />
             <button onClick={() => delTrabajo(tr.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#D4D3CE', fontSize:15, lineHeight:1, flexShrink:0 }}>×</button>
@@ -6923,7 +6923,7 @@ function ModuloActaVO({ obra, onSave }) {
         ))}
         <button onClick={addTrabajo}
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%', padding: '7px', borderRadius: 8, border: '1.5px dashed #E0DFD9', background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#8A8A85' }}>
-          <span style={{ fontSize: 14, lineHeight: 1, color: '#C5C4BE' }}>+</span> Afegir treball en curs
+          <span style={{ fontSize: 14, lineHeight: 1, color: '#C5C4BE' }}>+</span> Añadir trabajo en curso
         </button>
       </div>
 
@@ -6931,27 +6931,27 @@ function ModuloActaVO({ obra, onSave }) {
       <div style={{ marginBottom: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: '#8A8A85' }}>6</span>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#141412' }}>Seguiment fites contractuals</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#141412' }}>Seguimiento hitos contractuales</span>
         </div>
-        {[['esenciales','Terminis essencials'],['intermedios','Terminis intermedis']].map(([grupo, label]) => (
+        {[['esenciales','Plazos esenciales'],['intermedios','Plazos intermedios']].map(([grupo, label]) => (
           <div key={grupo} style={{ marginBottom: 10 }}>
             <div style={{ fontSize: 10.5, fontWeight: 700, color: '#9B9B97', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 5 }}>{label}</div>
             {((vo.hitos||{})[grupo]||[]).map((h, i) => (
               <div key={h.id} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 5, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
                 <input value={h.descripcion||''} onChange={e => updHito(grupo, h.id, 'descripcion', e.target.value)}
-                  placeholder="Descripció del hito..." style={{ flex: 1, minWidth: isMobile?'100%':120, fontSize: 12.5 }} />
+                  placeholder="Descripción del hito..." style={{ flex: 1, minWidth: isMobile?'100%':120, fontSize: 12.5 }} />
                 <input type="date" value={h.fechaPlanning||''} onChange={e => updHito(grupo, h.id, 'fechaPlanning', e.target.value)}
                   title="Planning contractual" style={{ width: isMobile?'31%':110, fontSize: 11.5, flexShrink: 0 }} />
                 <input type="date" value={h.fechaPrevista||''} onChange={e => updHito(grupo, h.id, 'fechaPrevista', e.target.value)}
-                  title="Data prevista" style={{ width: isMobile?'31%':110, fontSize: 11.5, flexShrink: 0 }} />
+                  title="Fecha prevista" style={{ width: isMobile?'31%':110, fontSize: 11.5, flexShrink: 0 }} />
                 <input type="date" value={h.fechaReal||''} onChange={e => updHito(grupo, h.id, 'fechaReal', e.target.value)}
-                  title="Data real" style={{ width: isMobile?'31%':110, fontSize: 11.5, flexShrink: 0 }} />
+                  title="Fecha real" style={{ width: isMobile?'31%':110, fontSize: 11.5, flexShrink: 0 }} />
                 <button onClick={() => delHito(grupo, h.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#D4D3CE', fontSize:15, lineHeight:1, flexShrink:0 }}>×</button>
               </div>
             ))}
             <button onClick={() => addHito(grupo)}
               style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 9px', borderRadius: 7, border: '1.5px dashed #E5E4DF', background: 'transparent', cursor: 'pointer', fontSize: 11.5, color: '#9B9B97' }}>
-              <span style={{ fontSize: 13, lineHeight: 1, color: '#C5C4BE' }}>+</span> Afegir hito
+              <span style={{ fontSize: 13, lineHeight: 1, color: '#C5C4BE' }}>+</span> Añadir hito
             </button>
           </div>
         ))}
@@ -6961,7 +6961,7 @@ function ModuloActaVO({ obra, onSave }) {
       <div style={{ marginBottom: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: '#8A8A85' }}>7</span>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#141412' }}>Seguiment contractacions</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#141412' }}>Seguimiento contrataciones</span>
         </div>
         {(vo.contrataciones||[]).map((c, i) => (
           <div key={c.id} style={{ background: '#FAFAF8', borderRadius: 9, padding: 9, marginBottom: 6 }}>
@@ -6973,16 +6973,16 @@ function ModuloActaVO({ obra, onSave }) {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', gap: 6 }}>
               <input value={c.nif||''} onChange={e => updContratacion(c.id, 'nif', e.target.value)} placeholder="NIF" style={{ fontSize: 11.5 }} />
-              <input value={c.actividad||''} onChange={e => updContratacion(c.id, 'actividad', e.target.value)} placeholder="Activitat" style={{ fontSize: 11.5 }} />
-              <input value={c.contacto||''} onChange={e => updContratacion(c.id, 'contacto', e.target.value)} placeholder="Contacte" style={{ fontSize: 11.5 }} />
-              <input value={c.telefono||''} onChange={e => updContratacion(c.id, 'telefono', e.target.value)} placeholder="Telèfon" style={{ fontSize: 11.5 }} />
-              <input value={c.correo||''} onChange={e => updContratacion(c.id, 'correo', e.target.value)} placeholder="Correu" style={{ fontSize: 11.5 }} />
+              <input value={c.actividad||''} onChange={e => updContratacion(c.id, 'actividad', e.target.value)} placeholder="Actividad" style={{ fontSize: 11.5 }} />
+              <input value={c.contacto||''} onChange={e => updContratacion(c.id, 'contacto', e.target.value)} placeholder="Contacto" style={{ fontSize: 11.5 }} />
+              <input value={c.telefono||''} onChange={e => updContratacion(c.id, 'telefono', e.target.value)} placeholder="Teléfono" style={{ fontSize: 11.5 }} />
+              <input value={c.correo||''} onChange={e => updContratacion(c.id, 'correo', e.target.value)} placeholder="Correo" style={{ fontSize: 11.5 }} />
             </div>
           </div>
         ))}
         <button onClick={addContratacion}
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%', padding: '7px', borderRadius: 8, border: '1.5px dashed #E0DFD9', background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#8A8A85' }}>
-          <span style={{ fontSize: 14, lineHeight: 1, color: '#C5C4BE' }}>+</span> Afegir contractació
+          <span style={{ fontSize: 14, lineHeight: 1, color: '#C5C4BE' }}>+</span> Añadir contratación
         </button>
       </div>
 
@@ -6998,7 +6998,7 @@ function ModuloActaVO({ obra, onSave }) {
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
           <button onClick={() => setShowMapaClima(true)}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 11px', borderRadius: 8, border: '1px solid #E0DFD9', background: obra.climaLat !== undefined ? '#F0EFEA' : '#fff', cursor: 'pointer', fontSize: 12, color: '#52524E', fontWeight: 500 }}>
-            <Icon name="pin" size={12} /> {obra.climaLat !== undefined ? 'Ubicació marcada' : 'Marcar ubicació al mapa'}
+            <Icon name="pin" size={12} /> {obra.climaLat !== undefined ? 'Ubicación marcada' : 'Marcar ubicación en el mapa'}
           </button>
           {obra.climaLat !== undefined && (
             <span style={{ ...NUM, fontSize: 10.5, color: '#9B9B97' }}>
@@ -7007,11 +7007,11 @@ function ModuloActaVO({ obra, onSave }) {
           )}
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', background: '#FAFAF8', borderRadius: 9, padding: 8 }}>
-          <span style={{ fontSize: 11.5, color: '#6B6B66', flexShrink: 0 }}>Fins al dia</span>
+          <span style={{ fontSize: 11.5, color: '#6B6B66', flexShrink: 0 }}>Hasta el día</span>
           {/* Sempre la data de l'acta (camp de dalt) — ja no es tria per separat, veure useEffect de sincronització */}
           <span style={{ fontSize: 11.5, fontWeight: 600, color: '#141412', flexShrink: 0 }}>{fmtDate(vo.fechaActa || today())}</span>
           <Btn sm primary onClick={carregarSetmanaClima} disabled={climaCarregant}>
-            {climaCarregant ? 'Carregant…' : 'Carregar automàticament'}
+            {climaCarregant ? 'Cargando…' : 'Cargar automáticamente'}
           </Btn>
         </div>
         {climaError && <div style={{ fontSize: 11.5, color: '#8A1F1F', marginBottom: 8 }}>{climaError}</div>}
@@ -7026,11 +7026,11 @@ function ModuloActaVO({ obra, onSave }) {
         )}
 
         {(vo.clima||[]).length === 0 ? (
-          <div style={{ fontSize: 12, color: '#9B9B97', padding: '10px 0' }}>Tria una data d'inici per generar els 7 dies.</div>
+          <div style={{ fontSize: 12, color: '#9B9B97', padding: '10px 0' }}>Elige una fecha de inicio para generar los 7 días.</div>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {(vo.clima||[]).map(d => {
-              const DIA_CURT = ['Dg','Dl','Dt','Dc','Dj','Dv','Ds'];
+              const DIA_CURT = ['Do','Lu','Ma','Mi','Ju','Vi','Sá'];
               const diaLabel = d.fecha ? DIA_CURT[new Date(d.fecha + 'T12:00:00').getDay()] : '';
               const dataLabel = d.fecha ? fmtShort(d.fecha) : '';
               return (
@@ -7040,9 +7040,9 @@ function ModuloActaVO({ obra, onSave }) {
                   </div>
                   <select value={d.condicion||'soleado'} onChange={e => updDiaClima(d.id, 'condicion', e.target.value)}
                     style={{ fontSize: 11.5, marginBottom: 5 }}>
-                    <option value="soleado">☀ Assolellat</option>
-                    <option value="nublado">☁ Ennuvolat</option>
-                    <option value="lluvia">🌧 Pluja</option>
+                    <option value="soleado">☀ Soleado</option>
+                    <option value="nublado">☁ Nublado</option>
+                    <option value="lluvia">🌧 Lluvia</option>
                   </select>
                   <div style={{ display: 'flex', gap: 5 }}>
                     <input value={d.temp??''} onChange={e => updDiaClima(d.id, 'temp', e.target.value.replace(/[^0-9-]/g,''))}
@@ -7066,10 +7066,10 @@ function ModuloActaVO({ obra, onSave }) {
       <div style={{ position: 'relative', marginBottom: 14 }}>
         <Icon name="search" size={13} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: '#BFBEB9', pointerEvents: 'none' }} />
         <input value={buscarTema} onChange={e => setBuscarTema(e.target.value)}
-          placeholder="Buscar tema pel títol o número..."
+          placeholder="Buscar tema por título o número..."
           style={{ width: '100%', padding: '9px 32px', fontSize: 13.5, borderRadius: 9, border: '1px solid #E5E4DF' }} />
         {buscarTema && (
-          <button onClick={() => setBuscarTema('')} title="Netejar"
+          <button onClick={() => setBuscarTema('')} title="Limpiar"
             style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#BFBEB9', fontSize: 15, lineHeight: 1, padding: 4 }}>×</button>
         )}
       </div>
@@ -7088,7 +7088,7 @@ function ModuloActaVO({ obra, onSave }) {
           <>
             {capCoincidencia && (
               <div style={{ textAlign: 'center', padding: '22px 10px', color: '#A5A5A0', fontSize: 12.5 }}>
-                Cap tema coincideix amb "{busq}".
+                Ningún tema coincide con "{busq}".
               </div>
             )}
             {seccionsFiltrades.map(({ sec, activos, visibles }) => {
@@ -7138,7 +7138,7 @@ function ModuloActaVO({ obra, onSave }) {
           Portal a document.body: garanteix que el "fixed" és relatiu al viewport
           real i no es queda enrere en fer scroll (bug conegut d'iOS dins de contenidors amb scroll niat). */}
       {createPortal(
-        <button onClick={() => setShowQuickAdd(true)} title="Nou tema"
+        <button onClick={() => setShowQuickAdd(true)} title="Nuevo tema"
           style={{ position: 'fixed', right: isMobile ? 16 : 28, bottom: isMobile ? 'calc(74px + env(safe-area-inset-bottom))' : 24, zIndex: 9990, width: 52, height: 52, borderRadius: '50%', background: '#18180F', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 26, lineHeight: 1, boxShadow: '0 6px 20px rgba(0,0,0,.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           +
         </button>,
@@ -7202,7 +7202,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
 
   const ult = t.entradas[t.entradas.length - 1] || { texto: '', nueva: false, estado: 'P' };
   const ultEsNueva = !!ult.nueva;
-  const tituloDisplay = t.titulo || ult.texto || 'Sense títol';
+  const tituloDisplay = t.titulo || ult.texto || 'Sin título';
   const NUM = { fontVariantNumeric: 'tabular-nums', letterSpacing: '0.01em' };
 
   // Marca en groc el fragment del títol que coincideix amb la cerca activa
@@ -7252,7 +7252,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
           )}
 
           {ultEsNueva
-            ? <Pill label="Nova" bg="#F2F1ED" color="#52524E" />
+            ? <Pill label="Nueva" bg="#F2F1ED" color="#52524E" />
             : <Pill label={est.label} bg={est.bg} color={est.color} />}
           <Icon name="chevronRight" size={11} style={{ color: '#C4C3BE', flexShrink: 0, transition: 'transform .2s', transform: abierto ? 'rotate(90deg)' : 'none' }} />
         </div>
@@ -7294,10 +7294,10 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
                     {/* Franja de metadades */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 5 }}>
                       <input type="date" value={en.fecha||''} onChange={ev => onUpdEntrada(t.id, en.id, 'fecha', ev.target.value)}
-                        title="Data d'aquest seguiment"
+                        title="Fecha de este seguimiento"
                         style={{ ...NUM, width: 'auto', fontSize: 11, color: '#52524E', fontWeight: 500, padding: '2px 5px', borderRadius: 5, border: '1px solid #E5E4DF' }} />
                       <button onClick={() => onUpdEntrada(t.id, en.id, 'nueva', !esNueva)}
-                        title={esNueva ? 'Marcat com a Nova — clica per desmarcar' : 'Marcar com a Nova (sortirà en blanc i negreta al PDF)'}
+                        title={esNueva ? 'Marcado como Nueva — haz clic para desmarcar' : 'Marcar como Nueva (saldrá en blanco y negrita en el PDF)'}
                         style={{ fontSize: 9.5, padding: '1px 6px', borderRadius: 4, cursor: 'pointer',
                           border: `1px solid ${esNueva ? '#6B6B66' : '#E5E4DF'}`,
                           background: esNueva ? '#F2F1ED' : '#fff',
@@ -7316,24 +7316,24 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
                       {/* Responsables: només els triats + botó per obrir */}
                       {resps.map(r => (
                         <span key={r} onClick={() => onUpdEntrada(t.id, en.id, 'resp', resps.filter(x => x !== r))}
-                          title="Treure responsable"
+                          title="Quitar responsable"
                           style={{ ...NUM, fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: '#1C1C1A', color: '#fff', cursor: 'pointer', letterSpacing: '.03em' }}>{r}</span>
                       ))}
                       <button onClick={() => setOpenResp(openResp === en.id ? null : en.id)}
-                        title="Assignar responsable"
+                        title="Asignar responsable"
                         style={{ fontSize: 10, padding: '2px 7px', borderRadius: 4, border: '1px dashed #DEDDD8', background: 'transparent', color: '#9B9B97', cursor: 'pointer' }}>
                         {resps.length ? '+' : '+ resp'}
                       </button>
                       <button onClick={() => onUpdEntrada(t.id, en.id, 'oculta', !oculta)}
-                        title={oculta ? 'Ocult al PDF — clica per tornar a mostrar' : 'Ocultar aquest seguiment al PDF'}
+                        title={oculta ? 'Oculto en el PDF — haz clic para volver a mostrarlo' : 'Ocultar este seguimiento en el PDF'}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: oculta ? '#B8860B' : '#C4C3BE', padding: '2px 4px', display: 'inline-flex' }}>
                         <Icon name={oculta ? 'eyeOff' : 'eye'} size={13} />
                       </button>
 
                       <span style={{ marginLeft: 'auto', display: 'flex', gap: 2, flexShrink: 0 }}>
-                        <button onClick={() => { setEditEnt(en.id); const draft = llegirEsborrany(`voEntText:${en.id}`); setTxtEdit(draft !== null ? draft : en.texto); }} title="Editar text"
+                        <button onClick={() => { setEditEnt(en.id); const draft = llegirEsborrany(`voEntText:${en.id}`); setTxtEdit(draft !== null ? draft : en.texto); }} title="Editar texto"
                           style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C3BE', padding:'2px 4px', display: 'inline-flex' }}>✏️</button>
-                        <button onClick={() => onDelEntrada(t.id, en.id)} title="Eliminar seguiment"
+                        <button onClick={() => onDelEntrada(t.id, en.id)} title="Eliminar seguimiento"
                           style={{ background:'none', border:'none', cursor:'pointer', color:'#D4D3CE', fontSize:15, lineHeight:1, padding:'0 3px' }}>×</button>
                       </span>
                     </div>
@@ -7358,13 +7358,13 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
                         <textarea autoFocus value={txtEdit} onChange={ev => { setTxtEdit(ev.target.value); desarEsborrany(`voEntText:${en.id}`, ev.target.value); }}
                           style={{ minHeight: isMobile ? 120 : 96, fontSize: 13, lineHeight: 1.65, resize: 'vertical', marginBottom: 7 }} />
                         <div style={{ display: 'flex', gap: 6 }}>
-                          <Btn sm primary onClick={() => { onUpdEntrada(t.id, en.id, 'texto', txtEdit.trim()); esborrarEsborrany(`voEntText:${en.id}`); setEditEnt(null); }}>Desar</Btn>
-                          <Btn sm onClick={() => setEditEnt(null)}>Cancel·lar</Btn>
+                          <Btn sm primary onClick={() => { onUpdEntrada(t.id, en.id, 'texto', txtEdit.trim()); esborrarEsborrany(`voEntText:${en.id}`); setEditEnt(null); }}>Guardar</Btn>
+                          <Btn sm onClick={() => setEditEnt(null)}>Cancelar</Btn>
                         </div>
                       </div>
                     ) : (
                       <div style={{ fontSize: 13, color: '#18180F', lineHeight: 1.65, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                        {en.texto || <span style={{ color: '#C5C4BE', fontStyle: 'italic' }}>Sense text</span>}
+                        {en.texto || <span style={{ color: '#C5C4BE', fontStyle: 'italic' }}>Sin texto</span>}
                       </div>
                     )}
 
@@ -7394,15 +7394,15 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
             <button onClick={() => setShowAdmin(v => !v)}
               style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 6, padding: '8px 13px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#A5A5A0' }}>
               <Icon name="chevronRight" size={9} style={{ transition: 'transform .2s', transform: showAdmin ? 'rotate(90deg)' : 'none' }} />
-              Numeració, ordre i secció
+              Numeración, orden y sección
             </button>
             {showAdmin && (
               <div className="fade" style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', padding: '0 13px 11px' }}>
                 <input value={t.num} onChange={e => onUpdTema(t.id, 'num', e.target.value)}
                   style={{ ...NUM, width: 62, fontSize: 12, padding: '4px 7px', fontWeight: 600 }} />
-                <button onClick={() => onReordenar(-1)} title="Pujar"
+                <button onClick={() => onReordenar(-1)} title="Subir"
                   style={{ border:'1px solid #E5E4DF', borderRadius:6, background:'#fff', cursor:'pointer', color:'#6B6B66', fontSize:12, padding:'4px 9px' }}>↑</button>
-                <button onClick={() => onReordenar(1)} title="Baixar"
+                <button onClick={() => onReordenar(1)} title="Bajar"
                   style={{ border:'1px solid #E5E4DF', borderRadius:6, background:'#fff', cursor:'pointer', color:'#6B6B66', fontSize:12, padding:'4px 9px' }}>↓</button>
                 {secciones && secciones.length > 1 && (
                   <select value={secId} onChange={e => onMover(e.target.value)}
@@ -7416,7 +7416,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
           </div>
         </div>
       )}
-      {confirmFoto && <ConfirmMini titulo="Eliminar foto" texto="Vas a eliminar aquesta foto del seguiment." onSi={() => { onDelFoto(t.id, confirmFoto.eId, confirmFoto.fId); setConfirmFoto(null); }} onNo={() => setConfirmFoto(null)} />}
+      {confirmFoto && <ConfirmMini titulo="Eliminar foto" texto="Vas a eliminar esta foto del seguimiento." onSi={() => { onDelFoto(t.id, confirmFoto.eId, confirmFoto.fId); setConfirmFoto(null); }} onNo={() => setConfirmFoto(null)} />}
     </div>
   );
 }
@@ -7443,34 +7443,34 @@ function QuickAddTema({ secciones, obraId, fechaDefault, onAdd, onCancel }) {
   function treureFoto(id) { setFotos(prev => prev.filter(f => f.id !== id)); }
 
   return (
-    <Modal title="Nou tema" onClose={onCancel} footer={
+    <Modal title="Nuevo tema" onClose={onCancel} footer={
       <>
-        <Btn onClick={onCancel}>Cancel·lar</Btn>
-        <Btn primary disabled={!titulo.trim()} onClick={() => { onAdd(secId, { titulo: titulo.trim(), texto: texto.trim(), estado, resp, fotos, fecha, nueva: esNueva }); clearTitulo(); clearTexto(); }}>Afegir tema</Btn>
+        <Btn onClick={onCancel}>Cancelar</Btn>
+        <Btn primary disabled={!titulo.trim()} onClick={() => { onAdd(secId, { titulo: titulo.trim(), texto: texto.trim(), estado, resp, fotos, fecha, nueva: esNueva }); clearTitulo(); clearTexto(); }}>Añadir tema</Btn>
       </>
     }>
-      <Field label="Secció">
+      <Field label="Sección">
         <select value={secId} onChange={e => setSecId(e.target.value)}>
           {secciones.map(s => <option key={s.id} value={s.id}>{s.codigo} · {s.titulo}</option>)}
         </select>
       </Field>
 
-      <Field label="Títol del tema">
+      <Field label="Título del tema">
         <input autoFocus={!isMobile} value={titulo} onChange={e => setTitulo(e.target.value)}
-          placeholder="P. ex. Replanteig escales" style={{ fontWeight: 600, fontSize: 14 }} />
+          placeholder="P. ej. Replanteo escaleras" style={{ fontWeight: 600, fontSize: 14 }} />
       </Field>
 
-      <Field label="Descripció / primer seguiment">
+      <Field label="Descripción / primer seguimiento">
         <textarea value={texto} onChange={e => setTexto(e.target.value)}
-          placeholder="Què s'ha observat..." style={{ minHeight: isMobile ? 100 : 80, fontSize: 13, lineHeight: 1.6, resize: 'vertical' }} />
+          placeholder="Qué se ha observado..." style={{ minHeight: isMobile ? 100 : 80, fontSize: 13, lineHeight: 1.6, resize: 'vertical' }} />
       </Field>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 13 }}>
         <input type="date" value={fecha||''} onChange={e => setFecha(e.target.value)}
-          title="Data d'aquest seguiment"
+          title="Fecha de este seguimiento"
           style={{ width: 'auto', fontSize: 11, color: '#52524E', fontWeight: 500, padding: '2px 5px', borderRadius: 5, border: '1px solid #E5E4DF' }} />
         <button onClick={() => setEsNueva(v => !v)}
-          title={esNueva ? 'Marcat com a Nova — clica per desmarcar' : 'Marcar com a Nova (sortirà en blanc i negreta al PDF)'}
+          title={esNueva ? 'Marcado como Nueva — haz clic para desmarcar' : 'Marcar como Nueva (saldrá en blanco y negrita en el PDF)'}
           style={{ fontSize: 9.5, padding: '1px 6px', borderRadius: 4, cursor: 'pointer',
             border: `1px solid ${esNueva ? '#6B6B66' : '#E5E4DF'}`,
             background: esNueva ? '#F2F1ED' : '#fff',
@@ -7481,7 +7481,7 @@ function QuickAddTema({ secciones, obraId, fechaDefault, onAdd, onCancel }) {
 
       <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 14 : 10, marginBottom: 13 }}>
         <div style={{ flex: 1, minWidth: isMobile ? '100%' : 140 }}>
-          <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#52524E', marginBottom: 5 }}>Estat</label>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#52524E', marginBottom: 5 }}>Estado</label>
           <div style={{ display: 'flex', gap: 5 }}>
             {Object.entries(ESTADOS_VO).map(([k, v]) => (
               <button key={k} onClick={() => setEstado(k)}
@@ -7542,7 +7542,7 @@ function NuevaEntrada({ onAdd, draftKey }) {
     <button onClick={() => setOpen(true)}
       style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', marginBottom: 12, padding: '9px 11px', fontSize: 12.5, color: '#6B6B66', background: '#FAFAF8', border: '1.5px dashed #E5E4DF', borderRadius: 8, cursor: 'pointer' }}>
       <span style={{ fontSize: 14, color: '#C5C4BE', lineHeight: 1 }}>+</span>
-      Afegir seguiment d'aquesta visita
+      Añadir seguimiento de esta visita
     </button>
   );
   return (
@@ -7550,11 +7550,11 @@ function NuevaEntrada({ onAdd, draftKey }) {
       <div style={{ width: 3, borderRadius: 2, background: '#D8D7D1', flexShrink: 0 }} />
       <div style={{ flex: 1 }}>
         <textarea autoFocus value={txt} onChange={e => setTxt(e.target.value)}
-          placeholder="Què s'ha tractat en aquesta visita…"
+          placeholder="Qué se ha tratado en esta visita…"
           style={{ minHeight: isMobile ? 120 : 96, fontSize: 13, lineHeight: 1.65, resize: 'vertical', marginBottom: 7 }} />
         <div style={{ display: 'flex', gap: 6 }}>
-          <Btn sm primary disabled={!txt.trim()} onClick={() => { onAdd(txt); clearTxt(); setOpen(false); }}>Afegir seguiment</Btn>
-          <Btn sm onClick={() => { clearTxt(); setOpen(false); }}>Cancel·lar</Btn>
+          <Btn sm primary disabled={!txt.trim()} onClick={() => { onAdd(txt); clearTxt(); setOpen(false); }}>Añadir seguimiento</Btn>
+          <Btn sm onClick={() => { clearTxt(); setOpen(false); }}>Cancelar</Btn>
         </div>
       </div>
     </div>
@@ -10412,11 +10412,11 @@ export default function App() {
     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
       background: '#1C1C1A', color: '#fff', padding: '10px 18px',
       display: 'flex', alignItems: 'center', gap: 12, fontSize: 13 }}>
-      <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 7 }}><Icon name="refresh" size={14} /> Nova versió de PLAAT disponible</span>
+      <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 7 }}><Icon name="refresh" size={14} /> Nueva versión de PLAAT disponible</span>
       <button onClick={() => { setNewVersion(false); window.location.reload(); }}
         style={{ background: '#fff', color: '#1C1C1A', border: 'none', borderRadius: 8,
           padding: '5px 14px', fontWeight: 600, cursor: 'pointer', fontSize: 12 }}>
-        Actualitzar ara
+        Actualizar ahora
       </button>
       <button onClick={() => setNewVersion(false)}
         style={{ background: 'none', border: 'none', color: '#A5A5A0', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
@@ -10444,15 +10444,15 @@ export default function App() {
         }} />
         <span style={{ flex: 1 }}>
           {offline
-            ? <>Sense connexió — pots seguir treballant. {pendents > 0 && <strong>{pendents} canvi{pendents > 1 ? 's' : ''} en cua.</strong>}</>
+            ? <>Sin conexión — puedes seguir trabajando. {pendents > 0 && <strong>{pendents} cambio{pendents > 1 ? 's' : ''} en cola.</strong>}</>
             : sincronitzant
-              ? <>Sincronitzant {pendents} canvi{pendents > 1 ? 's' : ''}…</>
-              : <><strong>{pendents} canvi{pendents > 1 ? 's' : ''}</strong> pendent{pendents > 1 ? 's' : ''} de pujar.</>}
+              ? <>Sincronizando {pendents} cambio{pendents > 1 ? 's' : ''}…</>
+              : <><strong>{pendents} cambio{pendents > 1 ? 's' : ''}</strong> pendiente{pendents > 1 ? 's' : ''} de subir.</>}
         </span>
         {online && !sincronitzant && pendents > 0 && (
           <button onClick={() => window.db?.sincronitzarAra?.()}
             style={{ background: '#7C4A00', color: '#FFF6D7', border: 'none', borderRadius: 7, padding: '4px 12px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
-            Sincronitzar
+            Sincronizar
           </button>
         )}
       </div>
