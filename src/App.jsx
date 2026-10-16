@@ -426,6 +426,8 @@ const ICON_PATHS = {
   camera: '<path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"/><circle cx="12" cy="13" r="3"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+  eyeOff: '<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>',
 };
 
 function Icon({ name, size = 15, strokeWidth = 1.75, style, className, ...rest }) {
@@ -7294,8 +7296,10 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
               const e = ESTADOS_VO[en.estado] || est;
               const editant = editEnt === en.id;
 
+              const oculta = !!en.oculta;
+
               return (
-                <div key={en.id} style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+                <div key={en.id} style={{ display: 'flex', gap: 10, marginBottom: 14, opacity: oculta ? .45 : 1 }}>
                   {/* Rail d'estat — mateix color que el PDF */}
                   <div style={{ width: 3, borderRadius: 2, background: esNueva ? '#D8D7D1' : e.color, opacity: esNueva ? 1 : .45, flexShrink: 0 }} />
 
@@ -7332,6 +7336,11 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
                         title="Assignar responsable"
                         style={{ fontSize: 10, padding: '2px 7px', borderRadius: 4, border: '1px dashed #DEDDD8', background: 'transparent', color: '#9B9B97', cursor: 'pointer' }}>
                         {resps.length ? '+' : '+ resp'}
+                      </button>
+                      <button onClick={() => onUpdEntrada(t.id, en.id, 'oculta', !oculta)}
+                        title={oculta ? 'Ocult al PDF — clica per tornar a mostrar' : 'Ocultar aquest seguiment al PDF'}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: oculta ? '#B8860B' : '#C4C3BE', padding: '2px 4px', display: 'inline-flex' }}>
+                        <Icon name={oculta ? 'eyeOff' : 'eye'} size={13} />
                       </button>
 
                       <span style={{ marginLeft: 'auto', display: 'flex', gap: 2, flexShrink: 0 }}>
@@ -8570,7 +8579,7 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
     let altPrimerTema = 12; // mínim
     if (primerTema) {
       const lhCalc = 8.5*0.3528+0.6;
-      (primerTema.entradas||[]).forEach((en, pi2) => {
+      (primerTema.entradas||[]).filter(en => !en.oculta).forEach((en, pi2) => {
         const ls = doc.splitTextToSize(en.texto||'', cDesc-3);
         const tOff = (pi2===0 && primerTema.titulo) ? lhCalc+2 : 0;
         const fots = (en.fotos||[]);
@@ -8603,7 +8612,8 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
 
     actius.forEach((t, tIdx) => {
       const fW3=(cDesc-5)/2;
-      const entradesOrdenades = t.entradas || [];
+      // Els seguiments marcats com a ocults no surten al PDF (però es mantenen a l'app)
+      const entradesOrdenades = (t.entradas || []).filter(en => !en.oculta);
       const esNuevoTema = entradesOrdenades.length === 1 && !!entradesOrdenades[0]?.nueva;
       const ultima = entradesOrdenades[entradesOrdenades.length - 1] || {};
       // Estat mostrat: 'N' NOMÉS si el tema és totalment nou (una única entrada, d'aquesta acta)
