@@ -560,6 +560,7 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const markersRef = useRef({});
+  const interactuat = useRef(false); // true en el moment que l'usuari toca el mapa — a partir d'aquí mai se li torna a moure la càmera sol
   const [cargando, setCargando] = useState(true);
   const [errorMapa, setErrorMapa] = useState('');
   const [obraSel, setObraSel] = useState(null);
@@ -595,6 +596,13 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
     return { lat: 41.3874 + Math.sin(ang) * r, lon: 2.1686 + Math.cos(ang) * r };
   }
 
+  // Abans es cridava map.easeTo() un cop PER OBRA mentre es col·locaven (per anar ensenyant
+  // zoom progressivament). El problema: geocodificar respecta 1 petició/segon, així que amb
+  // obres sense coordenades ja desades el bucle trigava segons sencers — i cada iteració
+  // tornava a robar la càmera a l'usuari si mentrestant havia fet zoom o arrossegat, donant
+  // la sensació de "s'obre en un lloc random" / "els pins es mouen soles" / "tot es desordena".
+  // Ara: NOMÉS es mou la càmera un cop, al final (fitBounds), i només si l'usuari encara no
+  // ha tocat el mapa — mai se li roba el control un cop ha començat a interactuar.
   async function colocarMarcadores(map) {
     const maplibregl = window.maplibregl;
     const bounds = new maplibregl.LngLatBounds();
@@ -624,13 +632,14 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
         .setLngLat([coords.lon, coords.lat]).addTo(map);
       markersRef.current[obra.id] = marker;
       setProgreso(p => ({ ...p, hecho: p.hecho + 1 }));
-      // Ajusta la càmera progressivament — no cal esperar que acabin totes per veure-hi res.
-      // fitBounds sol podia deixar el zoom molt baix si les obres estan disperses, i per sota
-      // de zoom 14 els edificis 3D de l'estil no es dibuixen (es veu pla, "sense 3D"). Forcem
-      // un zoom mínim perquè sempre es vegin els edificis, encara que això deixi alguna obra
-      // llunyana fora de quadre (es pot buscar manualment fent zoom out).
-      const cam = map.cameraForBounds(bounds, { padding: 90, maxZoom: 16 });
-      if (cam) map.easeTo({ center: cam.center, zoom: Math.max(cam.zoom, 15), duration: 900 });
+    }
+
+    // Un sol ajust final de càmera, amb TOTES les obres ja col·locades — mai un per obra.
+    // Si les obres estan molt disperses el zoom pot quedar per sota de 14 (sense edificis 3D
+    // extruïts), però és preferible a forçar un zoom que deixi obres fora de quadre o que
+    // "robi" la càmera repetidament mentre encara s'estan col·locant els pins.
+    if (!interactuat.current && !bounds.isEmpty()) {
+      map.fitBounds(bounds, { padding: 90, maxZoom: 16, pitch: 58, bearing: -14, duration: 1200 });
     }
   }
 
@@ -662,6 +671,13 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
       });
       map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
       mapInstance.current = map;
+
+      // Marca que l'usuari ha pres el control de la càmera — `originalEvent` només hi és
+      // quan el moviment ve d'un gest real (ratolí/dit), no de les nostres pròpies
+      // crides flyTo/easeTo/fitBounds — així no ens confonem amb el nostre propi moviment.
+      ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart'].forEach(ev => {
+        map.on(ev, e => { if (e?.originalEvent) interactuat.current = true; });
+      });
 
       map.on('load', () => {
         if (cancelat) return;
