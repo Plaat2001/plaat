@@ -113,8 +113,8 @@ textarea { resize: vertical; min-height: 72px; line-height: 1.5; }
   .fade, .list-in > *, .modal-in, .sheet-in, .modal-overlay { animation: none !important; }
   .obra-card:active, .tap:active { transform: none !important; }
   .auro, .login-card, .login-logo, .login-row, .stat-card, .shimmer-btn::after,
-  .arch-grid, .arch-shape, .arch-dash, .scan, .splash-logo, .splash-sub, .splash-bar,
-  .spl-ring, .spl-blueprint, .spl-draw, .spl-beam, .spl-flash, .spl-particle,
+  .arch-grid, .arch-shape, .arch-dash, .scan, .spl-logo-wrap, .spl-logo-shine, .splash-sub, .splash-bar,
+  .spl-particle,
   .dash-banner .arch-grid, .dash-banner-ring, .dash-beam, .dash-title { animation: none !important; }
 }
 
@@ -193,7 +193,8 @@ textarea { resize: vertical; min-height: 72px; line-height: 1.5; }
 @keyframes gridPan { 0%{transform:translate(0,0);} 100%{transform:translate(56px,56px);} }
 @keyframes pulseGlow { 0%,100%{opacity:.4;} 50%{opacity:.9;} }
 @keyframes scanLine { 0%{transform:translateY(-100%);} 100%{transform:translateY(2000%);} }
-@keyframes splashLogo { 0%{opacity:0;transform:scale(.8) translateY(20px);letter-spacing:.5em;} 55%{opacity:1;letter-spacing:.1em;} 100%{opacity:1;transform:scale(1) translateY(0);letter-spacing:.12em;} }
+@keyframes splLogoIn  { 0%{opacity:0;transform:scale(.82) translateY(14px);} 100%{opacity:1;transform:scale(1) translateY(0);} }
+@keyframes splLogoShine { 0%{background-position:-150% 0;} 100%{background-position:150% 0;} }
 @keyframes splashSub  { 0%{opacity:0;transform:translateY(14px);} 100%{opacity:.85;transform:none;} }
 @keyframes splashOut  { 0%{opacity:1;} 100%{opacity:0;visibility:hidden;} }
 @keyframes barGrow { from{width:0;} to{width:120px;} }
@@ -218,44 +219,30 @@ textarea { resize: vertical; min-height: 72px; line-height: 1.5; }
 .scan { position:absolute; left:0; right:0; height:1px; background:linear-gradient(90deg, transparent, rgba(138,168,138,0.5), transparent); animation: scanLine 7s linear infinite; }
 
 /* Splash de bienvenida */
-.splash-wrap { position: fixed; inset: 0; z-index: 99998; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(circle at 50% 35%, #232320 0%, #1A1A18 60%, #141412 100%); overflow: hidden; }
-.splash-wrap.out { animation: splashOut .7s cubic-bezier(.4,0,.2,1) .05s forwards; }
-.splash-logo { font-size: 56px; font-weight: 700; color: #F2F1ED; animation: splashLogo 1.1s cubic-bezier(.2,.8,.2,1) both; display:flex; align-items:baseline; justify-content:center; gap:12px; text-shadow: 0 4px 40px rgba(138,168,138,0.30); }
-.splash-sub  { font-size: 12px; letter-spacing: .26em; color: rgba(255,255,255,0.6); margin-top: 18px; animation: splashSub .7s ease .9s both; }
-.splash-bar  { height: 3px; background: linear-gradient(90deg, transparent, #5A7D5A, #8AA88A, #5A7D5A, transparent); border-radius: 2px; margin-top: 24px; animation: barGrow 1.4s cubic-bezier(.2,.8,.2,1) .4s both, barPulse 2s ease-in-out 1.6s infinite; }
+.splash-wrap { position: fixed; inset: 0; z-index: 99998; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0E0E0C; overflow: hidden; }
+.splash-wrap.out { animation: splashOut .5s cubic-bezier(.4,0,.2,1) forwards; }
+/* Logo central: entra amb un fade+scale i després un brillo el recorre un cop, retallat a la seva pròpia forma via mask-image */
+.spl-logo-wrap { position: relative; display: inline-block; animation: splLogoIn .7s cubic-bezier(.2,.8,.2,1) both; filter: drop-shadow(0 4px 40px rgba(138,168,138,0.35)); }
+.spl-logo-img { height: 58px; width: auto; display: block; }
+.spl-logo-shine {
+  position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 35%, rgba(255,255,255,.95) 50%, transparent 65%);
+  background-repeat: no-repeat; background-size: 250% 100%; background-position: -150% 0;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-position: center; mask-position: center;
+  mix-blend-mode: screen;
+  animation: splLogoShine 1.1s ease-in-out .55s 1 both;
+}
+.splash-sub  { font-size: 12px; letter-spacing: .26em; color: rgba(255,255,255,0.6); margin-top: 18px; animation: splashSub .7s ease .85s both; }
+.splash-bar  { height: 3px; background: linear-gradient(90deg, transparent, #C9C9C4, #F2F1ED, #C9C9C4, transparent); border-radius: 2px; margin-top: 22px; animation: barGrow 1s cubic-bezier(.2,.8,.2,1) .5s both, barPulse 1.6s ease-in-out 1.5s infinite; }
 
-/* ── Splash espectacular ─────────────────────────────────── */
-@keyframes barPulse { 0%,100%{box-shadow:0 0 8px rgba(138,168,138,0.45);} 50%{box-shadow:0 0 22px rgba(138,168,138,0.95);} }
-@keyframes ringExpand { 0%{transform:scale(0);opacity:0;} 30%{opacity:.8;} 100%{transform:scale(3);opacity:0;} }
-@keyframes drawStroke { from{stroke-dashoffset:var(--len);} to{stroke-dashoffset:0;} }
+@keyframes barPulse { 0%,100%{box-shadow:0 0 8px rgba(255,255,255,0.35);} 50%{box-shadow:0 0 22px rgba(255,255,255,0.8);} }
 @keyframes particleRise { 0%{transform:translateY(0) scale(1);opacity:0;} 10%{opacity:1;} 90%{opacity:1;} 100%{transform:translateY(-110vh) scale(.4);opacity:0;} }
-@keyframes flashOut { 0%{opacity:0;} 92%{opacity:0;} 96%{opacity:.7;} 100%{opacity:0;} }
 @keyframes sweepBeam { 0%{transform:translateX(-60vw) rotate(12deg);opacity:0;} 20%{opacity:.5;} 80%{opacity:.5;} 100%{transform:translateX(60vw) rotate(12deg);opacity:0;} }
-@keyframes blueprintRotate { 0%{transform:rotate(0) scale(1);} 100%{transform:rotate(360deg) scale(1);} }
 @keyframes textGlitch { 0%,100%{opacity:1;} 50%{opacity:.85;} }
-@keyframes sp-pop { 0%{opacity:0;transform:scale(.5);} 60%{opacity:1;transform:scale(1.1);} 100%{opacity:1;transform:scale(1);} }
 
-/* Anillos que se expanden detrás del logo */
-.spl-ring { position:absolute; border:1.5px solid rgba(138,168,138,0.45); border-radius:50%; width:120px; height:120px; left:50%; top:50%; margin:-60px 0 0 -60px; }
-.spl-ring.r1 { animation: ringExpand 3s ease-out infinite; }
-.spl-ring.r2 { animation: ringExpand 3s ease-out .8s infinite; }
-.spl-ring.r3 { animation: ringExpand 3s ease-out 1.6s infinite; border-color: rgba(255,255,255,0.15); }
-
-/* Plano que se "dibuja" progresivamente */
-.spl-blueprint { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:520px; height:520px; opacity:.5; animation: blueprintRotate 80s linear infinite; }
-.spl-draw { stroke-dasharray: var(--len); stroke-dashoffset: var(--len); animation: drawStroke 2s cubic-bezier(.4,0,.2,1) forwards; }
-.spl-draw.d1 { --len: 1600; animation-delay:.2s; }
-.spl-draw.d2 { --len: 1200; animation-delay:.5s; }
-.spl-draw.d3 { --len: 900;  animation-delay:.8s; }
-.spl-draw.d4 { --len: 600;  animation-delay:1.1s; }
-
-/* Haz de luz que barre */
-.spl-beam { position:absolute; top:0; bottom:0; width:120px; background:linear-gradient(90deg, transparent, rgba(138,168,138,0.14), transparent); animation: sweepBeam 3.5s ease-in-out infinite; }
-
-/* Destello final antes de salir */
-.spl-flash { position:absolute; inset:0; background:radial-gradient(circle at 50% 45%, rgba(138,168,138,0.5), transparent 60%); animation: flashOut 2.6s ease forwards; pointer-events:none; }
-
-/* Partículas ascendentes */
+/* Partícules ascendents — reaprofitades a la pantalla del mapa 3D d'obres */
 .spl-particle { position:absolute; width:3px; height:3px; border-radius:50%; background:rgba(138,168,138,0.7); bottom:-10px; will-change:transform; }
 
 /* ── Banner del tablero (sutil) ───────────────────────────── */
@@ -9685,52 +9672,18 @@ const FondoArquitectonico = memo(function FondoArquitectonico() {
 
 // ─── Pantalla de bienvenida (splash al abrir) ───────────────────────────────
 function SplashScreen({ saliendo }) {
-  // Partículas ascendentes con posiciones/tiempos variados
-  const particulas = Array.from({ length: 14 }, (_, i) => ({
-    left: (i * 7 + (i % 3) * 4) % 100,
-    delay: (i % 7) * 0.4,
-    dur: 4 + (i % 5),
-    size: 2 + (i % 3),
-  }));
-
+  const logoSrc = `data:image/png;base64,${LOGO_PLAAT_BLANC_B64}`;
   return (
     <div className={`splash-wrap${saliendo ? ' out' : ''}`}>
-      <FondoArquitectonico />
-
-      {/* Haz de luz que barre */}
-      <div className="spl-beam" />
-
-      {/* Partículas ascendentes */}
-      {particulas.map((p, i) => (
-        <div key={i} className="spl-particle" style={{ left: p.left + '%', width: p.size, height: p.size, animation: `particleRise ${p.dur}s linear ${p.delay}s infinite` }} />
-      ))}
-
-      {/* Plano técnico dibujándose y rotando */}
-      <svg className="spl-blueprint" viewBox="0 0 200 200" fill="none">
-        <circle className="spl-draw d1 arch-line" cx="100" cy="100" r="80" strokeWidth="0.5" />
-        <rect className="spl-draw d2 arch-line-accent" x="55" y="55" width="90" height="90" strokeWidth="0.6" />
-        <polygon className="spl-draw d3 arch-line" points="100,30 165,140 35,140" strokeWidth="0.5" />
-        <circle className="spl-draw d4 arch-line-accent" cx="100" cy="100" r="45" strokeWidth="0.6" />
-        <line className="arch-line arch-dash" x1="20" y1="100" x2="180" y2="100" strokeWidth="0.4" />
-        <line className="arch-line arch-dash" x1="100" y1="20" x2="100" y2="180" strokeWidth="0.4" />
-      </svg>
-
-      {/* Anillos expandiéndose detrás del logo */}
-      <div className="spl-ring r1" />
-      <div className="spl-ring r2" />
-      <div className="spl-ring r3" />
-
-      {/* Logo central */}
+      {/* Logo central amb un brillo que recorre les lletres */}
       <div style={{ position: 'relative', textAlign: 'center', zIndex: 3 }}>
-        <div className="splash-logo">
-          PLAAT<span style={{ fontSize: 32, color: '#8AA88A', animation: 'sp-pop .6s ease .8s both' }}>.</span>
+        <div className="spl-logo-wrap">
+          <img src={logoSrc} alt="Plaat" className="spl-logo-img" />
+          <div className="spl-logo-shine" style={{ WebkitMaskImage: `url(${logoSrc})`, maskImage: `url(${logoSrc})` }} />
         </div>
-        <div className="splash-bar" style={{ width: 160, margin: '24px auto 0' }} />
+        <div className="splash-bar" style={{ width: 160, margin: '22px auto 0' }} />
         <div className="splash-sub">BIENVENIDO · DEO · ARQUITECTURA TÉCNICA</div>
       </div>
-
-      {/* Destello final */}
-      <div className="spl-flash" />
     </div>
   );
 }
@@ -9860,10 +9813,10 @@ export default function App() {
   const [splash,       setSplash]       = useState(true);   // pantalla de bienvenida
   const [splashOut,    setSplashOut]    = useState(false);  // fase de desvanecido
 
-  // Splash de bienvenida: visible ~3s, luego se desvanece
+  // Splash de bienvenida: dura 3s en total (2.5s fix + 0.5s de fos de sortida)
   useEffect(() => {
-    const t1 = setTimeout(() => setSplashOut(true), 2900);
-    const t2 = setTimeout(() => setSplash(false), 3600);
+    const t1 = setTimeout(() => setSplashOut(true), 2500);
+    const t2 = setTimeout(() => setSplash(false), 3000);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
   const [importando,   setImportando]   = useState(false);
