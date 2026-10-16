@@ -670,8 +670,12 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
         // Revelat dramàtic (només un cop, a l'entrar): comença pla i puja a vista inclinada.
         // NO hi ha rotació ambiental contínua després d'això — feia semblar que "els pins es
         // movien sols" quan en realitat era tot el mapa girant de fons.
+        // IMPORTANT: cal esperar que aquest flyTo acabi (moveend) abans de col·locar els
+        // marcadors — colocarMarcadores() també mou la càmera (easeTo per cada obra) i, si
+        // es crida alhora, la interromp quan encara és gairebé plana (pitch~0): el flyTo mai
+        // arriba a inclinar-se i el mapa es queda pla (2D) en lloc de 3D.
         map.flyTo({ pitch: 58, bearing: -14, zoom: 13.2, duration: 2400, curve: 1.25 });
-        colocarMarcadores(map);
+        map.once('moveend', () => { if (!cancelat) colocarMarcadores(map); });
       });
       map.on('error', e => console.error('Error de mapa:', e?.error || e));
     }
@@ -684,6 +688,7 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
     // eslint-disable-next-line
   }, []);
 
+  const isMobile = useIsMobile();
   const est = obraSel ? (ESTADOS_OBRA[obraSel.estado] || ESTADOS_OBRA.en_curso) : null;
   const accentSel = obraSel ? (STATUS_ACCENT[obraSel.estado] || STATUS_ACCENT.en_curso) : null;
 
@@ -694,6 +699,12 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
 
   const porEstado = {};
   obras.forEach(o => { porEstado[o.estado] = (porEstado[o.estado] || 0) + 1; });
+  const statsObras = [
+    { l: 'TOTAL', n: obras.length, c: '#F2F1ED' },
+    { l: 'CURSO', n: porEstado.en_curso || 0, c: STATUS_ACCENT.en_curso },
+    { l: 'ACAB.', n: porEstado.acabada || 0, c: STATUS_ACCENT.acabada },
+    { l: 'ALERTA', n: porEstado.paralizada || 0, c: STATUS_ACCENT.paralizada },
+  ];
   // Partícules ambientals — mateix patró que la pantalla de benvinguda, per coherència de marca
   const particulas = Array.from({ length: 10 }, (_, i) => ({
     left: (i * 9 + (i % 3) * 5) % 100, delay: (i % 5) * 0.6, dur: 5 + (i % 4), size: 2 + (i % 3),
@@ -730,40 +741,57 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
 
       {!cargando && !errorMapa && (
         <>
-          {/* Títol — dalt a l'esquerra */}
-          <div style={{ position: 'absolute', top: 16, left: 16, zIndex: 3, display: 'flex', alignItems: 'center', gap: 10, maxWidth: 280 }}>
-            <button onClick={onClose} title="Cerrar"
-              style={{ width: 36, height: 36, flexShrink: 0, borderRadius: '50%', border: '1px solid rgba(255,255,255,.2)', background: 'rgba(20,20,18,.75)', color: '#fff', fontSize: 18, lineHeight: 1, cursor: 'pointer', backdropFilter: 'blur(8px)' }}>×</button>
-            <div>
-              <div style={{ ...MONO, fontSize: 9.5, letterSpacing: '.16em', textTransform: 'uppercase', color: '#8AA88A' }}>Tablero · PLAAT</div>
-              <div style={{ fontSize: 16.5, fontWeight: 700, color: '#F2F1ED', letterSpacing: '-.01em' }}>Ciudad de Obras</div>
+          {/* Títol — dalt a l'esquerra. En mòbil el recompte per estat NO va centrat dalt (hi
+              competia per amplada amb el títol i es solapaven): es posa just a sota, en una
+              segona filera, tots dos ancorats a l'esquerra. */}
+          <div style={{ position: 'absolute', top: 16, left: 16, zIndex: 3, display: 'flex', flexDirection: 'column', gap: isMobile ? 8 : 0, maxWidth: isMobile ? 'calc(100vw - 32px)' : 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button onClick={onClose} title="Cerrar"
+                style={{ width: 36, height: 36, flexShrink: 0, borderRadius: '50%', border: '1px solid rgba(255,255,255,.2)', background: 'rgba(20,20,18,.75)', color: '#fff', fontSize: 18, lineHeight: 1, cursor: 'pointer', backdropFilter: 'blur(8px)' }}>×</button>
+              <div>
+                {!isMobile && <div style={{ ...MONO, fontSize: 9.5, letterSpacing: '.16em', textTransform: 'uppercase', color: '#8AA88A' }}>Tablero · PLAAT</div>}
+                <div style={{ fontSize: isMobile ? 14.5 : 16.5, fontWeight: 700, color: '#F2F1ED', letterSpacing: '-.01em' }}>Ciudad de Obras</div>
+              </div>
             </div>
+            {isMobile && (
+              <div style={{ display: 'flex', gap: 1, background: 'rgba(255,255,255,.1)', borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(255,255,255,.12)', backdropFilter: 'blur(10px)', alignSelf: 'flex-start' }}>
+                {statsObras.map(s => (
+                  <div key={s.l} style={{ background: 'rgba(20,20,18,.7)', padding: '4px 7px', textAlign: 'center', minWidth: 32 }}>
+                    <div style={{ ...MONO, fontSize: 12, fontWeight: 600, color: s.c }}>{s.n}</div>
+                    <div style={{ ...MONO, fontSize: 6.5, color: 'rgba(255,255,255,.4)', letterSpacing: '.04em' }}>{s.l}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Recompte per estat — dalt al centre */}
-          <div style={{ position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 3, display: 'flex', gap: 1, background: 'rgba(255,255,255,.1)', borderRadius: 12, overflow: 'hidden', border: '1px solid rgba(255,255,255,.12)', backdropFilter: 'blur(10px)' }}>
-            {[
-              { l: 'TOTAL', n: obras.length, c: '#F2F1ED' },
-              { l: 'CURSO', n: porEstado.en_curso || 0, c: STATUS_ACCENT.en_curso },
-              { l: 'ACAB.', n: porEstado.acabada || 0, c: STATUS_ACCENT.acabada },
-              { l: 'ALERTA', n: porEstado.paralizada || 0, c: STATUS_ACCENT.paralizada },
-            ].map(s => (
-              <div key={s.l} style={{ background: 'rgba(20,20,18,.7)', padding: '7px 14px', textAlign: 'center', minWidth: 58 }}>
-                <div style={{ ...MONO, fontSize: 15, fontWeight: 600, color: s.c }}>{s.n}</div>
-                <div style={{ ...MONO, fontSize: 8.5, color: 'rgba(255,255,255,.4)', letterSpacing: '.06em', marginTop: 1 }}>{s.l}</div>
-              </div>
-            ))}
-          </div>
+          {/* Recompte per estat — dalt al centre (només escriptori/tauleta ampla) */}
+          {!isMobile && (
+            <div style={{ position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 3, display: 'flex', gap: 1, background: 'rgba(255,255,255,.1)', borderRadius: 12, overflow: 'hidden', border: '1px solid rgba(255,255,255,.12)', backdropFilter: 'blur(10px)' }}>
+              {statsObras.map(s => (
+                <div key={s.l} style={{ background: 'rgba(20,20,18,.7)', padding: '7px 14px', textAlign: 'center', minWidth: 58 }}>
+                  <div style={{ ...MONO, fontSize: 15, fontWeight: 600, color: s.c }}>{s.n}</div>
+                  <div style={{ ...MONO, fontSize: 8.5, color: 'rgba(255,255,255,.4)', letterSpacing: '.06em', marginTop: 1 }}>{s.l}</div>
+                </div>
+              ))}
+            </div>
+          )}
 
-          {/* Llegenda d'estats — dalt a la dreta, per sota dels controls propis de MapLibre */}
-          <div style={{ position: 'absolute', top: 72, right: 16, zIndex: 3, background: 'rgba(20,20,18,.75)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 10, padding: '10px 13px', backdropFilter: 'blur(8px)' }}>
-            {Object.entries(ESTADOS_OBRA).map(([k, e]) => (
-              <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, color: 'rgba(255,255,255,.75)', padding: '2px 0', whiteSpace: 'nowrap' }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: STATUS_ACCENT[k], flexShrink: 0, boxShadow: `0 0 6px ${STATUS_ACCENT[k]}` }} />
-                {e.label}
-              </div>
-            ))}
-          </div>
+          {/* Llegenda d'estats — abaix a l'esquerra. Abans anava dalt a la dreta "per sota" del
+              NavigationControl de MapLibre, però aquest té 3 botons apilats (zoom+/-/brúixola)
+              que ocupen més alçada que el marge que se li havia deixat, i quedaven solapats.
+              S'amaga mentre hi ha una obra seleccionada perquè en mòbil la targeta de l'obra
+              (abaix, centrada, fins al 90% de l'amplada) hi quedaria a sobre. */}
+          {!obraSel && (
+            <div style={{ position: 'absolute', bottom: 20, left: 16, zIndex: 3, background: 'rgba(20,20,18,.75)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 10, padding: isMobile ? '7px 10px' : '10px 13px', backdropFilter: 'blur(8px)' }}>
+              {Object.entries(ESTADOS_OBRA).map(([k, e]) => (
+                <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: isMobile ? 10 : 11, color: 'rgba(255,255,255,.75)', padding: '2px 0', whiteSpace: 'nowrap' }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: STATUS_ACCENT[k], flexShrink: 0, boxShadow: `0 0 6px ${STATUS_ACCENT[k]}` }} />
+                  {e.label}
+                </div>
+              ))}
+            </div>
+          )}
 
           {progreso.total > 0 && progreso.hecho < progreso.total && (
             <div style={{ position: 'absolute', top: 68, left: '50%', transform: 'translateX(-50%)', zIndex: 3, background: 'rgba(20,20,18,.8)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 20, padding: '6px 14px', color: 'rgba(255,255,255,.7)', fontSize: 11, backdropFilter: 'blur(8px)', ...MONO, ...{ fontVariantNumeric: 'tabular-nums' } }}>
@@ -772,9 +800,12 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
           )}
 
           {!obraSel && (
-            <div style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 3, ...MONO, fontSize: 10.5, color: 'rgba(255,255,255,.4)', letterSpacing: '.03em', display: 'flex', gap: 16, whiteSpace: 'nowrap' }}>
+            <div style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 3, ...MONO, fontSize: isMobile ? 9.5 : 10.5, color: 'rgba(255,255,255,.4)', letterSpacing: '.03em', display: 'flex', gap: isMobile ? 10 : 16, whiteSpace: 'nowrap' }}>
               <span><b style={{ color: 'rgba(255,255,255,.65)' }}>Arrastra</b> orbitar</span>
-              <span><b style={{ color: 'rgba(255,255,255,.65)' }}>Rueda</b> zoom</span>
+              {/* "Rueda" (ratolí) no té sentit en pantalla tàctil — en mòbil el zoom es fa amb pinça */}
+              {isMobile
+                ? <span><b style={{ color: 'rgba(255,255,255,.65)' }}>Pellizca</b> zoom</span>
+                : <span><b style={{ color: 'rgba(255,255,255,.65)' }}>Rueda</b> zoom</span>}
               <span><b style={{ color: 'rgba(255,255,255,.65)' }}>Toca un pin</b> ver obra</span>
             </div>
           )}
