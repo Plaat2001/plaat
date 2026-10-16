@@ -565,9 +565,13 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
   const [errorMapa, setErrorMapa] = useState('');
   const [obraSel, setObraSel] = useState(null);
   const [progreso, setProgreso] = useState({ hecho: 0, total: 0 });
+  const [recalculando, setRecalculando] = useState(false);
 
   async function geocodificar(direccion) {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(direccion)}`;
+    // countrycodes=es: sense això, una adreça ambigua o amb un carrer que es repeteix en
+    // altres països pot acabar retornant (amb limit=1, el primer resultat "que sigui") un punt
+    // fora d'Espanya o en zona marítima — es van veure obres apareixent literalment dins del mar.
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=es&q=${encodeURIComponent(direccion)}`;
     const res = await fetch(url);
     const data = await res.json();
     if (!data?.[0]) return null;
@@ -603,15 +607,15 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
   // la sensació de "s'obre en un lloc random" / "els pins es mouen soles" / "tot es desordena".
   // Ara: NOMÉS es mou la càmera un cop, al final (fitBounds), i només si l'usuari encara no
   // ha tocat el mapa — mai se li roba el control un cop ha començat a interactuar.
-  async function colocarMarcadores(map) {
+  async function colocarMarcadores(map, listaObras = obras) {
     const maplibregl = window.maplibregl;
     const bounds = new maplibregl.LngLatBounds();
     let huboFallback = 0;
     // TOTES les obres, tinguin o no direcció — cap es queda fora del mapa
-    setProgreso({ hecho: 0, total: obras.length });
+    setProgreso({ hecho: 0, total: listaObras.length });
 
-    for (let i = 0; i < obras.length; i++) {
-      const obra = obras[i];
+    for (let i = 0; i < listaObras.length; i++) {
+      const obra = listaObras[i];
       let coords = (obra.geoLat !== undefined && obra.geoLat !== null && obra.geoLon !== undefined)
         ? { lat: obra.geoLat, lon: obra.geoLon } : null;
       let fallback = obra.geoLat === null; // ja es va intentar abans i va fallar — no tornar a picar l'API
@@ -641,6 +645,21 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
     if (!interactuat.current && !bounds.isEmpty()) {
       map.fitBounds(bounds, { padding: 90, maxZoom: 16, pitch: 58, bearing: -14, duration: 1200 });
     }
+  }
+
+  // Força tornar a geocodificar TOTES les obres, ignorant qualsevol geoLat/geoLon ja desat
+  // (encara que s'hagués desat com a "null" = fallback). Útil si les coordenades es van
+  // desar malament en algun moment anterior i han quedat congelades en cache per sempre.
+  async function recalcularUbicaciones() {
+    if (!mapInstance.current || recalculando) return;
+    setRecalculando(true);
+    Object.values(markersRef.current).forEach(m => m.remove());
+    markersRef.current = {};
+    interactuat.current = false; // acció explícita de l'usuari: sí que pot tornar a ajustar la càmera
+    const obrasNetes = obras.map(o => ({ ...o, geoLat: undefined, geoLon: undefined }));
+    obrasNetes.forEach(o => onUpdateObra?.(o));
+    await colocarMarcadores(mapInstance.current, obrasNetes);
+    setRecalculando(false);
   }
 
   useEffect(() => {
@@ -825,9 +844,17 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
               <span><b style={{ color: 'rgba(255,255,255,.65)' }}>Toca un pin</b> ver obra</span>
             </div>
           )}
-          <div onClick={recentrar} title="Centrar vista"
-            style={{ position: 'absolute', bottom: 20, right: 16, zIndex: 3, background: 'rgba(20,20,18,.75)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 20, padding: '7px 14px', color: 'rgba(255,255,255,.7)', fontSize: 11, cursor: 'pointer', backdropFilter: 'blur(8px)', ...MONO }}>
-            ⟲ Centrar
+          <div style={{ position: 'absolute', bottom: 20, right: 16, zIndex: 3, display: 'flex', gap: 8 }}>
+            {/* Fuerza regeocodificar todas las obras ignorando la caché — útil si alguna
+                quedó con coordenadas mal guardadas de antes (p.ej. pines que aparecían en el mar) */}
+            <div onClick={recalcularUbicaciones} title="Volver a calcular todas las ubicaciones desde cero"
+              style={{ background: 'rgba(20,20,18,.75)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 20, padding: '7px 14px', color: recalculando ? 'rgba(255,255,255,.35)' : 'rgba(255,255,255,.7)', fontSize: 11, cursor: recalculando ? 'default' : 'pointer', backdropFilter: 'blur(8px)', ...MONO }}>
+              {recalculando ? 'Recalculando…' : (isMobile ? '⟳ Recalcular' : '⟳ Recalcular ubicaciones')}
+            </div>
+            <div onClick={recentrar} title="Centrar vista"
+              style={{ background: 'rgba(20,20,18,.75)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 20, padding: '7px 14px', color: 'rgba(255,255,255,.7)', fontSize: 11, cursor: 'pointer', backdropFilter: 'blur(8px)', ...MONO }}>
+              ⟲ Centrar
+            </div>
           </div>
         </>
       )}
