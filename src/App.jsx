@@ -8714,7 +8714,10 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
       // Estat mostrat: 'N' NOMÉS si el tema és totalment nou (una única entrada, d'aquesta acta)
       // En qualsevol altre cas, l'estat real de l'última entrada (P/R/I) — igual que al Word
       const estatMostrat = esNuevoTema ? 'N' : (ultima.estado || 'P');
-      const fillTema = estatMostrat==='R' ? C_R : estatMostrat==='I'||estatMostrat==='INF' ? C_I : estatMostrat==='A' ? C_A : estatMostrat==='N' ? null : C_P;
+      // Color de fons de cada fila: el del seu PROPI estat (no el de l'última entrada del tema) —
+      // així un punt ja resolt es manté en verd encara que el tema s'hagi reobert més tard amb un
+      // punt pendent nou; cada fila és independent, igual que ja passa amb Inici/Fi/Responsable.
+      const colorPerEstat = (es) => es==='R' ? C_R : es==='I'||es==='INF' ? C_I : es==='A' ? C_A : C_P;
 
       const respLH = 7.5*0.3528+0.4;
       const ed = entradesOrdenades.map((en, pi) => {
@@ -8774,14 +8777,15 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
 
         const yTros = y;
         // Fons de color independent per cada punt de seguiment: en blanc (sense fill) si el punt
-        // és nou, o el color de l'estat del tema si no ho és — així un punt nou dins d'un tema ja
-        // existent ressalta en blanc igual que un tema totalment nou, sense pintar els punts vells.
+        // és nou, o el color del seu propi estat (P/R/I/A) si no ho és — així un punt nou dins
+        // d'un tema ja existent ressalta en blanc igual que un tema totalment nou, sense pintar
+        // els punts vells, i cada punt vell conserva el color del seu propi estat.
         {
           let fillY = yTros;
           for (let pi = idxEntrada; pi < finTros; pi++) {
             const e = ed[pi];
-            if (!e.esNova && fillTema) {
-              doc.setFillColor(...fillTema);
+            if (!e.esNova) {
+              doc.setFillColor(...colorPerEstat(e.en.estado));
               doc.rect(ML, fillY, CW, e.h, 'F');
             }
             fillY += e.h;
