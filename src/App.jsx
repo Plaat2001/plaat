@@ -6660,13 +6660,22 @@ function ModuloActaVO({ obra, onSave }) {
 
   // El clima sempre acaba el mateix dia que la data de l'acta — abans calia triar-la
   // dues vegades (a "Data de l'acta" i a "Fins al dia" del clima) i es desincronitzaven.
-  // Guards: voLocal (mentre l'acta real encara es carrega de Supabase, vo és un esquelet
-  // buit — no volem escriure'l i sobreescriure les dades reals) i vistaVO (només cal
-  // generar-ho quan l'usuari mira la pestanya Dades, no cada vegada que s'obre l'acta).
+  // A més, ja no cal prémer cap botó: si hi ha ubicació marcada es carrega el clima REAL
+  // (Open-Meteo) automàticament; si encara no n'hi ha, es genera només l'esquelet buit dels
+  // 7 dies (com abans) fins que l'usuari marqui la ubicació al mapa.
+  // climaCarregaRef evita repetir la mateixa càrrega cada cop que es torna a obrir la
+  // pestanya Dades: només es torna a carregar quan canvia la data o la ubicació.
+  const climaCarregaRef = useRef('');
   useEffect(() => {
     if (!voLocal || vistaVO !== 'dades') return;
-    generarDiesClima(vo.fechaActa || today());
-  }, [vo.fechaActa, !!voLocal, vistaVO]);
+    const dataFi = vo.fechaActa || today();
+    const teUbicacio = obra.climaLat !== undefined && obra.climaLon !== undefined;
+    const clau = `${dataFi}|${teUbicacio ? obra.climaLat : ''}|${teUbicacio ? obra.climaLon : ''}`;
+    if (climaCarregaRef.current === clau) return;
+    climaCarregaRef.current = clau;
+    if (teUbicacio) carregarSetmanaClima();
+    else generarDiesClima(dataFi);
+  }, [vo.fechaActa, !!voLocal, vistaVO, obra.climaLat, obra.climaLon]);
 
   async function exportar(idioma) {
     setShowIdioma(false);
@@ -7118,9 +7127,8 @@ function ModuloActaVO({ obra, onSave }) {
           <span style={{ fontSize: 11.5, color: '#6B6B66', flexShrink: 0 }}>Hasta el día</span>
           {/* Sempre la data de l'acta (camp de dalt) — ja no es tria per separat, veure useEffect de sincronització */}
           <span style={{ fontSize: 11.5, fontWeight: 600, color: '#141412', flexShrink: 0 }}>{fmtDate(vo.fechaActa || today())}</span>
-          <Btn sm primary onClick={carregarSetmanaClima} disabled={climaCarregant}>
-            {climaCarregant ? 'Cargando…' : 'Cargar automáticamente'}
-          </Btn>
+          {/* El clima es carrega sol (veure useEffect) en canviar la data o la ubicació — ja no cal cap botó */}
+          {climaCarregant && <span style={{ fontSize: 11.5, color: '#9B9B97' }}>Actualizando clima…</span>}
         </div>
         {climaError && <div style={{ fontSize: 11.5, color: '#8A1F1F', marginBottom: 8 }}>{climaError}</div>}
 
