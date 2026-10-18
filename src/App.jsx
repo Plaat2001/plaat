@@ -8709,11 +8709,6 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
       const fW3=(cDesc-5)/2;
       // Els seguiments marcats com a ocults no surten al PDF (però es mantenen a l'app)
       const entradesOrdenades = (t.entradas || []).filter(en => !en.oculta);
-      const esNuevoTema = entradesOrdenades.length === 1 && !!entradesOrdenades[0]?.nueva;
-      const ultima = entradesOrdenades[entradesOrdenades.length - 1] || {};
-      // Estat mostrat: 'N' NOMÉS si el tema és totalment nou (una única entrada, d'aquesta acta)
-      // En qualsevol altre cas, l'estat real de l'última entrada (P/R/I) — igual que al Word
-      const estatMostrat = esNuevoTema ? 'N' : (ultima.estado || 'P');
       // Color de fons de cada fila: el del seu PROPI estat (no el de l'última entrada del tema) —
       // així un punt ja resolt es manté en verd encara que el tema s'hagi reobert més tard amb un
       // punt pendent nou; cada fila és independent, igual que ja passa amb Inici/Fi/Responsable.
@@ -8754,7 +8749,6 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
       // Número i títol del tema, i dades compartides per tot el bloc (independents de si es parteix o no)
       const titolTema = t.titulo || '';
       const tituloLH = 8.5*0.3528+0.6;
-      const colorEstat = estatMostrat==='R' ? [44,94,16] : estatMostrat==='I'||estatMostrat==='INF' ? [12,68,124] : estatMostrat==='N' ? [0,0,0] : [124,74,0];
       const yTopPagina = MT + 12 + 9; // y just sota la capçalera d'una pàgina nova
 
       // Si un tema té molts punts de seguiment, es dibuixa per trossos: quan un punt de seguiment
@@ -8830,14 +8824,24 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
             let respY = ey + 3 + e.lh*0.8 + titolH;
             e.resps.forEach(r => { doc.text(r, ML+cNum+cDesc+cEs+cIni+cFi+cRes/2, respY, { align:'center', baseline:'middle' }); respY += respLH; });
           }
-          // 'N' (o 'N/R' si a més ve marcat com a resolt) a la columna ES, a la línia del propi
-          // punt de seguiment nou — no dalt de tot del tema. S'omet a la primera entrada (pi===0):
-          // aquesta línia coincideix amb la capçalera del tema, que ja ocupa aquesta mateixa cel·la.
-          if (e.esNova && pi !== 0) {
-            const badgeTxt = e.en.estado === 'R' ? 'N/R' : 'N';
-            doc.setFont('helvetica','bold'); doc.setFontSize(badgeTxt==='N/R' ? 6.5 : 8.5); doc.setTextColor(0,0,0);
+          // ES — independent per punt de seguiment, alineat amb la primera línia del seu propi
+          // text (abans era un únic estat per tot el tema, alineat amb el títol; ara cada punt
+          // mostra el seu propi estat P/R/I, igual que Inici/Fi/Responsable i el color de fons).
+          // Els punts nous d'aquesta acta mostren 'N' (o 'N/R' si ja venen marcats com a resolts)
+          // en lloc de l'estat, per destacar-los igual que ja feien abans.
+          {
             const badgeY = ey + 3 + e.lh*0.8 + titolH;
-            doc.text(badgeTxt, ML+cNum+cDesc+cEs/2, badgeY, { align:'center', baseline:'middle' });
+            doc.setFont('helvetica','bold');
+            if (e.esNova) {
+              const badgeTxt = e.en.estado === 'R' ? 'N/R' : 'N';
+              doc.setFontSize(badgeTxt==='N/R' ? 6.5 : 8.5); doc.setTextColor(0,0,0);
+              doc.text(badgeTxt, ML+cNum+cDesc+cEs/2, badgeY, { align:'center', baseline:'middle' });
+            } else {
+              const est = e.en.estado || 'P';
+              const colorEst = est==='R' ? [44,94,16] : est==='I'||est==='INF' ? [12,68,124] : [124,74,0];
+              doc.setFontSize(8.5); doc.setTextColor(...colorEst);
+              doc.text(est, ML+cNum+cDesc+cEs/2, badgeY, { align:'center', baseline:'middle' });
+            }
           }
           // Fotos — inline, just sota el paràgraf al qual pertanyen
           const GAP_FY = 2;
@@ -8856,14 +8860,6 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
             fy+=row.rh+2;
           });
           ey+=e.h;
-        }
-
-        // Columna ES — alineada al títol del tema, només al primer troç (INICI/FI i RES es dibuixen
-        // punt per punt, dins del bucle de cada entrada, ja que cada seguiment té el seu propi)
-        if (esPrimerTros) {
-          const topTema = yTros + 3 + tituloLH*0.8;
-          doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(...colorEstat);
-          doc.text(estatMostrat, ML+cNum+cDesc+cEs/2, topTema, { align:'center', baseline:'middle' });
         }
 
         // SENSE línies verticals — sols línies horitzontals fines. Al primer tema d'una secció, la
