@@ -9624,6 +9624,19 @@ function FormSeguimiento({ punto, obras, nextNum, onGuardar, onCerrar, isMobile 
 function DetalleObra({ obra, onBack, onSave, onFlush, isMobile, user, tabInicial }) {
   const [tab, setTab]               = useState(tabInicial || 'inspecciones');
   const [editEstado, setEditEstado] = useState(false);
+  // El botó viu dins de ".dash-banner", que té overflow:hidden per retallar el fons
+  // decoratiu (arch-grid, anelles...) — si el desplegable és position:absolute es talla
+  // just on acaba la capçalera. Es porta a document.body (com Modal/ConfirmMini) i es
+  // posiciona a mà a partir del rectangle real del botó.
+  const estadoBtnRef = useRef(null);
+  const [estadoMenuPos, setEstadoMenuPos] = useState(null);
+  function toggleEditEstado() {
+    if (!editEstado && estadoBtnRef.current) {
+      const r = estadoBtnRef.current.getBoundingClientRect();
+      setEstadoMenuPos({ top: r.bottom + 6, right: window.innerWidth - r.right });
+    }
+    setEditEstado(v => !v);
+  }
   const [showCompartir, setShowCompartir] = useState(false);
   const esOwner = obra._rol === 'owner';
 
@@ -9663,19 +9676,22 @@ function DetalleObra({ obra, onBack, onSave, onFlush, isMobile, user, tabInicial
 
           {/* Estado editable */}
           <div style={{ position: 'relative', flexShrink: 0 }}>
-            <button onClick={() => setEditEstado(v => !v)} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, background: 'transparent', border: `1px solid ${accentColor}`, color: accentColor, cursor: 'pointer', fontWeight: 600, letterSpacing: '0.05em' }}>
+            <button ref={estadoBtnRef} onClick={toggleEditEstado} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, background: 'transparent', border: `1px solid ${accentColor}`, color: accentColor, cursor: 'pointer', fontWeight: 600, letterSpacing: '0.05em' }}>
               {e.label.toUpperCase()}
             </button>
-            {editEstado && (
-              <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', background: '#2A2A28', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,.4)', padding: 6, zIndex: 10, minWidth: 160 }}>
-
-                {Object.entries(ESTADOS_OBRA).map(([k, v]) => (
-                  <div key={k} onClick={() => { onSave({ ...obra, estado: k }); setEditEstado(false); }}
-                    style={{ padding: '7px 12px', borderRadius: 7, cursor: 'pointer', fontSize: 13, fontWeight: obra.estado === k ? 500 : 400, background: obra.estado === k ? 'rgba(255,255,255,0.08)' : 'transparent', color: STATUS_ACCENT[k] || '#F2F1ED' }}>
-                    {v.label}
-                  </div>
-                ))}
-              </div>
+            {editEstado && estadoMenuPos && createPortal(
+              <>
+                <div onClick={() => setEditEstado(false)} style={{ position: 'fixed', inset: 0, zIndex: 99998 }} />
+                <div style={{ position: 'fixed', top: estadoMenuPos.top, right: estadoMenuPos.right, background: '#2A2A28', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,.4)', padding: 6, zIndex: 99999, minWidth: 160 }}>
+                  {Object.entries(ESTADOS_OBRA).map(([k, v]) => (
+                    <div key={k} onClick={() => { onSave({ ...obra, estado: k }); setEditEstado(false); }}
+                      style={{ padding: '7px 12px', borderRadius: 7, cursor: 'pointer', fontSize: 13, fontWeight: obra.estado === k ? 500 : 400, background: obra.estado === k ? 'rgba(255,255,255,0.08)' : 'transparent', color: STATUS_ACCENT[k] || '#F2F1ED' }}>
+                      {v.label}
+                    </div>
+                  ))}
+                </div>
+              </>,
+              document.body
             )}
           </div>
 
