@@ -8834,7 +8834,7 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
             doc.setFont('helvetica','bold');
             if (e.esNova) {
               const badgeTxt = e.en.estado === 'R' ? 'N/R' : 'N';
-              doc.setFontSize(badgeTxt==='N/R' ? 6.5 : 8.5); doc.setTextColor(0,0,0);
+              doc.setFontSize(8.5); doc.setTextColor(0,0,0);
               doc.text(badgeTxt, ML+cNum+cDesc+cEs/2, badgeY, { align:'center', baseline:'middle' });
             } else {
               const est = e.en.estado || 'P';
