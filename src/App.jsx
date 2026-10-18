@@ -7402,7 +7402,11 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
                     {/* Franja de metadades */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 5 }}>
                       <input type="date" value={en.fecha||''} onChange={ev => onUpdEntrada(t.id, en.id, 'fecha', ev.target.value)}
-                        title="Fecha de este seguimiento"
+                        title="Fecha de inicio de este seguimiento"
+                        style={{ ...NUM, width: 'auto', fontSize: 11, color: '#52524E', fontWeight: 500, padding: '2px 5px', borderRadius: 5, border: '1px solid #E5E4DF' }} />
+                      <span style={{ fontSize: 11, color: '#C4C3BE' }}>→</span>
+                      <input type="date" value={en.fin||''} onChange={ev => onUpdEntrada(t.id, en.id, 'fin', ev.target.value)}
+                        title="Fecha de fin de este seguimiento"
                         style={{ ...NUM, width: 'auto', fontSize: 11, color: '#52524E', fontWeight: 500, padding: '2px 5px', borderRadius: 5, border: '1px solid #E5E4DF' }} />
                       <button onClick={() => onUpdEntrada(t.id, en.id, 'nueva', !esNueva)}
                         title={esNueva ? 'Marcado como Nueva — haz clic para desmarcar' : 'Marcar como Nueva (saldrá en blanco y negrita en el PDF)'}
@@ -7416,10 +7420,6 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
                         style={{ width: 'auto', fontSize: 11, padding: '2px 5px', borderRadius: 5, border: `1px solid ${e.color}35`, background: e.bg, color: e.color, fontWeight: 600 }}>
                         {Object.entries(ESTADOS_VO).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                       </select>
-                      {en.estado === 'R' && (
-                        <input type="date" value={en.fin||''} onChange={ev => onUpdEntrada(t.id, en.id, 'fin', ev.target.value)}
-                          style={{ width: 'auto', fontSize: 11, padding: '2px 5px', borderRadius: 5 }} />
-                      )}
 
                       {/* Responsables: només els triats + botó per obrir */}
                       {resps.map(r => (
@@ -8720,15 +8720,13 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
       const ed = entradesOrdenades.map((en, pi) => {
         const esNova = !!en.nueva;
         const resps = Array.isArray(en.resp) ? en.resp : (en.resp ? [en.resp] : []);
-        // Prefix de data: totes les entrades EXCEPTE la primera (la data inicial ja surt a INICI)
-        const prefix = pi > 0 && en.fecha ? `${fmtFechaCorta(en.fecha)}  ` : '';
         // Cal fixar el pes de la font (negreta/normal) ABANS de mesurar/embolicar el text: si es
         // deixa l'estat previ (negreta, heretat de la capçalera de secció), les línies es tallen
         // massa curtes per a les entrades normals (més estretes), forçant després un justificat
         // amb forats més grans dels necessaris.
         doc.setFont('helvetica', esNova ? 'bold' : 'normal');
         doc.setFontSize(8.5);
-        const lines = doc.splitTextToSize(prefix + (en.texto||''), cDesc-3);
+        const lines = doc.splitTextToSize(en.texto||'', cDesc-3);
         const lh85 = 8.5*0.3528+0.6;
         const titolOffset = (pi === 0 && t.titulo) ? lh85 + 2 : 0;
         const GAP = 2;
@@ -8753,8 +8751,6 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
       // Número i títol del tema, i dades compartides per tot el bloc (independents de si es parteix o no)
       const titolTema = t.titulo || '';
       const tituloLH = 8.5*0.3528+0.6;
-      const fechaInicio = entradesOrdenades[0]?.fecha;
-      const fechaFin     = ultima.fin || ultima.fecha;
       const colorEstat = estatMostrat==='R' ? [44,94,16] : estatMostrat==='I'||estatMostrat==='INF' ? [12,68,124] : estatMostrat==='N' ? [0,0,0] : [124,74,0];
       const yTopPagina = MT + 12 + 9; // y just sota la capçalera d'una pàgina nova
 
@@ -8817,6 +8813,13 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
             }
             ty += e.lh;
           });
+          // Inici/Fi — independent per punt de seguiment, alineat amb la primera línia del seu propi
+          // text (abans eren úniques per tot el tema, alineades amb el títol; ara cada punt de
+          // seguiment porta la seva pròpia data d'inici i de fi, igual que el responsable).
+          doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(0,0,0);
+          const iniciFiY = ey + 3 + e.lh*0.8 + titolH;
+          doc.text(e.en.fecha ? fmtFechaCorta(e.en.fecha) : '', ML+cNum+cDesc+cEs+cIni/2, iniciFiY, { align:'center', baseline:'middle' });
+          doc.text(e.en.fin ? fmtFechaCorta(e.en.fin) : '', ML+cNum+cDesc+cEs+cIni+cFi/2, iniciFiY, { align:'center', baseline:'middle' });
           // Responsable — independent per punt de seguiment, alineat amb la primera línia del seu propi text
           if (e.resps.length) {
             doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(0,0,0);
@@ -8851,16 +8854,12 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
           ey+=e.h;
         }
 
-        // Columnes ES / INICI / FI — alineades al títol del tema, només al primer troç (el RES es
-        // dibuixa punt per punt, dins del bucle de cada entrada, ja que cada seguiment té el seu propi)
+        // Columna ES — alineada al títol del tema, només al primer troç (INICI/FI i RES es dibuixen
+        // punt per punt, dins del bucle de cada entrada, ja que cada seguiment té el seu propi)
         if (esPrimerTros) {
           const topTema = yTros + 3 + tituloLH*0.8;
           doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(...colorEstat);
           doc.text(estatMostrat, ML+cNum+cDesc+cEs/2, topTema, { align:'center', baseline:'middle' });
-          doc.setTextColor(0,0,0);
-          doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
-          doc.text(fechaInicio ? fmtFechaCorta(fechaInicio) : '', ML+cNum+cDesc+cEs+cIni/2, topTema, { align:'center', baseline:'middle' });
-          doc.text((fechaFin && estatMostrat==='R') ? fmtFechaCorta(fechaFin) : '', ML+cNum+cDesc+cEs+cIni+cFi/2, topTema, { align:'center', baseline:'middle' });
         }
 
         // SENSE línies verticals — sols línies horitzontals fines. Al primer tema d'una secció, la
