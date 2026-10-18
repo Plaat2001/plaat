@@ -18,11 +18,23 @@ const RESPONSABLES = [
 ];
 
 const ESTADOS_OBRA = {
-  en_curso:   { label: 'En curso',   bg: '#FEF3DB', color: '#7C4A00' },
-  pendiente:  { label: 'Pendiente',  bg: '#EEEDE7', color: '#52524E' },
+  proyecto:   { label: 'Proyecto',   bg: '#EEEDE7', color: '#52524E' },
+  estructura: { label: 'Estructura', bg: '#FEF3DB', color: '#7C4A00' },
+  obra_civil: { label: 'Obra Civil', bg: '#E3EEFB', color: '#1D4E89' },
+  repasos:    { label: 'Repasos',    bg: '#F4ECFA', color: '#6C3483' },
   acabada:    { label: 'Acabada',    bg: '#E8F5E0', color: '#2D5E10' },
   paralizada: { label: 'Paralizada', bg: '#FDECEC', color: '#8A1F1F' },
 };
+// Fases "actives" (en construcció) a efectes dels resums/estadístiques del tauler —
+// Proyecto encara no ha començat a construir-se i Acabada/Paralizada ja no estan en curs.
+const FASES_OBRA_EN_CURSO = ['estructura', 'obra_civil', 'repasos'];
+// Migració d'estats antics (eliminats a favor de les noves fases d'obra) — es normalitzen
+// en llegir perquè les obres ja guardades a Supabase amb el valor antic es vegin bé de
+// seguida; a més es reescriu el valor nou a Supabase en segon pla (veure migrarEstatsObra).
+const MIGRACIO_ESTADOS_OBRA = { en_curso: 'estructura', pendiente: 'proyecto' };
+function normalitzarEstatObra(estado) {
+  return MIGRACIO_ESTADOS_OBRA[estado] || estado;
+}
 
 const ESTADOS_INSP = {
   pendiente:    { label: 'Pendiente',    bg: '#EEEDE7', color: '#52524E' },
@@ -631,7 +643,7 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
       if (!coords) { coords = puntFallback(huboFallback); huboFallback++; fallback = true; }
 
       bounds.extend([coords.lon, coords.lat]);
-      const accent = STATUS_ACCENT[obra.estado] || STATUS_ACCENT.en_curso;
+      const accent = STATUS_ACCENT[obra.estado] || STATUS_ACCENT.proyecto;
       const marker = new maplibregl.Marker({ element: crearPinEl(accent, obra, fallback) })
         .setLngLat([coords.lon, coords.lat]).addTo(map);
       markersRef.current[obra.id] = marker;
@@ -724,8 +736,8 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
   }, []);
 
   const isMobile = useIsMobile();
-  const est = obraSel ? (ESTADOS_OBRA[obraSel.estado] || ESTADOS_OBRA.en_curso) : null;
-  const accentSel = obraSel ? (STATUS_ACCENT[obraSel.estado] || STATUS_ACCENT.en_curso) : null;
+  const est = obraSel ? (ESTADOS_OBRA[obraSel.estado] || ESTADOS_OBRA.proyecto) : null;
+  const accentSel = obraSel ? (STATUS_ACCENT[obraSel.estado] || STATUS_ACCENT.proyecto) : null;
 
   function recentrar() {
     if (!mapInstance.current) return;
@@ -734,9 +746,10 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
 
   const porEstado = {};
   obras.forEach(o => { porEstado[o.estado] = (porEstado[o.estado] || 0) + 1; });
+  const enCursoCount = FASES_OBRA_EN_CURSO.reduce((acc, k) => acc + (porEstado[k] || 0), 0);
   const statsObras = [
     { l: 'TOTAL', n: obras.length, c: '#F2F1ED' },
-    { l: 'CURSO', n: porEstado.en_curso || 0, c: STATUS_ACCENT.en_curso },
+    { l: 'CURSO', n: enCursoCount, c: STATUS_ACCENT.estructura },
     { l: 'ACAB.', n: porEstado.acabada || 0, c: STATUS_ACCENT.acabada },
     { l: 'ALERTA', n: porEstado.paralizada || 0, c: STATUS_ACCENT.paralizada },
   ];
@@ -1202,16 +1215,18 @@ function BottomNav({ nav, setNav, stats }) {
 }
 
 const STATUS_ACCENT = {
-  en_curso:   '#D48A0C',
-  pendiente:  '#9B9B97',
+  proyecto:   '#9B9B97',
+  estructura: '#D48A0C',
+  obra_civil: '#3B82C4',
+  repasos:    '#A569BD',
   acabada:    '#52A124',
   paralizada: '#E24B4A',
 };
 
 function ObraCard({ obra, onClick, onEditar, onEliminar, onOpenTab, onToggleDia }) {
   const [menu, setMenu] = useState(false);
-  const accentColor = STATUS_ACCENT[obra.estado] || STATUS_ACCENT.en_curso;
-  const e           = ESTADOS_OBRA[obra.estado]  || ESTADOS_OBRA.en_curso;
+  const accentColor = STATUS_ACCENT[obra.estado] || STATUS_ACCENT.proyecto;
+  const e           = ESTADOS_OBRA[obra.estado]  || ESTADOS_OBRA.proyecto;
   const incPend     = obra.incidencias.filter(i => i.estado !== 'resuelta').length;
   const tareasPend  = (obra.apuntes || []).filter(a => a.tipo === 'tarea' && !a.hecha).length;
   const totalPuntos = obra.disciplinas.reduce((s, d) => s + d.puntos.length, 0);
@@ -9648,8 +9663,8 @@ function DetalleObra({ obra, onBack, onSave, onFlush, isMobile, user, tabInicial
     { id: 'anotaciones',  label: 'Notas y tareas',  short: 'Notas'   },
   ];
 
-  const accentColor = STATUS_ACCENT[obra.estado] || STATUS_ACCENT.en_curso;
-  const e           = ESTADOS_OBRA[obra.estado]  || ESTADOS_OBRA.en_curso;
+  const accentColor = STATUS_ACCENT[obra.estado] || STATUS_ACCENT.proyecto;
+  const e           = ESTADOS_OBRA[obra.estado]  || ESTADOS_OBRA.proyecto;
   const pad         = isMobile ? '12px 14px' : '18px 22px';
 
   return (
@@ -10147,7 +10162,7 @@ export default function App() {
     return {
       id: row.id,
       nombre: d.nombre, cliente: d.cliente, direccion: d.direccion,
-      responsable: d.responsable, estado: d.estado, tipo: d.tipo,
+      responsable: d.responsable, estado: normalitzarEstatObra(d.estado), tipo: d.tipo,
       diasVisita: d.diasVisita, emplazamiento: d.emplazamiento,
       propiedad: d.propiedad, proyectista: d.proyectista,
       direccionObra: d.direccionObra, constructora: d.constructora,
@@ -10174,6 +10189,18 @@ export default function App() {
     return false;
   }
 
+  // Reescriu a Supabase l'estat de les obres que encara tenen un valor antic
+  // (MIGRACIO_ESTADOS_OBRA) — fire-and-forget, no bloqueja la càrrega del tauler.
+  async function migrarEstatsObra(rows, userId) {
+    if (!window.db) return;
+    const afectades = rows.filter(r => MIGRACIO_ESTADOS_OBRA[r.data?.estado]);
+    for (const r of afectades) {
+      try {
+        await window.db.upsertObra({ id: r.id, user_id: userId, data: { ...r.data, estado: MIGRACIO_ESTADOS_OBRA[r.data.estado] }, updated_at: now() });
+      } catch (e) { console.error('Error migrant estat obra', r.id, e); }
+    }
+  }
+
   // ── Cargar todas las obras del usuario ────────────────────────────────────
   // OPTIMIZADO: carga rápida en 2 fases
   // Fase 1 (inmediata): metadatos de obras → mostrar tablero
@@ -10192,6 +10219,10 @@ export default function App() {
       }));
       setObras(obrasParciales);
       setLoading(false);
+      // Reescriu en segon pla, a Supabase, els estats antics ('en_curso'/'pendiente', eliminats
+      // a favor de les noves fases d'obra) — en pantalla ja es veuen bé a l'instant perquè
+      // rowToObra() els normalitza en llegir; això és només perquè quedin corregits de debò.
+      migrarEstatsObra(rows, userId);
 
       // FASE 2: TODOS los módulos de TODAS las obras en 6 consultas totales
       // (antes: 6 consultas POR obra → con 10 obras eran 60 idas y vueltas)
@@ -10394,7 +10425,7 @@ export default function App() {
       proyectista: data.proyectista || '', direccionObra: data.direccionObra || '',
       constructora: data.constructora || '', deoFirmante: data.deoFirmante || '',
       fechaCFO: data.fechaCFO || '', logoClienteB64: data.logoClienteB64 || '',
-      numActaSeq: 0, estado: 'en_curso',
+      numActaSeq: 0, estado: 'proyecto',
       disciplinas: [], lotes: [], incidencias: [], apuntes: [],
       materiales: [], seguimientoCQ: [], actasInsp: [],
       creadaEn: now(), _rol: 'owner',
@@ -10634,7 +10665,7 @@ export default function App() {
                   <div style={{ fontSize: isMobile ? 18 : 20, fontWeight: 700, color: '#F2F1ED', letterSpacing: '0.01em', display: 'flex', alignItems: 'baseline', gap: 7 }}>
                     Mis obras <span style={{ fontSize: 13, color: '#8AA88A' }}>.</span>
                   </div>
-                  {obras.length > 0 && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 3 }}>{obras.filter(o => o.estado === 'en_curso').length} en curso · {obras.length} en total</div>}
+                  {obras.length > 0 && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 3 }}>{obras.filter(o => FASES_OBRA_EN_CURSO.includes(o.estado)).length} en curso · {obras.length} en total</div>}
                 </div>
                 <div style={{ position: 'relative', zIndex: 2, display: 'flex', gap: 8 }}>
                   {obras.length > 0 && (
@@ -10666,7 +10697,7 @@ export default function App() {
                     <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 10, marginBottom: 18 }}>
                       {[
                         { n: obras.length, l: 'Obras totales', c: '#141412', bg: '#F0EFEA', s: 's1', icon: 'M3 17V8l5-3 5 3v9 M7 17v-4h2v4' },
-                        { n: obras.filter(o => o.estado === 'en_curso').length, l: 'En curso', c: '#C47610', bg: '#FEF3DB', s: 's2', icon: 'M10 5.5v4.5l3 2.2 M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14z' },
+                        { n: obras.filter(o => FASES_OBRA_EN_CURSO.includes(o.estado)).length, l: 'En curso', c: '#C47610', bg: '#FEF3DB', s: 's2', icon: 'M10 5.5v4.5l3 2.2 M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14z' },
                         { n: obras.filter(o => o.estado === 'acabada').length, l: 'Acabadas', c: '#2D5E10', bg: '#E8F5E0', s: 's3', icon: 'M6 10.5l2.5 2.5L14 7 M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14z' },
                         { n: stats.alertas, l: 'Con alertas', c: '#8A1F1F', bg: '#FDECEC', s: 's4', icon: 'M10 4a3 3 0 0 0-3 3c0 4-1.5 5-2 6h10c-.5-1-2-2-2-6a3 3 0 0 0-3-3Z M8.5 16a1.5 1.5 0 0 0 3 0' },
                       ].map(st => (
