@@ -1540,7 +1540,7 @@ function FormActaInspeccion({ obra, acta, onGuardar, onCerrar, onExportar }) {
                 {(t.fotos||[]).map(ft => (
                   <div key={ft.id} style={{ position: 'relative', width: 80, height: 60 }}>
                     <img src={fotoSrc(ft)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 9, display: 'block' }} />
-                    <button onClick={() => delFoto(t.id, ft.id)} style={{ position: 'absolute', top: 3, right: 3, background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', borderRadius: '50%', width: 18, height: 18, cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+                    <button onClick={() => setConfirmacion({ titulo: 'Eliminar foto', texto: 'Vas a eliminar esta foto del tema.', onSi: () => { delFoto(t.id, ft.id); setConfirmacion(null); } })} style={{ position: 'absolute', top: 3, right: 3, background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', borderRadius: '50%', width: 18, height: 18, cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
                   </div>
                 ))}
                 <button onClick={() => addFoto(t.id)} style={{ width: 80, height: 60, borderRadius: 9, border: '1.5px dashed #E0DFD9', background: '#FAFAF8', cursor: 'pointer', fontSize: 11, color: '#9B9B97' }}>+ foto</button>
@@ -2661,6 +2661,7 @@ function DetalleIncidencia({ inc, onClose, onActualizar, onEliminar, obraId }) {
   const [editTitulo, setEditTitulo] = useState(false);
   const [titulo,     setTitulo, clearTitulo] = useDraftState(`incTitulo:${inc.id}`, inc.titulo);
   const [editH,      setEditH]      = useState(null); // id de entrada del historial en edición
+  const [confirmH,   setConfirmH]   = useState(null); // id de entrada del historial a eliminar
 
   function guardar() {
     if (!nota.trim() && adjuntos.length === 0 && estado === inc.estado) return;
@@ -2733,6 +2734,7 @@ function DetalleIncidencia({ inc, onClose, onActualizar, onEliminar, obraId }) {
           </div>
         </div>
       )}
+      {confirmH && <ConfirmMini titulo="Eliminar entrada" texto="Vas a eliminar esta entrada del historial. Esta acción no se puede deshacer." onSi={() => { eliminarEntrada(confirmH); setConfirmH(null); }} onNo={() => setConfirmH(null)} />}
 
       <div style={{ flex: 1, overflow: 'auto', padding: '14px 16px' }}>
         {/* Estado */}
@@ -2774,7 +2776,7 @@ function DetalleIncidencia({ inc, onClose, onActualizar, onEliminar, obraId }) {
                   {(h.tipo === 'nota' || h.tipo === 'creacion' || h.tipo === 'cambio_estado') && (
                     <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
                       <button onClick={() => setEditH(h.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#A5A5A0', padding: '0 3px', display: 'inline-flex' }} title="Editar">✏️</button>
-                      <button onClick={() => eliminarEntrada(h.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C4C3BE', fontSize: 15, lineHeight: 1, padding: '0 3px' }} title="Eliminar entrada">×</button>
+                      <button onClick={() => setConfirmH(h.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C4C3BE', fontSize: 15, lineHeight: 1, padding: '0 3px' }} title="Eliminar entrada">×</button>
                     </div>
                   )}
                 </div>
@@ -7008,7 +7010,7 @@ function ModuloActaVO({ obra, onSave }) {
                 <div key={f.id} style={{ position: 'relative', width: isMobile ? 72 : 100, height: isMobile ? 54 : 72 }}>
                   <img src={fotoSrc(f)} alt="" onClick={() => setEditandoFoto({ foto: f, onSave: fn => updFotoUbicacio(ub.id, fn) })}
                     style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 6, display: 'block', cursor: 'pointer' }} />
-                  <button onClick={() => delFotoUbicacio(ub.id, f.id)} style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', borderRadius: '50%', width: 16, height: 16, cursor: 'pointer', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+                  <button onClick={() => setConfirmacion({ titulo: 'Eliminar foto', texto: 'Vas a eliminar esta foto de la ubicación.', onSi: () => { delFotoUbicacio(ub.id, f.id); setConfirmacion(null); } })} style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', borderRadius: '50%', width: 16, height: 16, cursor: 'pointer', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
                 </div>
               ))}
               <button onClick={() => addFotoUbicacio(ub.id)} style={{ width: isMobile ? 72 : 100, height: isMobile ? 54 : 72, borderRadius: 6, border: '1.5px dashed #E0DFD9', background: '#fff', cursor: 'pointer', fontSize: 20, color: '#D0D0CB', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
@@ -7035,7 +7037,7 @@ function ModuloActaVO({ obra, onSave }) {
               placeholder="Descripción del trabajo..." style={{ flex: 1, fontSize: 12.5 }} />
             <input value={tr.porcentaje||''} onChange={e => updTrabajo(tr.id, 'porcentaje', e.target.value.replace(/[^0-9]/g,''))}
               placeholder="%" style={{ width: 52, fontSize: 12.5, textAlign: 'center', flexShrink: 0 }} />
-            <button onClick={() => delTrabajo(tr.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#D4D3CE', fontSize:15, lineHeight:1, flexShrink:0 }}>×</button>
+            <button onClick={() => setConfirmacion({ titulo: 'Eliminar trabajo', texto: `Vas a eliminar "${tr.descripcion||'este trabajo en curso'}".`, onSi: () => { delTrabajo(tr.id); setConfirmacion(null); } })} style={{ background:'none', border:'none', cursor:'pointer', color:'#D4D3CE', fontSize:15, lineHeight:1, flexShrink:0 }}>×</button>
           </div>
         ))}
         <button onClick={addTrabajo}
@@ -7063,7 +7065,7 @@ function ModuloActaVO({ obra, onSave }) {
                   title="Fecha prevista" style={{ width: isMobile?'31%':110, fontSize: 11.5, flexShrink: 0 }} />
                 <input type="date" value={h.fechaReal||''} onChange={e => updHito(grupo, h.id, 'fechaReal', e.target.value)}
                   title="Fecha real" style={{ width: isMobile?'31%':110, fontSize: 11.5, flexShrink: 0 }} />
-                <button onClick={() => delHito(grupo, h.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#D4D3CE', fontSize:15, lineHeight:1, flexShrink:0 }}>×</button>
+                <button onClick={() => setConfirmacion({ titulo: 'Eliminar hito', texto: `Vas a eliminar "${h.descripcion||'este hito'}".`, onSi: () => { delHito(grupo, h.id); setConfirmacion(null); } })} style={{ background:'none', border:'none', cursor:'pointer', color:'#D4D3CE', fontSize:15, lineHeight:1, flexShrink:0 }}>×</button>
               </div>
             ))}
             <button onClick={() => addHito(grupo)}
@@ -7086,7 +7088,7 @@ function ModuloActaVO({ obra, onSave }) {
               <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, color: '#BFBEB9', flexShrink: 0 }}>7.{String(i+1).padStart(2,'0')}</span>
               <input value={c.empresa||''} onChange={e => updContratacion(c.id, 'empresa', e.target.value)}
                 placeholder="Empresa" style={{ flex: 1, fontSize: 12.5, fontWeight: 600 }} />
-              <button onClick={() => delContratacion(c.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#D4D3CE', fontSize:15, lineHeight:1, flexShrink:0 }}>×</button>
+              <button onClick={() => setConfirmacion({ titulo: 'Eliminar contratación', texto: `Vas a eliminar "${c.empresa||'esta contratación'}".`, onSi: () => { delContratacion(c.id); setConfirmacion(null); } })} style={{ background:'none', border:'none', cursor:'pointer', color:'#D4D3CE', fontSize:15, lineHeight:1, flexShrink:0 }}>×</button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', gap: 6 }}>
               <input value={c.nif||''} onChange={e => updContratacion(c.id, 'nif', e.target.value)} placeholder="NIF" style={{ fontSize: 11.5 }} />
@@ -7313,6 +7315,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
   const [editEnt, setEditEnt] = useState(null);
   const [txtEdit, setTxtEdit] = useState('');
   const [confirmFoto, setConfirmFoto] = useState(null);
+  const [confirmDelEntrada, setConfirmDelEntrada] = useState(null); // id de l'entrada a eliminar
   const [openResp, setOpenResp] = useState(null);   // id entrada amb el selector de resp obert
   const [showAdmin, setShowAdmin] = useState(false); // controls poc freqüents
 
@@ -7449,7 +7452,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
                       <span style={{ marginLeft: 'auto', display: 'flex', gap: 2, flexShrink: 0 }}>
                         <button onClick={() => { setEditEnt(en.id); const draft = llegirEsborrany(`voEntText:${en.id}`); setTxtEdit(draft !== null ? draft : en.texto); }} title="Editar texto"
                           style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C3BE', padding:'2px 4px', display: 'inline-flex' }}>✏️</button>
-                        <button onClick={() => onDelEntrada(t.id, en.id)} title="Eliminar seguimiento"
+                        <button onClick={() => setConfirmDelEntrada(en.id)} title="Eliminar seguimiento"
                           style={{ background:'none', border:'none', cursor:'pointer', color:'#D4D3CE', fontSize:15, lineHeight:1, padding:'0 3px' }}>×</button>
                       </span>
                     </div>
@@ -7533,6 +7536,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
         </div>
       )}
       {confirmFoto && <ConfirmMini titulo="Eliminar foto" texto="Vas a eliminar esta foto del seguimiento." onSi={() => { onDelFoto(t.id, confirmFoto.eId, confirmFoto.fId); setConfirmFoto(null); }} onNo={() => setConfirmFoto(null)} />}
+      {confirmDelEntrada && <ConfirmMini titulo="Eliminar seguimiento" texto="Vas a eliminar este punto de seguimiento. Esta acción no se puede deshacer." onSi={() => { onDelEntrada(t.id, confirmDelEntrada); setConfirmDelEntrada(null); }} onNo={() => setConfirmDelEntrada(null)} />}
     </div>
   );
 }
