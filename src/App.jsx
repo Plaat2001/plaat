@@ -7096,6 +7096,16 @@ function ModuloActaVO({ obra, onSave }) {
         {[['esenciales','Plazos esenciales'],['intermedios','Plazos intermedios']].map(([grupo, label]) => (
           <div key={grupo} style={{ marginBottom: 10 }}>
             <div style={{ fontSize: 10.5, fontWeight: 700, color: '#9B9B97', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 5 }}>{label}</div>
+            {((vo.hitos||{})[grupo]||[]).length > 0 && (
+              <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+                {isMobile && <span style={{ width: '100%' }} />}
+                <span style={{ flex: isMobile ? '0 0 0' : 1, minWidth: isMobile ? 0 : 120 }} />
+                <span style={{ width: isMobile?'31%':110, fontSize: 9, fontWeight: 700, color: '#BFBEB9', textAlign: 'center', flexShrink: 0, textTransform: 'uppercase', letterSpacing: '.02em' }}>Planning contractual</span>
+                <span style={{ width: isMobile?'31%':110, fontSize: 9, fontWeight: 700, color: '#BFBEB9', textAlign: 'center', flexShrink: 0, textTransform: 'uppercase', letterSpacing: '.02em' }}>Fecha prevista</span>
+                <span style={{ width: isMobile?'31%':110, fontSize: 9, fontWeight: 700, color: '#BFBEB9', textAlign: 'center', flexShrink: 0, textTransform: 'uppercase', letterSpacing: '.02em' }}>Fecha real</span>
+                <span style={{ width: 15, flexShrink: 0 }} />
+              </div>
+            )}
             {((vo.hitos||{})[grupo]||[]).map((h, i) => (
               <div key={h.id} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 5, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
                 <input value={h.descripcion||''} onChange={e => updHito(grupo, h.id, 'descripcion', e.target.value)}
