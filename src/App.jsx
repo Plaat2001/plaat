@@ -80,6 +80,17 @@ textarea { resize: vertical; min-height: 72px; line-height: 1.5; }
 /* iOS Safari fa zoom automàtic en qualsevol input amb font-size < 16px — ho evitem a tota la app */
 @media (max-width: 768px) {
   input, select, textarea { font-size: 16px !important; }
+  /* El "resize: vertical" natiu no es pot arrossegar amb el dit en mòbil (Safari/Chrome tàctil).
+     Dibuixem una nansa visual a la cantonada inferior dreta; l'arrossegament real el gestiona
+     el listener global de punter a App() (mira "Resize tàctil de textareas" més avall). */
+  textarea {
+    background-image: linear-gradient(135deg, transparent 0 38%, #C8C6C0 38% 46%, transparent 46% 56%, #C8C6C0 56% 64%, transparent 64% 100%);
+    background-size: 14px 14px;
+    background-position: bottom right;
+    background-repeat: no-repeat;
+    padding-bottom: 18px;
+    touch-action: pan-y;
+  }
 }
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -6885,8 +6896,8 @@ function ModuloActaVO({ obra, onSave }) {
         </div>
       </div>
 
-      {/* Data + Fase + lugar */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr', gap: 10, marginBottom: 14 }}>
+      {/* Data + Fase + lugar — a mòbil, una sota l'altra (en 2 columnes es trepitjaven) */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10, marginBottom: 14 }}>
         <Field label="Fecha del acta"><input type="date" value={vo.fechaActa||today()} onChange={e => guardarVO({...vo, fechaActa: e.target.value})} /></Field>
         <Field label="Fase"><input value={vo.fase||''} onChange={e => guardarVO({...vo, fase: e.target.value})} placeholder="Estructura, acabados..." /></Field>
         <Field label="Lugar"><input value={vo.lloc||''} onChange={e => guardarVO({...vo, lloc: e.target.value})} placeholder="Obra / oficina" /></Field>
@@ -9981,6 +9992,39 @@ export default function App() {
     document.addEventListener('visibilitychange', () => { if (document.hidden) abans(); });
     return () => window.removeEventListener('beforeunload', abans);
   }, [obras]);
+
+  // Resize tàctil de textareas: el CSS "resize: vertical" no es pot arrossegar amb el dit en
+  // mòbil, així que detectem el toc a la nansa visual (cantonada inferior dreta, veure CSS)
+  // i ampliem l'alçada a mà. Un únic listener global — no cal tocar cada <textarea> de l'app.
+  useEffect(() => {
+    const NANSA = 28;
+    let resiz = null;
+    const onDown = (e) => {
+      if (e.pointerType !== 'touch') return;
+      const el = e.target;
+      if (!el || el.tagName !== 'TEXTAREA') return;
+      const r = el.getBoundingClientRect();
+      if (e.clientX < r.right - NANSA || e.clientY < r.bottom - NANSA) return;
+      resiz = { el, startY: e.clientY, startH: r.height };
+      e.preventDefault();
+    };
+    const onMove = (e) => {
+      if (!resiz || e.pointerType !== 'touch') return;
+      resiz.el.style.height = Math.max(72, resiz.startH + (e.clientY - resiz.startY)) + 'px';
+      e.preventDefault();
+    };
+    const onUp = () => { resiz = null; };
+    document.addEventListener('pointerdown', onDown, { passive: false });
+    document.addEventListener('pointermove', onMove, { passive: false });
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+    };
+  }, []);
 
   // Estat de connexió i cua de sincronització
   useEffect(() => {
