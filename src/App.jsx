@@ -799,7 +799,7 @@ function MapaObrasModal({ obras, onClose, onSelectObra, onUpdateObra }) {
           {/* Títol — dalt a l'esquerra. En mòbil el recompte per estat NO va centrat dalt (hi
               competia per amplada amb el títol i es solapaven): es posa just a sota, en una
               segona filera, tots dos ancorats a l'esquerra. */}
-          <div style={{ position: 'absolute', top: 16, left: 16, zIndex: 3, display: 'flex', flexDirection: 'column', gap: isMobile ? 8 : 0, maxWidth: isMobile ? 'calc(100vw - 32px)' : 'none' }}>
+          <div style={{ position: 'absolute', top: isMobile ? 'calc(16px + env(safe-area-inset-top))' : 16, left: 16, zIndex: 3, display: 'flex', flexDirection: 'column', gap: isMobile ? 8 : 0, maxWidth: isMobile ? 'calc(100vw - 32px)' : 'none' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <button onClick={onClose} title="Cerrar"
                 style={{ width: 36, height: 36, flexShrink: 0, borderRadius: '50%', border: '1px solid rgba(255,255,255,.2)', background: 'rgba(20,20,18,.75)', color: '#fff', fontSize: 18, lineHeight: 1, cursor: 'pointer', backdropFilter: 'blur(8px)' }}>×</button>
@@ -10700,6 +10700,7 @@ export default function App() {
   const UpdateBanner = () => newVersion ? (
     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
       background: '#1C1C1A', color: '#fff', padding: '10px 18px',
+      paddingTop: 'calc(10px + env(safe-area-inset-top))',
       display: 'flex', alignItems: 'center', gap: 12, fontSize: 13 }}>
       <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 7 }}><Icon name="refresh" size={14} /> Nueva versión de PLAAT disponible</span>
       <button onClick={() => { setNewVersion(false); window.location.reload(); }}
