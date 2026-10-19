@@ -80,17 +80,10 @@ textarea { resize: vertical; min-height: 72px; line-height: 1.5; }
 /* iOS Safari fa zoom automàtic en qualsevol input amb font-size < 16px — ho evitem a tota la app */
 @media (max-width: 768px) {
   input, select, textarea { font-size: 16px !important; }
-  /* El "resize: vertical" natiu no es pot arrossegar amb el dit en mòbil (Safari/Chrome tàctil).
-     Dibuixem una nansa visual a la cantonada inferior dreta; l'arrossegament real el gestiona
-     el listener global de punter a App() (mira "Resize tàctil de textareas" més avall). */
-  textarea {
-    background-image: linear-gradient(135deg, transparent 0 38%, #C8C6C0 38% 46%, transparent 46% 56%, #C8C6C0 56% 64%, transparent 64% 100%);
-    background-size: 14px 14px;
-    background-position: bottom right;
-    background-repeat: no-repeat;
-    padding-bottom: 18px;
-    touch-action: pan-y;
-  }
+  /* El "resize: vertical" natiu no es pot arrossegar amb el dit en mòbil — amaguem la nansa
+     nativa (no funcional) perquè el component TA (veure més avall) hi posa la seva pròpia,
+     sense bloquejar el zoom ni el pan de la pàgina com feia "touch-action: pan-y". */
+  textarea { resize: none; }
 }
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -912,6 +905,43 @@ function Field({ label, children, hint }) {
   );
 }
 
+// Textarea amb nansa de resize real per a mòbil: el "resize: vertical" natiu del CSS
+// no es pot arrossegar amb el dit (Safari/Chrome tàctil no ho suporten), així que en
+// mòbil pintem una nansa pròpia a la cantonada inferior dreta amb "touch-action: none"
+// fixat des del principi — evita la cursa amb el scroll de la pàgina que donava
+// "touch-action: pan-y" sobre tot el textarea (bloquejava el pinch-zoom i desplaçava
+// la pàgina en lloc d'ampliar el quadre).
+function TA({ style, ...props }) {
+  const isMobile = useIsMobile();
+  const taRef = useRef(null);
+  const dragRef = useRef(null);
+
+  const onGripDown = e => {
+    if (!taRef.current) return;
+    dragRef.current = { startY: e.clientY, startH: taRef.current.getBoundingClientRect().height };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    e.preventDefault();
+  };
+  const onGripMove = e => {
+    if (!dragRef.current || !taRef.current) return;
+    taRef.current.style.height = Math.max(72, dragRef.current.startH + (e.clientY - dragRef.current.startY)) + 'px';
+    e.preventDefault();
+  };
+  const onGripUp = () => { dragRef.current = null; };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <textarea ref={taRef} style={style} {...props} />
+      {isMobile && (
+        <div onPointerDown={onGripDown} onPointerMove={onGripMove} onPointerUp={onGripUp} onPointerCancel={onGripUp}
+          style={{ position: 'absolute', right: 2, bottom: 2, width: 26, height: 26, touchAction: 'none', cursor: 'ns-resize', display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', padding: 3 }}>
+          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M11 1 1 11M11 6 6 11" stroke="#BFBEB9" strokeWidth="1.6" strokeLinecap="round" /></svg>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DashedBtn({ children, onClick }) {
   return (
     <button onClick={onClick} style={{ width: '100%', padding: '8px', borderRadius: 8, border: '1.5px dashed #E0DFD9', background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#6B6B66', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, marginTop: 8, transition: 'border-color .15s' }}>
@@ -1560,7 +1590,7 @@ function FormActaInspeccion({ obra, acta, onGuardar, onCerrar, onExportar }) {
             </div>
             <div style={{ padding: '14px' }}>
               <Field label="Descripción detallada">
-                <textarea value={t.descripcion} onChange={e => updTema(t.id,'descripcion',e.target.value)} placeholder="Describe la incidencia, qué se observa, qué se solicita a la EC..." style={{ minHeight: 90 }} />
+                <TA value={t.descripcion} onChange={e => updTema(t.id,'descripcion',e.target.value)} placeholder="Describe la incidencia, qué se observa, qué se solicita a la EC..." style={{ minHeight: 90 }} />
               </Field>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
                 {(t.fotos||[]).map(ft => (
@@ -2148,7 +2178,7 @@ function ModuloInspecciones({ obra, onSave }) {
                     </div>
                     {p.notas !== undefined && (
                       <div style={{ padding: '0 12px 10px', background: '#fff' }}>
-                        <textarea value={p.notas || ''} onChange={e => {
+                        <TA value={p.notas || ''} onChange={e => {
                           const disciplinas = obra.disciplinas.map(d => d.id === disciplinaActiva ? { ...d, puntos: d.puntos.map(pp => pp.id === p.id ? { ...pp, notas: e.target.value } : pp) } : d);
                           onSave({ ...obra, disciplinas });
                         }} placeholder="Notas del punto de control..." style={{ minHeight: 44, fontSize: 12.5 }} />
@@ -2653,7 +2683,7 @@ function FormNuevaIncidencia({ onClose, onCrear, obraId }) {
       {/* Nota */}
       <div style={{ marginBottom: 10 }}>
         <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 4 }}>Nota adicional</label>
-        <textarea placeholder="Ubicación, contexto, a quién se notificará..." value={nota} onChange={e => setNota(e.target.value)} style={{ minHeight: 56 }} />
+        <TA placeholder="Ubicación, contexto, a quién se notificará..." value={nota} onChange={e => setNota(e.target.value)} style={{ minHeight: 56 }} />
       </div>
 
       {/* Estado */}
@@ -2823,7 +2853,7 @@ function DetalleIncidencia({ inc, onClose, onActualizar, onEliminar, obraId }) {
         {/* Añadir actualización */}
         <div style={{ background: '#F9F8F5', borderRadius: 10, padding: '12px 14px', marginTop: 4 }}>
           <div style={{ fontSize: 11, color: '#A5A5A0', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Añadir actualización</div>
-          <textarea placeholder="Nota de seguimiento..." value={nota} onChange={e => setNota(e.target.value)} style={{ marginBottom: 8, minHeight: 64 }} />
+          <TA placeholder="Nota de seguimiento..." value={nota} onChange={e => setNota(e.target.value)} style={{ marginBottom: 8, minHeight: 64 }} />
           {adjuntos.length > 0 && (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
               {adjuntos.map(a => (
@@ -2861,7 +2891,7 @@ function EntradaEditor({ entrada, obraId, onGuardar, onCancelar }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <textarea value={nota} onChange={e => setNota(e.target.value)} style={{ minHeight: 64, fontSize: 13 }} autoFocus />
+      <TA value={nota} onChange={e => setNota(e.target.value)} style={{ minHeight: 64, fontSize: 13 }} autoFocus />
       {/* Fotos actuales */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {adjuntos.map(a => a.tipo === 'imagen' ? (
@@ -2940,7 +2970,7 @@ function ModalRevision({ inc, onSinCambios, onConCambios, onClose, obraId }) {
               {/* Comentario */}
               <div style={{ marginBottom: 12 }}>
                 <label style={{ fontSize: 12, fontWeight: 500, color: '#52524E', display: 'block', marginBottom: 5 }}>Comentario</label>
-                <textarea autoFocus placeholder="Qué ha cambiado, qué se ha hecho..." value={comentario} onChange={e => setComentario(e.target.value)} style={{ minHeight: 70 }} />
+                <TA autoFocus placeholder="Qué ha cambiado, qué se ha hecho..." value={comentario} onChange={e => setComentario(e.target.value)} style={{ minHeight: 70 }} />
               </div>
 
               {/* Adjuntos */}
@@ -3276,7 +3306,7 @@ function ModuloApuntes({ obra, onSave }) {
           </div>
 
           <div style={{ marginBottom: 10 }}>
-            <textarea autoFocus placeholder={form.tipo === 'tarea' ? 'Descripción de la tarea...' : 'Escribe tu nota...'} value={texto} onChange={e => setTexto(e.target.value)} style={{ minHeight: 70 }} />
+            <TA autoFocus placeholder={form.tipo === 'tarea' ? 'Descripción de la tarea...' : 'Escribe tu nota...'} value={texto} onChange={e => setTexto(e.target.value)} style={{ minHeight: 70 }} />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: form.tipo === 'tarea' ? '1fr 1fr' : '1fr', gap: 10, marginBottom: 12 }}>
@@ -3355,7 +3385,7 @@ function ApunteItem({ item, vencida, onToggleHecha, onEditarTexto, onAddComentar
         <div style={{ flex: 1, minWidth: 0 }}>
           {editando ? (
             <div style={{ marginBottom: 6 }}>
-              <textarea autoFocus value={txt} onChange={e => setTxt(e.target.value)} style={{ minHeight: 60, marginBottom: 6 }} />
+              <TA autoFocus value={txt} onChange={e => setTxt(e.target.value)} style={{ minHeight: 60, marginBottom: 6 }} />
               <div style={{ display: 'flex', gap: 6 }}>
                 <Btn sm primary disabled={!txt.trim()} onClick={() => { onEditarTexto(txt.trim()); clearTxt(); setEditando(false); }}>Guardar</Btn>
                 <Btn sm onClick={() => { setTxt(item.texto); setEditando(false); }}>✕</Btn>
@@ -3770,7 +3800,7 @@ function UnidadesNombradas({ ensayo, onUpdate, onPreview }) {
                     <button key={k} onClick={() => setResultado(k)} style={{ padding: '6px 12px', borderRadius: 20, border: `1.5px solid ${resultado === k ? v.color : '#E0DFD9'}`, background: resultado === k ? v.bg : 'transparent', color: resultado === k ? v.color : '#6B6B66', fontSize: 12, cursor: 'pointer', fontWeight: resultado === k ? 600 : 400 }}>{v.label}</button>
                   ))}
                 </div>
-                <textarea placeholder="Comentario, nº de acta, observaciones..." value={comentario} onChange={e => canviarComentari(e.target.value)} style={{ marginBottom: 8, minHeight: 48 }} />
+                <TA placeholder="Comentario, nº de acta, observaciones..." value={comentario} onChange={e => canviarComentari(e.target.value)} style={{ marginBottom: 8, minHeight: 48 }} />
                 {adjuntos.length > 0 && (
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
                     {adjuntos.map(a => (
@@ -3886,7 +3916,7 @@ function RegistrosLibres({ ensayo, onUpdate, onPreview }) {
               <button key={k} onClick={() => setResultado(k)} style={{ padding: '6px 12px', borderRadius: 20, border: `1.5px solid ${resultado === k ? v.color : '#E0DFD9'}`, background: resultado === k ? v.bg : 'transparent', color: resultado === k ? v.color : '#6B6B66', fontSize: 12, cursor: 'pointer', fontWeight: resultado === k ? 600 : 400 }}>{v.label}</button>
             ))}
           </div>
-          <textarea placeholder="Nº de acta, laboratorio, observaciones..." value={comentario} onChange={e => setComentario(e.target.value)} style={{ marginBottom: 8, minHeight: 56 }} />
+          <TA placeholder="Nº de acta, laboratorio, observaciones..." value={comentario} onChange={e => setComentario(e.target.value)} style={{ marginBottom: 8, minHeight: 56 }} />
           {adjuntos.length > 0 && (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
               {adjuntos.map(a => (
@@ -7044,7 +7074,7 @@ function ModuloActaVO({ obra, onSave }) {
         <div style={{ fontSize: 12, fontWeight: 700, color: '#141412', letterSpacing: '0.02em', marginBottom: 8 }}>
           <span style={{ color: '#52524E', marginRight: 10 }}>0</span>ESTADO DE LA OBRA
         </div>
-        <textarea placeholder="Describe brevemente el estado general de la obra en esta visita..." value={vo.estadoObra?.descripcion||''} onChange={e => updEstado('descripcion', e.target.value)} style={{ minHeight: 64, marginBottom: 10 }} />
+        <TA placeholder="Describe brevemente el estado general de la obra en esta visita..." value={vo.estadoObra?.descripcion||''} onChange={e => updEstado('descripcion', e.target.value)} style={{ minHeight: 64, marginBottom: 10 }} />
         {/* Ubicacions amb fotos */}
         {(vo.estadoObra?.ubicacions||[]).map(ub => (
           <div key={ub.id} style={{ marginBottom: 10, background: '#F9F8F5', borderRadius: 8, padding: '8px 10px' }}>
@@ -7555,8 +7585,8 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
                     {/* Text del seguiment — el contingut mana */}
                     {editant ? (
                       <div>
-                        <textarea autoFocus value={txtEdit} onChange={ev => { setTxtEdit(ev.target.value); desarEsborrany(`voEntText:${en.id}`, ev.target.value); }}
-                          style={{ minHeight: isMobile ? 120 : 96, fontSize: 13, lineHeight: 1.65, resize: 'vertical', marginBottom: 7 }} />
+                        <TA autoFocus value={txtEdit} onChange={ev => { setTxtEdit(ev.target.value); desarEsborrany(`voEntText:${en.id}`, ev.target.value); }}
+                          style={{ minHeight: isMobile ? 120 : 96, fontSize: 13, lineHeight: 1.65, marginBottom: 7 }} />
                         <div style={{ display: 'flex', gap: 6 }}>
                           <Btn sm primary onClick={() => { onUpdEntrada(t.id, en.id, 'texto', txtEdit.trim()); esborrarEsborrany(`voEntText:${en.id}`); setEditEnt(null); }}>Guardar</Btn>
                           <Btn sm onClick={() => setEditEnt(null)}>Cancelar</Btn>
@@ -7662,8 +7692,8 @@ function QuickAddTema({ secciones, obraId, fechaDefault, onAdd, onCancel }) {
       </Field>
 
       <Field label="Descripción / primer seguimiento">
-        <textarea value={texto} onChange={e => setTexto(e.target.value)}
-          placeholder="Qué se ha observado..." style={{ minHeight: isMobile ? 100 : 80, fontSize: 13, lineHeight: 1.6, resize: 'vertical' }} />
+        <TA value={texto} onChange={e => setTexto(e.target.value)}
+          placeholder="Qué se ha observado..." style={{ minHeight: isMobile ? 100 : 80, fontSize: 13, lineHeight: 1.6 }} />
       </Field>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 13 }}>
@@ -7750,9 +7780,9 @@ function NuevaEntrada({ onAdd, draftKey }) {
     <div className="fade" style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
       <div style={{ width: 3, borderRadius: 2, background: '#D8D7D1', flexShrink: 0 }} />
       <div style={{ flex: 1 }}>
-        <textarea autoFocus value={txt} onChange={e => setTxt(e.target.value)}
+        <TA autoFocus value={txt} onChange={e => setTxt(e.target.value)}
           placeholder="Qué se ha tratado en esta visita…"
-          style={{ minHeight: isMobile ? 120 : 96, fontSize: 13, lineHeight: 1.65, resize: 'vertical', marginBottom: 7 }} />
+          style={{ minHeight: isMobile ? 120 : 96, fontSize: 13, lineHeight: 1.65, marginBottom: 7 }} />
         <div style={{ display: 'flex', gap: 6 }}>
           <Btn sm primary disabled={!txt.trim()} onClick={() => { onAdd(txt); clearTxt(); setOpen(false); }}>Añadir seguimiento</Btn>
           <Btn sm onClick={() => { clearTxt(); setOpen(false); }}>Cancelar</Btn>
@@ -9636,7 +9666,7 @@ function FormSeguimiento({ punto, obras, nextNum, onGuardar, onCerrar, isMobile 
 
         {/* TEMA — lo más importante, primero y grande */}
         <Field label="Tema tratado *">
-          <textarea value={tema} onChange={e => setTema(e.target.value)}
+          <TA value={tema} onChange={e => setTema(e.target.value)}
             placeholder="Describe el punto de acción o tema tratado..."
             style={{ minHeight: isMobile?120:100, fontSize: isMobile?15:14 }} autoFocus />
         </Field>
@@ -9992,39 +10022,6 @@ export default function App() {
     document.addEventListener('visibilitychange', () => { if (document.hidden) abans(); });
     return () => window.removeEventListener('beforeunload', abans);
   }, [obras]);
-
-  // Resize tàctil de textareas: el CSS "resize: vertical" no es pot arrossegar amb el dit en
-  // mòbil, així que detectem el toc a la nansa visual (cantonada inferior dreta, veure CSS)
-  // i ampliem l'alçada a mà. Un únic listener global — no cal tocar cada <textarea> de l'app.
-  useEffect(() => {
-    const NANSA = 28;
-    let resiz = null;
-    const onDown = (e) => {
-      if (e.pointerType !== 'touch') return;
-      const el = e.target;
-      if (!el || el.tagName !== 'TEXTAREA') return;
-      const r = el.getBoundingClientRect();
-      if (e.clientX < r.right - NANSA || e.clientY < r.bottom - NANSA) return;
-      resiz = { el, startY: e.clientY, startH: r.height };
-      e.preventDefault();
-    };
-    const onMove = (e) => {
-      if (!resiz || e.pointerType !== 'touch') return;
-      resiz.el.style.height = Math.max(72, resiz.startH + (e.clientY - resiz.startY)) + 'px';
-      e.preventDefault();
-    };
-    const onUp = () => { resiz = null; };
-    document.addEventListener('pointerdown', onDown, { passive: false });
-    document.addEventListener('pointermove', onMove, { passive: false });
-    document.addEventListener('pointerup', onUp);
-    document.addEventListener('pointercancel', onUp);
-    return () => {
-      document.removeEventListener('pointerdown', onDown);
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
-      document.removeEventListener('pointercancel', onUp);
-    };
-  }, []);
 
   // Estat de connexió i cua de sincronització
   useEffect(() => {
