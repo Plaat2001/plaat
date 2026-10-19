@@ -4514,7 +4514,17 @@ function extraerTablaRoturas(texto) {
     tension: parseFloat(m[6].replace(',', '.')),
   })).filter(f => Number.isFinite(f.edad) && Number.isFinite(f.tension));
 
-  const filas = filasEptisa.length ? filasEptisa : filasGenerico;
+  // Formato SOCOTEC: fila más corta que las anteriores — "Edad  Data  Càrrega(kN)  Tensió(N/mm²)",
+  // sin la columna extra que exigen filaRe/filaEptisaRe (por eso ninguna de las dos reconoce
+  // sus filas). La càrrega se consume sin capturar: solo interesan edad, fecha y tensión.
+  const filaSocotecRe = /(\d{1,2})\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+\d{1,4}(?:[.,]\d{1,2})?\s+(\d{1,3}[.,]\d{1,2})/g;
+  const filasSocotec = [...zona.matchAll(filaSocotecRe)].map(m => ({
+    edad: parseInt(m[1], 10),
+    fecha: m[2],
+    tension: parseFloat(m[3].replace(',', '.')),
+  })).filter(f => Number.isFinite(f.edad) && Number.isFinite(f.tension));
+
+  const filas = filasEptisa.length ? filasEptisa : (filasGenerico.length ? filasGenerico : filasSocotec);
   if (!filas.length) return null;
 
   const grupos = {};
@@ -4546,8 +4556,10 @@ function extraerDatosActa(textoOriginal) {
   const t = textoOriginal.replace(/\s+/g, ' ');
   const datos = { numActa: '', refAlbaran: '', fechaHormigonado: '', resistencia7: '', resistencia28a: '', resistencia28b: '', resistencia56: '', designacion: '', localizacion: '' };
 
-  const mDes = t.match(/HA-\d{2}\s*\/\s*[A-Z]\s*\/\s*\d{1,2}\s*\/\s*[A-Za-z0-9+]{1,6}/i)
-            || t.match(/HA-\d{2}(?:\s*\/\s*[A-Za-z0-9+]{1,6}){0,3}/i);
+  // SOCOTEC mete un espacio entre "HA" y el guión del campo de designación ("HA -30/L/22/XC2+XA1")
+  // porque el "HA" es texto fijo de la plantilla y el resto es lo que ha tecleado el laboratorio.
+  const mDes = t.match(/HA\s*-\s*\d{2}\s*\/\s*[A-Z]\s*\/\s*\d{1,2}\s*\/\s*[A-Za-z0-9+]{1,6}/i)
+            || t.match(/HA\s*-\s*\d{2}(?:\s*\/\s*[A-Za-z0-9+]{1,6}){0,3}/i);
   if (mDes) datos.designacion = mDes[0].toUpperCase().replace(/\s+/g, '');
 
   // Localización de la muestra: cada laboratorio la marca de forma distinta, así que
@@ -4564,6 +4576,12 @@ function extraerDatosActa(textoOriginal) {
   const mLocTpf = t.match(/\d{5}-[A-ZÀ-Úa-zà-ú]+\s+([A-ZÀ-ÚÑ0-9][^.]{4,160})\.\s*Los ensayos comprendidos/);
   const mLocLabocat = t.match(/LOCALITZACIO\s*:?\s*([^.]{4,160}?)\s+[A-ZÀ-Úa-zà-ú]+,\s*a\s*\d{1,2}\/\d{1,2}\/\d{2,4}/i);
   const mLocEptisa = t.match(/\d{5}\s+[A-ZÀ-Úa-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)*\s*\([A-ZÀ-Úa-zà-ú\s]+\)\s+([\s\S]{3,400}?)\s+\S+@eptisa\.com/i);
+  // SOCOTEC: también es un AcroForm (etiquetas y valores desordenados, como EPTISA), pero sin
+  // ancla de email. El campo "ELEMENT FORMIGONAT" aparece justo después del texto fijo "KG./M3"
+  // del bloque de dosificación, y justo antes del valor de "Tipus de vehicle" (que siempre
+  // empieza con mayúscula seguida de minúscula, p.ej. "Camión hormigonera" — a diferencia de la
+  // localización, que el laboratorio escribe en mayúsculas).
+  const mLocSocotec = t.match(/KG\.?\s*\/\s*M3\s+([A-ZÀ-ÚÑ0-9][A-ZÀ-ÚÑ0-9\s\-\/.,]{1,100}?)\s+[A-ZÀ-Ú][a-zà-ú]/);
   if (mLocTpf) datos.localizacion = mLocTpf[1].trim();
   else if (mLocLabocat) datos.localizacion = mLocLabocat[1].trim();
   else if (mLocEptisa) {
@@ -4571,6 +4589,7 @@ function extraerDatosActa(textoOriginal) {
     const idxParen = bloque.lastIndexOf('(');
     datos.localizacion = (idxParen > bloque.length * 0.4 ? bloque.slice(idxParen) : bloque).trim();
   }
+  else if (mLocSocotec) datos.localizacion = mLocSocotec[1].trim();
 
   // Cabecera "ALBARÁN Nº / MUESTRA Nº / ACTA OBRA Nº / ACTA Nº / FECHA ACTA" (formato TPF
   // Getinsa) — se reconoce por la FORMA de cada valor (no por estar junto a su etiqueta: en
@@ -4590,6 +4609,13 @@ function extraerDatosActa(textoOriginal) {
       // probeta en este formato. Aparece junto al Nº de trabajo y la Clave, en ese orden.
       const mEptisa = t.match(/\b([A-Z]{2,8}\d{5,10})\s+(\d{4,6})\s+([A-Z0-9]{6,20}-\d{1,6})\b/);
       if (mEptisa) datos.refAlbaran = mEptisa[1];
+    } else {
+      // Formato SOCOTEC: cabecera "DATA D'ACTA / Nº ACTA / ACTA OBRA Nº / Nº ALBARAN / Nº REGISTRE".
+      // Al ser un AcroForm, la etiqueta "Nº ALBARAN" aparece intercalada DENTRO de la fila de
+      // valores (entre la 3ª y la 4ª); el Nº d'acta se guarda sin el prefijo de año ("2025/60727"
+      // → "60727", que es como lo nombra el propio laboratorio en el nombre del PDF).
+      const mSocotec = t.match(/\d{1,2}\/\d{1,2}\/\d{4}\s+\d{4}\/(\d{1,6})\s+\d{1,3}\s+(?:N[ºo]\.?\s*ALBARAN\s+)?([A-Z]{1,6}\d{4,10})\s+[A-Z0-9.\/]+/i);
+      if (mSocotec) { datos.numActa = mSocotec[1]; datos.refAlbaran = mSocotec[2]; }
     }
   }
 
