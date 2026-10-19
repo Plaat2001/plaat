@@ -9859,7 +9859,7 @@ function DetalleObra({ obra, onBack, onSave, onFlush, isMobile, user, tabInicial
       </div>
 
       {/* Contenido */}
-      <div style={{ flex: 1, overflow: 'auto', padding: pad, background: '#F2F1ED', minHeight: 0 }}>
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: pad, background: '#F2F1ED', minHeight: 0 }}>
         <div key={tab} className="fade">
           {tab === 'inspecciones' && <ModuloInspecciones obra={obra} onSave={onSave} />}
           {tab === 'incidencias'  && <ModuloIncidencias  obra={obra} onSave={onSave} />}
