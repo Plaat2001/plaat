@@ -7440,10 +7440,14 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
                       <input type="date" value={en.fecha||''} onChange={ev => onUpdEntrada(t.id, en.id, 'fecha', ev.target.value)}
                         title="Fecha de inicio de este seguimiento"
                         style={{ ...NUM, width: 'auto', fontSize: 11, color: '#52524E', fontWeight: 500, padding: '2px 5px', borderRadius: 5, border: '1px solid #E5E4DF' }} />
-                      <span style={{ fontSize: 11, color: '#C4C3BE' }}>→</span>
-                      <input type="date" value={en.fin||''} onChange={ev => onUpdEntrada(t.id, en.id, 'fin', ev.target.value)}
-                        title="Fecha de fin de este seguimiento"
-                        style={{ ...NUM, width: 'auto', fontSize: 11, color: '#52524E', fontWeight: 500, padding: '2px 5px', borderRadius: 5, border: '1px solid #E5E4DF' }} />
+                      {en.estado === 'R' && (
+                        <>
+                          <span style={{ fontSize: 11, color: '#C4C3BE' }}>→</span>
+                          <input type="date" value={en.fin||''} onChange={ev => onUpdEntrada(t.id, en.id, 'fin', ev.target.value)}
+                            title="Fecha de fin de este seguimiento"
+                            style={{ ...NUM, width: 'auto', fontSize: 11, color: '#52524E', fontWeight: 500, padding: '2px 5px', borderRadius: 5, border: '1px solid #E5E4DF' }} />
+                        </>
+                      )}
                       <button onClick={() => onUpdEntrada(t.id, en.id, 'nueva', !esNueva)}
                         title={esNueva ? 'Marcado como Nueva — haz clic para desmarcar' : 'Marcar como Nueva (saldrá en blanco y negrita en el PDF)'}
                         style={{ fontSize: 9.5, padding: '1px 6px', borderRadius: 4, cursor: 'pointer',
@@ -8859,7 +8863,7 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
           doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(0,0,0);
           const iniciFiY = ey + 3 + e.lh*0.8 + titolH;
           doc.text(e.en.fecha ? fmtFechaCorta(e.en.fecha) : '', ML+cNum+cDesc+cEs+cIni/2, iniciFiY, { align:'center', baseline:'middle' });
-          doc.text(e.en.fin ? fmtFechaCorta(e.en.fin) : '', ML+cNum+cDesc+cEs+cIni+cFi/2, iniciFiY, { align:'center', baseline:'middle' });
+          doc.text(e.en.estado === 'R' && e.en.fin ? fmtFechaCorta(e.en.fin) : '', ML+cNum+cDesc+cEs+cIni+cFi/2, iniciFiY, { align:'center', baseline:'middle' });
           // Responsable — independent per punt de seguiment, alineat amb la primera línia del seu propi text
           if (e.resps.length) {
             doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(0,0,0);
