@@ -7542,7 +7542,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
                         title="Cambiar estado"
                         style={{ fontSize: 9.5, padding: '1px 6px', borderRadius: 4, cursor: 'pointer',
                           border: `1px solid ${e.color}35`, background: e.bg, color: e.color, fontWeight: 700, letterSpacing: '.04em' }}>
-                        {en.estado}
+                        {e.label}
                       </button>
 
                       {/* Responsables: només els triats + botó per obrir */}
