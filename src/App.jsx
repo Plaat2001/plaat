@@ -6822,11 +6822,12 @@ function ModuloActaVO({ obra, onSave }) {
 
   return (
     <div>
-      {/* Capçalera + navegació — sticky: sempre a l'abast, encara que baixis molt avall.
+      {/* Capçalera + navegació — sticky NOMÉS a escriptori (sempre a l'abast encara que baixis
+          molt avall); en mòbil es treu perquè ocupava massa pantalla en permanència.
           NOMÉS marge negatiu horitzontal (segur); el vertical es treu perquè amb sticky
           desquadrava la reserva d'espai en el flux i solapava el que ve després. */}
       <div style={{
-        position: 'sticky', top: 0, zIndex: 20,
+        position: isMobile ? 'static' : 'sticky', top: 0, zIndex: 20,
         marginLeft: isMobile ? -14 : -22,
         marginRight: isMobile ? -14 : -22,
         paddingLeft: isMobile ? 14 : 22,
