@@ -7416,6 +7416,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
   const [confirmFoto, setConfirmFoto] = useState(null);
   const [confirmDelEntrada, setConfirmDelEntrada] = useState(null); // id de l'entrada a eliminar
   const [openResp, setOpenResp] = useState(null);   // id entrada amb el selector de resp obert
+  const [openEstado, setOpenEstado] = useState(null); // id entrada amb el selector d'estado obert
   const [showAdmin, setShowAdmin] = useState(false); // controls poc freqüents
 
   const ult = t.entradas[t.entradas.length - 1] || { texto: '', nueva: false, estado: 'P' };
@@ -7534,10 +7535,12 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
                           color: esNueva ? '#6B6B66' : '#C4C3BE', fontWeight: 700, letterSpacing: '.04em' }}>
                         N
                       </button>
-                      <select value={en.estado} onChange={ev => onUpdEntrada(t.id, en.id, 'estado', ev.target.value)}
-                        style={{ width: 'auto', fontSize: 11, padding: '2px 5px', borderRadius: 5, border: `1px solid ${e.color}35`, background: e.bg, color: e.color, fontWeight: 600 }}>
-                        {Object.entries(ESTADOS_VO).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                      </select>
+                      <button onClick={() => setOpenEstado(openEstado === en.id ? null : en.id)}
+                        title="Cambiar estado"
+                        style={{ fontSize: 9.5, padding: '1px 6px', borderRadius: 4, cursor: 'pointer',
+                          border: `1px solid ${e.color}35`, background: e.bg, color: e.color, fontWeight: 700, letterSpacing: '.04em' }}>
+                        {en.estado}
+                      </button>
 
                       {/* Responsables: només els triats + botó per obrir */}
                       {resps.map(r => (
@@ -7580,6 +7583,19 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
                                 border: `1px solid ${actiu?'#1C1C1A':'#E5E4DF'}`, background: actiu?'#1C1C1A':'#fff', color: actiu?'#fff':'#6B6B66', cursor:'pointer' }}>{r}</button>
                           );
                         })}
+                      </div>
+                    )}
+
+                    {/* Selector d'estado desplegat */}
+                    {openEstado === en.id && (
+                      <div className="fade" style={{ display: 'flex', gap: 4, padding: '7px 8px', background: '#FAFAF8', borderRadius: 7, marginBottom: 6 }}>
+                        {Object.entries(ESTADOS_VO).map(([k, v]) => (
+                          <button key={k} onClick={() => { onUpdEntrada(t.id, en.id, 'estado', k); setOpenEstado(null); }}
+                            style={{ padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: en.estado===k?700:500, cursor: 'pointer',
+                              border: `1px solid ${en.estado===k?v.color:'#E5E4DF'}`, background: en.estado===k?v.bg:'#fff', color: en.estado===k?v.color:'#6B6B66' }}>
+                            {v.label}
+                          </button>
+                        ))}
                       </div>
                     )}
 
