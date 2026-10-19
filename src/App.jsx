@@ -63,8 +63,11 @@ const CSS = `
 @font-face { font-family: 'Satoshi'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/Satoshi-Medium.woff2') format('woff2'); }
 @font-face { font-family: 'Satoshi'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/Satoshi-Bold.woff2') format('woff2'); }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+/* Evita que cap element que sobresurti per 1-2px arrossegui tota la pàgina lateralment en mòbil */
+html, body { overflow-x: hidden; max-width: 100vw; }
 html { -webkit-text-size-adjust: 100%; }
 body { font-family: 'Satoshi', -apple-system, BlinkMacSystemFont, sans-serif; background: #F7F6F3; color: #16160F; font-size: 14px; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+#root { overflow-x: hidden; max-width: 100vw; }
 button, input, select, textarea { font-family: inherit; }
 input, select, textarea {
   display: block; width: 100%; padding: 10px 13px;
