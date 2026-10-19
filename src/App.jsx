@@ -7538,12 +7538,19 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
                           color: esNueva ? '#6B6B66' : '#C4C3BE', fontWeight: 700, letterSpacing: '.04em' }}>
                         N
                       </button>
-                      <button onClick={() => setOpenEstado(openEstado === en.id ? null : en.id)}
-                        title="Cambiar estado"
-                        style={{ fontSize: 9.5, padding: '1px 6px', borderRadius: 4, cursor: 'pointer',
-                          border: `1px solid ${e.color}35`, background: e.bg, color: e.color, fontWeight: 700, letterSpacing: '.04em' }}>
-                        {e.label}
-                      </button>
+                      {isMobile ? (
+                        <button onClick={() => setOpenEstado(openEstado === en.id ? null : en.id)}
+                          title="Cambiar estado"
+                          style={{ fontSize: 9.5, padding: '1px 6px', borderRadius: 4, cursor: 'pointer',
+                            border: `1px solid ${e.color}35`, background: e.bg, color: e.color, fontWeight: 700, letterSpacing: '.04em' }}>
+                          {e.label}
+                        </button>
+                      ) : (
+                        <select value={en.estado} onChange={ev => onUpdEntrada(t.id, en.id, 'estado', ev.target.value)}
+                          style={{ width: 'auto', fontSize: 11, padding: '2px 5px', borderRadius: 5, border: `1px solid ${e.color}35`, background: e.bg, color: e.color, fontWeight: 600 }}>
+                          {Object.entries(ESTADOS_VO).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                        </select>
+                      )}
 
                       {/* Responsables: només els triats + botó per obrir */}
                       {resps.map(r => (
