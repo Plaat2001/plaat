@@ -7227,6 +7227,7 @@ function ModuloActaVO({ obra, onSave }) {
             {seccionsFiltrades.map(({ sec, activos, visibles }) => {
               if (busq && visibles.length === 0) return null;
               const pendents = activos.filter(t => estatAgregatTema(t) === 'P').length;
+              const porRevisar = activos.reduce((acc, t) => acc + (t.entradas||[]).filter(en => en.revisar).length, 0);
               const colapsada = busq ? false : !!seccColapsades[sec.id];
               return (
                 <div key={sec.id} style={{ marginBottom: 16 }}>
@@ -7241,6 +7242,11 @@ function ModuloActaVO({ obra, onSave }) {
                       : <span onClick={() => setSeccColapsades(s => ({ ...s, [sec.id]: !s[sec.id] }))} style={{ fontSize: 12, fontWeight: 600, color: '#141412', flex: 1, cursor: 'pointer' }}>{sec.titulo}</span>}
                     {!editandoSec && <button onClick={() => setEditandoSec(sec.id)} title="Editar" style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C3BE', padding:'0 2px', flexShrink:0, display: 'inline-flex' }}>✏️</button>}
                     {pendents > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, color: '#7C4A00', background: '#FEF3DB', borderRadius: 10, padding: '1px 7px' }}>{pendents}</span>}
+                    {porRevisar > 0 && (
+                      <span title="Seguimientos marcados para revisar en esta sección" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, fontWeight: 700, color: '#C47610', background: '#FEF3DB', borderRadius: 10, padding: '1px 7px' }}>
+                        <Icon name="warning" size={10} />{porRevisar}
+                      </span>
+                    )}
                     <span style={{ fontSize: 11, color: '#A5A5A0' }}>{busq ? `${visibles.length}/${activos.length}` : activos.length}</span>
                     <button onClick={() => setBorrar({ tipo: 'seccion', id: sec.id, label: sec.titulo })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 15, lineHeight: 1 }}>×</button>
                   </div>
@@ -7385,6 +7391,9 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
             </span>
           )}
 
+          {t.entradas.some(en => en.revisar) && (
+            <Icon name="warning" size={13} title="Tiene seguimientos marcados para revisar" style={{ color: '#C47610', flexShrink: 0 }} />
+          )}
           {ultEsNueva
             ? <Pill label="Nueva" bg="#F2F1ED" color="#52524E" />
             : <Pill label={est.label} bg={est.bg} color={est.color} />}
@@ -7418,6 +7427,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
               const editant = editEnt === en.id;
 
               const oculta = !!en.oculta;
+              const revisar = !!en.revisar;
 
               return (
                 <div key={en.id} style={{ display: 'flex', gap: 10, marginBottom: 14, opacity: oculta ? .45 : 1 }}>
@@ -7462,6 +7472,11 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
                         title={oculta ? 'Oculto en el PDF — haz clic para volver a mostrarlo' : 'Ocultar este seguimiento en el PDF'}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: oculta ? '#B8860B' : '#C4C3BE', padding: '2px 4px', display: 'inline-flex' }}>
                         <Icon name={oculta ? 'eyeOff' : 'eye'} size={13} />
+                      </button>
+                      <button onClick={() => onUpdEntrada(t.id, en.id, 'revisar', !revisar)}
+                        title={revisar ? 'Marcado para revisar — haz clic para desmarcar' : 'Marcar para revisar (recordatorio: falta completar, revisar o añadir algo a este punto)'}
+                        style={{ background: revisar ? '#FEF3DB' : 'none', border: 'none', borderRadius: 4, cursor: 'pointer', color: revisar ? '#C47610' : '#C4C3BE', padding: '2px 4px', display: 'inline-flex' }}>
+                        <Icon name="warning" size={13} />
                       </button>
 
                       <span style={{ marginLeft: 'auto', display: 'flex', gap: 2, flexShrink: 0 }}>
