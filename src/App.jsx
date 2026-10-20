@@ -6472,7 +6472,8 @@ function ModuloActaVO({ obra, onSave }) {
     const entrades = (texto || extra.fotos?.length)
       ? [{ id: uid(), texto: (texto||'').trim(), estado: extra.estado || 'P', fecha: extra.fecha || vo.fechaActa, fin: '', resp: extra.resp || [], fotos: extra.fotos || [], nueva: extra.nueva !== undefined ? extra.nueva : true }]
       : [];
-    const tema = { id: uid(), num: nextNum(sec), titulo: titulo.trim(), resuelto: false, resueltoEnActa: null, entradas: entrades };
+    const num = (extra.num||'').trim() || nextNum(sec);
+    const tema = { id: uid(), num, titulo: titulo.trim(), resuelto: false, resueltoEnActa: null, entradas: entrades };
     guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: [...(s.temas||[]), tema] }) });
     // Un tema creat des d'una acta antiga també es propaga endavant (a l'acta viva i a
     // les versions posteriors), col·locat per data entre els temes ja existents a cada destí.
@@ -7369,6 +7370,7 @@ function ModuloActaVO({ obra, onSave }) {
           secciones={vo.secciones||[]}
           obraId={obra?.id}
           fechaDefault={vo.fechaActa}
+          nextNum={nextNum}
           onAdd={(secId, dades) => { addTema(secId, dades.titulo, dades.texto, dades); setShowQuickAdd(false); }}
           onCancel={() => setShowQuickAdd(false)}
         />
@@ -7681,7 +7683,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
 
 // Captura ràpida: tria secció + títol, sense haver de navegar-hi
 // Formulari complet per crear un tema nou — secció, títol, text, estat, responsable i fotos
-function QuickAddTema({ secciones, obraId, fechaDefault, onAdd, onCancel }) {
+function QuickAddTema({ secciones, obraId, fechaDefault, nextNum, onAdd, onCancel }) {
   const isMobile = useIsMobile();
   const [secId, setSecId] = useState(secciones[0]?.id || '');
   const [titulo, setTitulo, clearTitulo] = useDraftState(`quickAddTemaTitulo:${obraId}`, '');
@@ -7693,6 +7695,14 @@ function QuickAddTema({ secciones, obraId, fechaDefault, onAdd, onCancel }) {
   const [editandoFoto, setEditandoFoto] = useState(null);
   const [fecha, setFecha] = useState(fechaDefault || '');
   const [esNueva, setEsNueva] = useState(true);
+  // Número de tema: es proposa el següent lliure de la secció, però es pot sobreescriure
+  // a mà (per exemple per encaixar-lo entre temes d'una acta antiga) — deixa de recalcular-se
+  // en tocar la secció un cop l'usuari l'ha editat.
+  const [numTema, setNumTema] = useState(() => nextNum(secciones.find(s => s.id === secId)));
+  const [numTocado, setNumTocado] = useState(false);
+  useEffect(() => {
+    if (!numTocado) setNumTema(nextNum(secciones.find(s => s.id === secId)));
+  }, [secId]);
 
   function afegirFotos() {
     setPujantFoto(true);
@@ -7704,14 +7714,25 @@ function QuickAddTema({ secciones, obraId, fechaDefault, onAdd, onCancel }) {
     <Modal title="Nuevo tema" onClose={onCancel} footer={
       <>
         <Btn onClick={onCancel}>Cancelar</Btn>
-        <Btn primary disabled={!titulo.trim()} onClick={() => { onAdd(secId, { titulo: titulo.trim(), texto: texto.trim(), estado, resp, fotos, fecha, nueva: esNueva }); clearTitulo(); clearTexto(); }}>Añadir tema</Btn>
+        <Btn primary disabled={!titulo.trim()} onClick={() => { onAdd(secId, { titulo: titulo.trim(), texto: texto.trim(), estado, resp, fotos, fecha, nueva: esNueva, num: numTema.trim() }); clearTitulo(); clearTexto(); }}>Añadir tema</Btn>
       </>
     }>
-      <Field label="Sección">
-        <select value={secId} onChange={e => setSecId(e.target.value)}>
-          {secciones.map(s => <option key={s.id} value={s.id}>{s.codigo} · {s.titulo}</option>)}
-        </select>
-      </Field>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 13 }}>
+        <div style={{ flex: 1 }}>
+          <Field label="Sección">
+            <select value={secId} onChange={e => setSecId(e.target.value)}>
+              {secciones.map(s => <option key={s.id} value={s.id}>{s.codigo} · {s.titulo}</option>)}
+            </select>
+          </Field>
+        </div>
+        <div>
+          <Field label="Número">
+            <input value={numTema} onChange={e => { setNumTema(e.target.value); setNumTocado(true); }}
+              title="Número del tema — por defecto el siguiente libre de la sección, editable"
+              style={{ width: 70, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }} />
+          </Field>
+        </div>
+      </div>
 
       <Field label="Título del tema">
         <input autoFocus={!isMobile} value={titulo} onChange={e => setTitulo(e.target.value)}
