@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, memo, forwardRef } from "react";
+import { useState, useEffect, useRef, useMemo, memo } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 
@@ -87,6 +87,21 @@ textarea { resize: vertical; min-height: 72px; line-height: 1.5; }
      nativa (no funcional) perquè el component TA (veure més avall) hi posa la seva pròpia,
      sense bloquejar el zoom ni el pan de la pàgina com feia "touch-action: pan-y". */
   textarea { resize: none; }
+}
+/* Editor de text ric (negrita/cursiva/subrayado) de Notas y tareas — contentEditable amb
+   mida automàtica segons el contingut, sense nansa de resize: evita el conflicte que feia
+   que el quadre es "comprimís" en aplicar un format (el resize manual de <textarea> es
+   perdia en re-renderitzar després de canviar l'estat des dels botons B/I/S). */
+.rich-apunte {
+  width: 100%; min-height: 70px; border: 1px solid #E6E4DD; border-radius: 3px;
+  padding: 10px 13px; margin-bottom: 6px; font-size: 14px; line-height: 1.5; color: #16160F;
+  background: #fff; outline: none; transition: border-color .18s ease, box-shadow .18s ease;
+  white-space: pre-wrap; word-break: break-word;
+}
+.rich-apunte:focus { border-color: #16160F; box-shadow: 0 0 0 3.5px rgba(20,20,15,.06); }
+.rich-apunte:empty:before { content: attr(data-placeholder); color: #B5B4AE; }
+@media (max-width: 768px) {
+  .rich-apunte { font-size: 16px !important; }
 }
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -915,17 +930,10 @@ function Field({ label, children, hint }) {
 // fixat des del principi — evita la cursa amb el scroll de la pàgina que donava
 // "touch-action: pan-y" sobre tot el textarea (bloquejava el pinch-zoom i desplaçava
 // la pàgina en lloc d'ampliar el quadre).
-const TA = forwardRef(function TA({ style, ...props }, fwdRef) {
+function TA({ style, ...props }) {
   const isMobile = useIsMobile();
   const taRef = useRef(null);
   const dragRef = useRef(null);
-  // Permet que l'exterior (p. ex. la barra de format negrita/cursiva/subrayado) accedeixi
-  // al textarea real per llegir la selecció, sense perdre la nansa de resize interna.
-  const setRefs = node => {
-    taRef.current = node;
-    if (typeof fwdRef === 'function') fwdRef(node);
-    else if (fwdRef) fwdRef.current = node;
-  };
 
   const onGripDown = e => {
     if (!taRef.current) return;
@@ -942,7 +950,7 @@ const TA = forwardRef(function TA({ style, ...props }, fwdRef) {
 
   return (
     <div style={{ position: 'relative' }}>
-      <textarea ref={setRefs} style={style} {...props} />
+      <textarea ref={taRef} style={style} {...props} />
       {isMobile && (
         <div onPointerDown={onGripDown} onPointerMove={onGripMove} onPointerUp={onGripUp} onPointerCancel={onGripUp}
           style={{ position: 'absolute', right: 2, bottom: 2, width: 26, height: 26, touchAction: 'none', cursor: 'ns-resize', display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', padding: 3 }}>
@@ -951,7 +959,7 @@ const TA = forwardRef(function TA({ style, ...props }, fwdRef) {
       )}
     </div>
   );
-});
+}
 
 function DashedBtn({ children, onClick }) {
   return (
@@ -3213,43 +3221,78 @@ function ModuloIncidencias({ obra, onSave }) {
 
 const CATEGORIAS_APT = ['Estructuras','Instalaciones','Obra civil','Acabados','Costes','Documentación','Otros'];
 
-// Barra de format per al text d'una nota/tarea: negrita/cursiva/subrayado amb marques
-// senzilles de text pla (no és un editor WYSIWYG), perquè es guarda igual que la resta
-// de camps de text (string) sense tocar l'esquema de dades. Envolta la selecció actual
-// del textarea (o insereix les marques buides al cursor si no hi ha res seleccionat).
-function FormatToolbar({ taRef, value, onChange }) {
-  function aplicar(marca) {
-    const ta = taRef.current;
-    if (!ta) return;
-    const inicio = ta.selectionStart, fin = ta.selectionEnd;
-    const seleccion = value.slice(inicio, fin);
-    onChange(value.slice(0, inicio) + marca + seleccion + marca + value.slice(fin));
-    const cursor = seleccion ? fin + marca.length * 2 : inicio + marca.length;
-    requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(cursor, cursor); });
+// Tags que es conserven en netejar l'HTML del text ric d'una nota/tarea — tot el que
+// no hi sigui es desempaqueta (es manté el text, es descarta el tag) i tots els atributs
+// (style, class...) es descarten sempre, encara que el tag estigui permès.
+const TAGS_RICS_PERMESES = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'BR', 'DIV', 'P', 'SPAN']);
+// Aquests es descarten sencers (contingut inclòs) en lloc de desempaquetar-los: el seu
+// "text" no és contingut real sinó codi, a diferència d'un <a> o <font> que sí val la pena conservar com a text
+const TAGS_RICS_A_ELIMINAR = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'NOSCRIPT']);
+function sanitizarHtmlRic(html) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html || '';
+  (function neteja(node) {
+    [...node.childNodes].forEach(child => {
+      if (child.nodeType === 1) {
+        if (TAGS_RICS_A_ELIMINAR.has(child.tagName)) { child.remove(); return; }
+        neteja(child);
+        if (!TAGS_RICS_PERMESES.has(child.tagName)) {
+          while (child.firstChild) child.parentNode.insertBefore(child.firstChild, child);
+          child.remove();
+        } else {
+          [...child.attributes].forEach(a => child.removeAttribute(a.name));
+        }
+      } else if (child.nodeType !== 3) {
+        child.remove(); // comentaris, etc.
+      }
+    });
+  })(tpl.content);
+  return tpl.innerHTML;
+}
+// Un <div contentEditable> buit sol deixar-se "<br>" o "<div><br></div>" — cal mirar el text, no l'HTML brut
+function esHtmlBuit(html) {
+  if (!html) return true;
+  return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim().length === 0;
+}
+// Puja una nota/tarea antiga (text pla, sense marques) a l'editor ric sense perdre ni
+// interpretar per error caràcters com "<" que l'usuari hagués escrit (p. ex. "< 24h")
+function textoPlaAHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text || '';
+  return div.innerHTML;
+}
+
+// Editor de text ric real (com un Word, no marques de text): barra B/I/S que aplica
+// negrita/cursiva/subrayado de veritat sobre la selecció mitjançant execCommand, i una
+// capa contentEditable que es renderitza a si mateixa — sense passar l'HTML per l'estat
+// de React a cada tecla (per no perdre el cursor ni la mida que l'usuari hagi deixat).
+function RichTextBox({ html, onChange, placeholder, autoFocus }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current && ref.current.innerHTML !== (html || '')) ref.current.innerHTML = html || '';
+    if (autoFocus && ref.current) ref.current.focus();
+    // Només en muntar: mentre s'edita, el DOM és la font de veritat, no l'estat de React
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  function format(cmd) {
+    ref.current?.focus();
+    document.execCommand(cmd, false, null);
+    onChange(ref.current.innerHTML);
   }
   const BTN = { width: 26, height: 26, borderRadius: 6, border: '1px solid #E0DFD9', background: '#fff', color: '#52524E', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' };
   return (
-    <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
-      <button type="button" onClick={() => aplicar('**')} title="Negrita" style={{ ...BTN, fontWeight: 700 }}>B</button>
-      <button type="button" onClick={() => aplicar('*')} title="Cursiva" style={{ ...BTN, fontStyle: 'italic' }}>I</button>
-      <button type="button" onClick={() => aplicar('__')} title="Subrayado" style={{ ...BTN, textDecoration: 'underline' }}>S</button>
+    <div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+        {/* onMouseDown amb preventDefault: evita que el clic al botó faci perdre la
+            selecció de text del contentEditable abans d'aplicar el format */}
+        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => format('bold')} title="Negrita" style={{ ...BTN, fontWeight: 700 }}>B</button>
+        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => format('italic')} title="Cursiva" style={{ ...BTN, fontStyle: 'italic' }}>I</button>
+        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => format('underline')} title="Subrayado" style={{ ...BTN, textDecoration: 'underline' }}>S</button>
+      </div>
+      <div ref={ref} className="rich-apunte" contentEditable suppressContentEditableWarning
+        data-placeholder={placeholder} onInput={e => onChange(e.currentTarget.innerHTML)} />
     </div>
   );
-}
-
-// Interpreta les marques de la barra de format per pintar el text ja guardat
-function renderLineaRica(linea, keyPrefix) {
-  return linea.split(/(\*\*.+?\*\*|__.+?__|\*.+?\*)/g).filter(p => p !== '').map((parte, j) => {
-    const key = `${keyPrefix}-${j}`;
-    if (parte.startsWith('**') && parte.endsWith('**') && parte.length >= 4) return <strong key={key}>{parte.slice(2, -2)}</strong>;
-    if (parte.startsWith('__') && parte.endsWith('__') && parte.length >= 4) return <u key={key}>{parte.slice(2, -2)}</u>;
-    if (parte.startsWith('*') && parte.endsWith('*') && parte.length >= 2) return <em key={key}>{parte.slice(1, -1)}</em>;
-    return parte;
-  });
-}
-function renderTextoRico(texto) {
-  if (!texto) return null;
-  return texto.split('\n').flatMap((linea, i) => i === 0 ? renderLineaRica(linea, i) : [<br key={`br${i}`} />, ...renderLineaRica(linea, i)]);
 }
 
 function ModuloApuntes({ obra, onSave }) {
@@ -3260,14 +3303,14 @@ function ModuloApuntes({ obra, onSave }) {
   const [form, setForm] = useState({ tipo: 'tarea', categoria: 'Otros', fechaLimite: '' });
   const [texto, setTexto, clearTexto] = useDraftState(`apunteNou:${obra.id}`, '');
   const [confirmacion, setConfirmacion] = useState(null);
-  const textoRef = useRef(null);
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   function guardar() {
-    if (!texto.trim()) return;
+    if (esHtmlBuit(texto)) return;
     const item = {
       id: uid(), tipo: form.tipo,
-      texto: texto.trim(),
+      texto: sanitizarHtmlRic(texto),
+      formato: 'html',
       categoria: form.categoria,
       fechaLimite: form.tipo === 'tarea' ? form.fechaLimite : '',
       hecha: false,
@@ -3288,7 +3331,7 @@ function ModuloApuntes({ obra, onSave }) {
     try { await window.db.deleteModulo('notas', id); } catch(e) { console.error('Error borrando nota:', e); }
   }
   function editarTexto(id, texto) {
-    onSave({ ...obra, apuntes: apuntesBase.map(a => a.id === id ? { ...a, texto } : a) });
+    onSave({ ...obra, apuntes: apuntesBase.map(a => a.id === id ? { ...a, texto, formato: 'html' } : a) });
   }
   function addComentario(id, texto) {
     if (!texto.trim()) return;
@@ -3370,8 +3413,7 @@ function ModuloApuntes({ obra, onSave }) {
           </div>
 
           <div style={{ marginBottom: 10 }}>
-            <FormatToolbar taRef={textoRef} value={texto} onChange={setTexto} />
-            <TA ref={textoRef} autoFocus placeholder={form.tipo === 'tarea' ? 'Descripción de la tarea...' : 'Escribe tu nota...'} value={texto} onChange={e => setTexto(e.target.value)} style={{ minHeight: 70 }} />
+            <RichTextBox autoFocus html={texto} onChange={setTexto} placeholder={form.tipo === 'tarea' ? 'Descripción de la tarea...' : 'Escribe tu nota...'} />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: form.tipo === 'tarea' ? '1fr 1fr' : '1fr', gap: 10, marginBottom: 12 }}>
@@ -3391,7 +3433,7 @@ function ModuloApuntes({ obra, onSave }) {
 
           <div style={{ display: 'flex', gap: 8 }}>
             <Btn onClick={() => setShowForm(false)} full>Cancelar</Btn>
-            <Btn primary onClick={guardar} disabled={!texto.trim()} full>
+            <Btn primary onClick={guardar} disabled={esHtmlBuit(texto)} full>
               {form.tipo === 'tarea' ? 'Añadir tarea' : 'Añadir nota'}
             </Btn>
           </div>
@@ -3431,10 +3473,9 @@ function ModuloApuntes({ obra, onSave }) {
 function ApunteItem({ item, vencida, onToggleHecha, onEditarTexto, onAddComentario, onConfirmar, onDelComentario, onEliminar }) {
   const [abierto, setAbierto] = useState(false);
   const [editando, setEditando] = useState(false);
-  const [txt, setTxt, clearTxt] = useDraftState(`apunteEdit:${item.id}`, item.texto);
+  const [txt, setTxt, clearTxt] = useDraftState(`apunteEdit:${item.id}`, item.formato === 'html' ? item.texto : textoPlaAHtml(item.texto));
   const [coment, setComent, clearComent] = useDraftState(`apunteComent:${item.id}`, '');
   const comentarios = item.comentarios || [];
-  const txtRef = useRef(null);
 
   return (
     <div style={{ background: '#fff', border: `1px solid ${vencida ? '#F4ABAB' : '#E8E7E1'}`, borderLeft: vencida ? '3px solid #E24B4A' : '1px solid #E8E7E1', borderRadius: 10, padding: '10px 13px' }}>
@@ -3451,17 +3492,16 @@ function ApunteItem({ item, vencida, onToggleHecha, onEditarTexto, onAddComentar
         <div style={{ flex: 1, minWidth: 0 }}>
           {editando ? (
             <div style={{ marginBottom: 6 }}>
-              <FormatToolbar taRef={txtRef} value={txt} onChange={setTxt} />
-              <TA ref={txtRef} autoFocus value={txt} onChange={e => setTxt(e.target.value)} style={{ minHeight: 60, marginBottom: 6 }} />
+              <RichTextBox autoFocus html={txt} onChange={setTxt} />
               <div style={{ display: 'flex', gap: 6 }}>
-                <Btn sm primary disabled={!txt.trim()} onClick={() => { onEditarTexto(txt.trim()); clearTxt(); setEditando(false); }}>Guardar</Btn>
-                <Btn sm onClick={() => { setTxt(item.texto); setEditando(false); }}>✕</Btn>
+                <Btn sm primary disabled={esHtmlBuit(txt)} onClick={() => { onEditarTexto(sanitizarHtmlRic(txt)); clearTxt(); setEditando(false); }}>Guardar</Btn>
+                <Btn sm onClick={() => { setTxt(item.formato === 'html' ? item.texto : textoPlaAHtml(item.texto)); setEditando(false); }}>✕</Btn>
               </div>
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 5 }}>
               <div style={{ flex: 1, fontSize: 13, color: item.hecha ? '#A5A5A0' : '#18180F', textDecoration: item.hecha ? 'line-through' : 'none', lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>
-                {renderTextoRico(item.texto)}
+                {item.formato === 'html' ? <span dangerouslySetInnerHTML={{ __html: sanitizarHtmlRic(item.texto) }} /> : item.texto}
               </div>
               <button onClick={() => setEditando(true)} title="Editar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C4C3BE', padding: '0 2px', flexShrink: 0, marginTop: 1, display: 'inline-flex' }}>✏️</button>
             </div>
