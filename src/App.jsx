@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, memo } from "react";
+import { useState, useEffect, useRef, useMemo, memo, forwardRef } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 
@@ -915,10 +915,17 @@ function Field({ label, children, hint }) {
 // fixat des del principi — evita la cursa amb el scroll de la pàgina que donava
 // "touch-action: pan-y" sobre tot el textarea (bloquejava el pinch-zoom i desplaçava
 // la pàgina en lloc d'ampliar el quadre).
-function TA({ style, ...props }) {
+const TA = forwardRef(function TA({ style, ...props }, fwdRef) {
   const isMobile = useIsMobile();
   const taRef = useRef(null);
   const dragRef = useRef(null);
+  // Permet que l'exterior (p. ex. la barra de format negrita/cursiva/subrayado) accedeixi
+  // al textarea real per llegir la selecció, sense perdre la nansa de resize interna.
+  const setRefs = node => {
+    taRef.current = node;
+    if (typeof fwdRef === 'function') fwdRef(node);
+    else if (fwdRef) fwdRef.current = node;
+  };
 
   const onGripDown = e => {
     if (!taRef.current) return;
@@ -935,7 +942,7 @@ function TA({ style, ...props }) {
 
   return (
     <div style={{ position: 'relative' }}>
-      <textarea ref={taRef} style={style} {...props} />
+      <textarea ref={setRefs} style={style} {...props} />
       {isMobile && (
         <div onPointerDown={onGripDown} onPointerMove={onGripMove} onPointerUp={onGripUp} onPointerCancel={onGripUp}
           style={{ position: 'absolute', right: 2, bottom: 2, width: 26, height: 26, touchAction: 'none', cursor: 'ns-resize', display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', padding: 3 }}>
@@ -944,7 +951,7 @@ function TA({ style, ...props }) {
       )}
     </div>
   );
-}
+});
 
 function DashedBtn({ children, onClick }) {
   return (
@@ -3206,6 +3213,45 @@ function ModuloIncidencias({ obra, onSave }) {
 
 const CATEGORIAS_APT = ['Estructuras','Instalaciones','Obra civil','Acabados','Costes','Documentación','Otros'];
 
+// Barra de format per al text d'una nota/tarea: negrita/cursiva/subrayado amb marques
+// senzilles de text pla (no és un editor WYSIWYG), perquè es guarda igual que la resta
+// de camps de text (string) sense tocar l'esquema de dades. Envolta la selecció actual
+// del textarea (o insereix les marques buides al cursor si no hi ha res seleccionat).
+function FormatToolbar({ taRef, value, onChange }) {
+  function aplicar(marca) {
+    const ta = taRef.current;
+    if (!ta) return;
+    const inicio = ta.selectionStart, fin = ta.selectionEnd;
+    const seleccion = value.slice(inicio, fin);
+    onChange(value.slice(0, inicio) + marca + seleccion + marca + value.slice(fin));
+    const cursor = seleccion ? fin + marca.length * 2 : inicio + marca.length;
+    requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(cursor, cursor); });
+  }
+  const BTN = { width: 26, height: 26, borderRadius: 6, border: '1px solid #E0DFD9', background: '#fff', color: '#52524E', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' };
+  return (
+    <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+      <button type="button" onClick={() => aplicar('**')} title="Negrita" style={{ ...BTN, fontWeight: 700 }}>B</button>
+      <button type="button" onClick={() => aplicar('*')} title="Cursiva" style={{ ...BTN, fontStyle: 'italic' }}>I</button>
+      <button type="button" onClick={() => aplicar('__')} title="Subrayado" style={{ ...BTN, textDecoration: 'underline' }}>S</button>
+    </div>
+  );
+}
+
+// Interpreta les marques de la barra de format per pintar el text ja guardat
+function renderLineaRica(linea, keyPrefix) {
+  return linea.split(/(\*\*.+?\*\*|__.+?__|\*.+?\*)/g).filter(p => p !== '').map((parte, j) => {
+    const key = `${keyPrefix}-${j}`;
+    if (parte.startsWith('**') && parte.endsWith('**') && parte.length >= 4) return <strong key={key}>{parte.slice(2, -2)}</strong>;
+    if (parte.startsWith('__') && parte.endsWith('__') && parte.length >= 4) return <u key={key}>{parte.slice(2, -2)}</u>;
+    if (parte.startsWith('*') && parte.endsWith('*') && parte.length >= 2) return <em key={key}>{parte.slice(1, -1)}</em>;
+    return parte;
+  });
+}
+function renderTextoRico(texto) {
+  if (!texto) return null;
+  return texto.split('\n').flatMap((linea, i) => i === 0 ? renderLineaRica(linea, i) : [<br key={`br${i}`} />, ...renderLineaRica(linea, i)]);
+}
+
 function ModuloApuntes({ obra, onSave }) {
   const apuntesBase = obra.apuntes || [];
   const [filtro,   setFiltro]   = useState('todo');
@@ -3214,6 +3260,7 @@ function ModuloApuntes({ obra, onSave }) {
   const [form, setForm] = useState({ tipo: 'tarea', categoria: 'Otros', fechaLimite: '' });
   const [texto, setTexto, clearTexto] = useDraftState(`apunteNou:${obra.id}`, '');
   const [confirmacion, setConfirmacion] = useState(null);
+  const textoRef = useRef(null);
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   function guardar() {
@@ -3323,7 +3370,8 @@ function ModuloApuntes({ obra, onSave }) {
           </div>
 
           <div style={{ marginBottom: 10 }}>
-            <TA autoFocus placeholder={form.tipo === 'tarea' ? 'Descripción de la tarea...' : 'Escribe tu nota...'} value={texto} onChange={e => setTexto(e.target.value)} style={{ minHeight: 70 }} />
+            <FormatToolbar taRef={textoRef} value={texto} onChange={setTexto} />
+            <TA ref={textoRef} autoFocus placeholder={form.tipo === 'tarea' ? 'Descripción de la tarea...' : 'Escribe tu nota...'} value={texto} onChange={e => setTexto(e.target.value)} style={{ minHeight: 70 }} />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: form.tipo === 'tarea' ? '1fr 1fr' : '1fr', gap: 10, marginBottom: 12 }}>
@@ -3386,6 +3434,7 @@ function ApunteItem({ item, vencida, onToggleHecha, onEditarTexto, onAddComentar
   const [txt, setTxt, clearTxt] = useDraftState(`apunteEdit:${item.id}`, item.texto);
   const [coment, setComent, clearComent] = useDraftState(`apunteComent:${item.id}`, '');
   const comentarios = item.comentarios || [];
+  const txtRef = useRef(null);
 
   return (
     <div style={{ background: '#fff', border: `1px solid ${vencida ? '#F4ABAB' : '#E8E7E1'}`, borderLeft: vencida ? '3px solid #E24B4A' : '1px solid #E8E7E1', borderRadius: 10, padding: '10px 13px' }}>
@@ -3402,7 +3451,8 @@ function ApunteItem({ item, vencida, onToggleHecha, onEditarTexto, onAddComentar
         <div style={{ flex: 1, minWidth: 0 }}>
           {editando ? (
             <div style={{ marginBottom: 6 }}>
-              <TA autoFocus value={txt} onChange={e => setTxt(e.target.value)} style={{ minHeight: 60, marginBottom: 6 }} />
+              <FormatToolbar taRef={txtRef} value={txt} onChange={setTxt} />
+              <TA ref={txtRef} autoFocus value={txt} onChange={e => setTxt(e.target.value)} style={{ minHeight: 60, marginBottom: 6 }} />
               <div style={{ display: 'flex', gap: 6 }}>
                 <Btn sm primary disabled={!txt.trim()} onClick={() => { onEditarTexto(txt.trim()); clearTxt(); setEditando(false); }}>Guardar</Btn>
                 <Btn sm onClick={() => { setTxt(item.texto); setEditando(false); }}>✕</Btn>
@@ -3411,7 +3461,7 @@ function ApunteItem({ item, vencida, onToggleHecha, onEditarTexto, onAddComentar
           ) : (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 5 }}>
               <div style={{ flex: 1, fontSize: 13, color: item.hecha ? '#A5A5A0' : '#18180F', textDecoration: item.hecha ? 'line-through' : 'none', lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>
-                {item.texto}
+                {renderTextoRico(item.texto)}
               </div>
               <button onClick={() => setEditando(true)} title="Editar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C4C3BE', padding: '0 2px', flexShrink: 0, marginTop: 1, display: 'inline-flex' }}>✏️</button>
             </div>
