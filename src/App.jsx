@@ -434,6 +434,7 @@ const ICON_PATHS = {
   close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
   eyeOff: '<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>',
+  sort: '<path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/>',
 };
 
 function Icon({ name, size = 15, strokeWidth = 1.75, style, className, ...rest }) {
@@ -3206,8 +3207,9 @@ function ModuloIncidencias({ obra, onSave }) {
 const CATEGORIAS_APT = ['Estructuras','Instalaciones','Obra civil','Acabados','Costes','Documentación','Otros'];
 
 function ModuloApuntes({ obra, onSave }) {
-  const apuntes = obra.apuntes || [];
+  const apuntesBase = obra.apuntes || [];
   const [filtro,   setFiltro]   = useState('todo');
+  const [orden,    setOrden]    = useState('desc'); // 'desc' = más nuevas primero, 'asc' = más antiguas primero
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ tipo: 'tarea', categoria: 'Otros', fechaLimite: '' });
   const [texto, setTexto, clearTexto] = useDraftState(`apunteNou:${obra.id}`, '');
@@ -3224,30 +3226,36 @@ function ModuloApuntes({ obra, onSave }) {
       hecha: false,
       creadaEn: now(),
     };
-    onSave({ ...obra, apuntes: [item, ...apuntes] });
+    onSave({ ...obra, apuntes: [item, ...apuntesBase] });
     setForm({ tipo: 'tarea', categoria: 'Otros', fechaLimite: '' });
     clearTexto();
     setShowForm(false);
   }
 
   function toggleHecha(id) {
-    onSave({ ...obra, apuntes: apuntes.map(a => a.id === id ? { ...a, hecha: !a.hecha } : a) });
+    onSave({ ...obra, apuntes: apuntesBase.map(a => a.id === id ? { ...a, hecha: !a.hecha } : a) });
   }
 
   async function eliminar(id) {
-    onSave({ ...obra, apuntes: apuntes.filter(a => a.id !== id) });
+    onSave({ ...obra, apuntes: apuntesBase.filter(a => a.id !== id) });
     try { await window.db.deleteModulo('notas', id); } catch(e) { console.error('Error borrando nota:', e); }
   }
   function editarTexto(id, texto) {
-    onSave({ ...obra, apuntes: apuntes.map(a => a.id === id ? { ...a, texto } : a) });
+    onSave({ ...obra, apuntes: apuntesBase.map(a => a.id === id ? { ...a, texto } : a) });
   }
   function addComentario(id, texto) {
     if (!texto.trim()) return;
-    onSave({ ...obra, apuntes: apuntes.map(a => a.id === id ? { ...a, comentarios: [...(a.comentarios || []), { id: uid(), texto: texto.trim(), creadaEn: now() }] } : a) });
+    onSave({ ...obra, apuntes: apuntesBase.map(a => a.id === id ? { ...a, comentarios: [...(a.comentarios || []), { id: uid(), texto: texto.trim(), creadaEn: now() }] } : a) });
   }
   function delComentario(id, comId) {
-    onSave({ ...obra, apuntes: apuntes.map(a => a.id === id ? { ...a, comentarios: (a.comentarios || []).filter(c => c.id !== comId) } : a) });
+    onSave({ ...obra, apuntes: apuntesBase.map(a => a.id === id ? { ...a, comentarios: (a.comentarios || []).filter(c => c.id !== comId) } : a) });
   }
+
+  // Llista per a mostrar, ordenada per data de creació segons el filtre d'ordre triat
+  const apuntes = [...apuntesBase].sort((a, b) => {
+    const diff = new Date(a.creadaEn) - new Date(b.creadaEn);
+    return orden === 'asc' ? diff : -diff;
+  });
 
   const tareasPend  = apuntes.filter(a => a.tipo === 'tarea' && !a.hecha);
   const tareasHecha = apuntes.filter(a => a.tipo === 'tarea' && a.hecha);
@@ -3291,6 +3299,12 @@ function ModuloApuntes({ obra, onSave }) {
             </button>
           ))}
         </div>
+        <button onClick={() => setOrden(o => o === 'desc' ? 'asc' : 'desc')}
+          title={orden === 'desc' ? 'Más nuevas primero — clic para ordenar de más antiguas a más nuevas' : 'Más antiguas primero — clic para ordenar de más nuevas a más antiguas'}
+          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 20, border: '1px solid #E0DFD9', background: 'transparent', color: '#6B6B66', fontSize: 12, cursor: 'pointer' }}>
+          <Icon name="sort" size={13} />
+          {orden === 'desc' ? 'Más nuevas' : 'Más antiguas'}
+        </button>
         <Btn primary onClick={() => setShowForm(v => !v)}>
           {showForm ? '✕ Cancelar' : '+ Nuevo apunte'}
         </Btn>
