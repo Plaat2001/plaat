@@ -4083,17 +4083,27 @@ function fckDesdeDesignacion(designacion) {
   return m ? m[1] : '';
 }
 
+// N mínim d'amassades per lot — Taula 86.5.4.2 EHE-08 (el Código Estructural manté
+// aquesta mateixa metodologia de control estadístic Modalitat 1). Tres trams segons
+// fck, no dos: entre 35 i 50 N/mm² el mínim sense distintiu és 4, no 3. El tall normatiu
+// és fck > 50 (estricte), no fck >= 50.
+function nMinimoAmasadas(fck, conDOR) {
+  const f = parseFloat(fck) || 0;
+  if (f > 50)  return conDOR ? 2 : 6;
+  if (f >= 35) return conDOR ? 1 : 4;
+  return conDOR ? 1 : 3;
+}
+
 // Calcula la lotificación completa de un elemento según el CE
 function calcularLotificacion(tipo, volumen, superficie, conDOR, fck) {
   const t = TIPOS_ELEMENTO[tipo];
   const V = parseFloat(volumen) || 0;
   const S = parseFloat(superficie) || 0;
-  // Código Estructural: para hormigones con fck ≥ 50 N/mm² sin distintivo, N mínimo pasa de 3 a 6
-  const minSinDOR = (parseFloat(fck) || 0) >= 50 ? 6 : 3;
+  const N0 = nMinimoAmasadas(fck, conDOR);
 
-  // Cimentaciones grandes: 1 lote, N por fórmula sobre volumen
+  // Cimentaciones grandes: 1 lote, N por fórmula sobre volumen (N0 actúa de piso mínimo)
   if (t.formulaN) {
-    const N = conDOR ? Math.max(Math.ceil(V / 105), 1) : Math.max(Math.ceil(V / 35), minSinDOR);
+    const N = conDOR ? Math.max(Math.ceil(V / 105), N0) : Math.max(Math.ceil(V / 35), N0);
     return {
       numLotes: 1,
       seriesPorLote: N,
@@ -4106,12 +4116,12 @@ function calcularLotificacion(tipo, volumen, superficie, conDOR, fck) {
   const lotesVol = t.volumen ? Math.ceil(V / t.volumen) : 1;
   const lotesSup = t.superficie ? Math.ceil(S / t.superficie) : 1;
   const numLotes = Math.max(lotesVol, lotesSup, 1);
-  const N = conDOR ? 1 : minSinDOR;
+  const N = N0;
 
   let motivo;
   if (t.superficie && lotesSup >= lotesVol) motivo = `Manda superficie (${lotesSup} lote${lotesSup > 1 ? 's' : ''} por ${t.superficie} m²)`;
   else motivo = `Manda volumen (${lotesVol} lote${lotesVol > 1 ? 's' : ''} por ${t.volumen} m³)`;
-  if (minSinDOR > 3) motivo += ' · fck≥50: N≥6';
+  if (N > (conDOR ? 1 : 3)) motivo += ` · N≥${N} según fck/distintivo`;
 
   return { numLotes, seriesPorLote: N, totalSeries: numLotes * N, motivo };
 }
@@ -4791,19 +4801,77 @@ function extraerDatosActa(textoOriginal) {
   return datos;
 }
 
-// Estado de una serie EN VIVO contra el fck actual del elemento — nunca contra lo que
-// estuviera guardado en el momento de subir el acta, para que al editar la designación/fck
-// en Lotificación, el cumple/no cumple de Seguimiento se actualice solo.
+// Valor representativo de una amasada = media de sus probetas a 28 días.
+function valorAmasada(acta) {
+  if (!acta) return null;
+  const v = [parseFloat(acta.resistencia28a), parseFloat(acta.resistencia28b)].filter(x => !isNaN(x));
+  return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+}
+
+// Estado de una serie/amasada individual EN VIVO contra el fck actual del elemento — nunca
+// contra lo que estuviera guardado en el momento de subir el acta, para que al editar la
+// designación/fck en Lotificación, el estado de Seguimiento se actualice solo.
+// IMPORTANTE: esto es un aviso informativo por amasada, NO el criterio de aceptación
+// normativo (que se decide por LOTE completo, ver evaluarLote más abajo) — por eso las
+// etiquetas son ">= fck" / "< fck" y no "Cumple" / "No cumple". Se usa ">=" y no "≥"
+// porque esta etiqueta también se pinta en el informe PDF con jsPDF, que no soporta
+// ese carácter con las fuentes estándar (igual que ya pasa con los emoji, ver línea ~8723).
 function evaluarActa(acta, fck) {
   if (!acta) return { key: 'pendiente', label: 'Pendiente', bg: '#F5F4F0', color: '#9B9B97' };
-  const valores28 = [parseFloat(acta.resistencia28a), parseFloat(acta.resistencia28b)].filter(v => !isNaN(v));
-  if (!valores28.length) return { key: 'pendiente28', label: 'Pendiente 28 días', bg: '#FEF3DB', color: '#C47610' };
-  const media28 = valores28.reduce((a, b) => a + b, 0) / valores28.length;
+  const media28 = valorAmasada(acta);
+  if (media28 === null) return { key: 'pendiente28', label: 'Pendiente 28 días', bg: '#FEF3DB', color: '#C47610' };
   const fckNum = parseFloat(fck);
   if (isNaN(fckNum)) return { key: 'conActa', label: 'Con acta', bg: '#EEEDE7', color: '#52524E' };
   return media28 >= fckNum
-    ? { key: 'cumple', label: 'Cumple', bg: '#E8F5E0', color: '#2D5E10' }
-    : { key: 'noCumple', label: 'No cumple', bg: '#FDECEC', color: '#8A1F1F' };
+    ? { key: 'cumple', label: '>= fck', bg: '#E8F5E0', color: '#2D5E10' }
+    : { key: 'noCumple', label: '< fck', bg: '#FDECEC', color: '#8A1F1F' };
+}
+
+// El CE limita el recorrido relativo entre las probetas de una misma amasada (asegura que
+// los ensayos son fiables): máximo 13% con 2 probetas. Si se supera, la amasada es sospechosa
+// y conviene revisarla aunque su media cumpla.
+function recorridoRelativoOk(acta) {
+  const v = [parseFloat(acta?.resistencia28a), parseFloat(acta?.resistencia28b)].filter(x => !isNaN(x));
+  if (v.length < 2) return null; // no evaluable con una sola probeta
+  const max = Math.max(...v), min = Math.min(...v);
+  return max ? (max - min) / max <= 0.13 : null;
+}
+
+// Coeficientes Kn — Código Estructural, Tabla 57.5.4.3.b (caso sin DCOR, hasta la 36ª amasada).
+const KN_ACEPTACION = { 3: 0.89, 4: 0.91, 5: 0.93, 6: 0.94, 7: 0.95, 8: 0.96, 9: 0.97, 10: 0.98 };
+function knPorAmasadas(n) { return n > 10 ? 1 : (KN_ACEPTACION[n] ?? null); }
+
+// Criterio de aceptación NORMATIVO — se decide por LOTE completo (Código Estructural
+// art. 57.5.4.3), no por cada amasada por separado:
+//  · Con DCOR (caso 0): control de identificación, cada amasada debe cumplir xi ≥ fck.
+//  · Sin DCOR, hasta la 36ª amasada (caso 3, el habitual): f(x1) = x1·Kn ≥ fck, donde x1 es
+//    el valor MÍNIMO (no la media) de las amasadas del lote y Kn depende de N.
+// Se calcula en vivo a partir de las actas de las series del lote, igual que evaluarActa.
+function evaluarLote(lote, elemento) {
+  const fck = parseFloat(elemento?.fck);
+  const series = lote?.series || [];
+  const valores = series.map(s => valorAmasada(s.acta)).filter(v => v !== null);
+  const N = valores.length;
+
+  if (!N) return { key: 'pendiente', label: 'Sin resultados', bg: '#F5F4F0', color: '#9B9B97' };
+  if (N < series.length) return { key: 'incompleto', label: `Incompleto (${N}/${series.length})`, bg: '#FEF3DB', color: '#C47610' };
+  if (isNaN(fck)) return { key: 'sinFck', label: 'Falta fck', bg: '#EEEDE7', color: '#52524E' };
+
+  if (elemento.conDOR) {
+    const fallan = valores.filter(v => v < fck).length;
+    return fallan
+      ? { key: 'noCumple', label: `No cumple (${fallan} amasada${fallan > 1 ? 's' : ''} < fck)`, bg: '#FDECEC', color: '#8A1F1F', N }
+      : { key: 'cumple', label: 'Cumple', bg: '#E8F5E0', color: '#2D5E10', N };
+  }
+
+  const x1 = Math.min(...valores);
+  const kn = knPorAmasadas(N);
+  if (kn === null) return { key: 'insuficiente', label: `N=${N}: insuficiente`, bg: '#FEF3DB', color: '#C47610', N };
+
+  const fest = x1 * kn;
+  return fest >= fck
+    ? { key: 'cumple', label: 'Cumple', bg: '#E8F5E0', color: '#2D5E10', fest, x1, kn, N }
+    : { key: 'noCumple', label: `No cumple (fest ${fest.toFixed(1)} < fck ${fck})`, bg: '#FDECEC', color: '#8A1F1F', fest, x1, kn, N };
 }
 
 // Detecta si el PDF recién leído es en realidad una actualización de un acta que YA está
@@ -5368,7 +5436,9 @@ function ControlHormigon({ obra, onSave }) {
   function resumirSeries(lista) {
     const series   = lista.flatMap(e => (e.lotes || []).flatMap(l => (l.series || []).map(s => ({ s, e }))));
     const conActa  = series.filter(({ s }) => s.acta).length;
-    const noCumple = series.filter(({ s, e }) => evaluarActa(s.acta, e.fck).key === 'noCumple').length;
+    // noCumple es por LOTE (criterio normativo real), no por serie suelta.
+    const lotes    = lista.flatMap(e => (e.lotes || []).map(l => ({ l, e })));
+    const noCumple = lotes.filter(({ l, e }) => evaluarLote(l, e).key === 'noCumple').length;
     return { total: series.length, conActa, noCumple };
   }
   const resAmbito = resumirSeries(elementosAmbito);
@@ -5735,7 +5805,7 @@ function ControlHormigon({ obra, onSave }) {
             {modoBloques && etiquetaAmbito ? <span style={{ color: '#9B9B97' }}>{etiquetaAmbito}: </span> : null}
             <strong style={{ color: '#141412' }}>{resAmbito.conActa}</strong>/{resAmbito.total} series con acta
           </span>
-          {resAmbito.noCumple > 0 && <span style={{ color: '#8A1F1F' }}><strong>{resAmbito.noCumple}</strong> no cumple{resAmbito.noCumple > 1 ? 'n' : ''}</span>}
+          {resAmbito.noCumple > 0 && <span style={{ color: '#8A1F1F' }}><strong>{resAmbito.noCumple}</strong> lote{resAmbito.noCumple > 1 ? 's' : ''} no cumple{resAmbito.noCumple > 1 ? 'n' : ''}</span>}
           {modoBloques && <span style={{ color: '#9B9B97' }}>· Obra entera: {resObra.conActa}/{resObra.total}</span>}
           <div style={{ flex: 1 }} />
           <Btn sm onClick={() => modoBloques ? setPickInforme(true) : generarInformeHormigon(obra)}>
@@ -5767,7 +5837,7 @@ function ControlHormigon({ obra, onSave }) {
             <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 2 }}>
               {elementosAmbito.map((el, idx) => {
                 const activo = elementoActivo.id === el.id;
-                const noCumplenEl = (el.lotes || []).flatMap(l => l.series || []).filter(s => evaluarActa(s.acta, el.fck).key === 'noCumple').length;
+                const noCumplenEl = (el.lotes || []).filter(l => evaluarLote(l, el).key === 'noCumple').length;
                 return (
                   <button key={el.id} onClick={() => setElSeleccionado(el.id)}
                     style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: `1.5px solid ${activo ? ACCENT : '#E0DFD9'}`, background: activo ? ACCENT : '#fff', color: activo ? '#fff' : '#52524E', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', ...NUM_TAB }}>
@@ -5826,13 +5896,17 @@ function ControlHormigon({ obra, onSave }) {
                       const r28 = (acta?.resistencia28a || acta?.resistencia28b)
                         ? `${acta?.resistencia28a || '—'} / ${acta?.resistencia28b || '—'}` : '—';
                       const loteCompleto = esPrimeraDelLote && (lote.series || []).every(s => !!s.acta);
+                      // Estado normativo del LOTE (no de la serie) — solo tiene sentido pintarlo
+                      // una vez está completo, ya que antes no hay N suficiente para decidir.
+                      const estadoLote = loteCompleto ? evaluarLote(lote, elementoActivo) : null;
                       return (
                         <tr key={serie.id} style={{ borderTop: esPrimeraDelLote ? (i === 0 ? 'none' : '2px solid #D8D7D1') : '1px solid #F2F1ED' }}>
                           {esPrimeraDelLote && (
                             <td rowSpan={numSeriesLote} style={{ ...tdCell, ...NUM_TAB, fontWeight: 600, color: '#52524E', verticalAlign: 'top', borderRight: '1px solid #ECEAE4' }}>
                               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                 {lote.num}
-                                {loteCompleto && <Icon name="done" size={12} className="lote-stamp" style={{ color: '#52A124' }} />}
+                                {estadoLote?.key === 'cumple' && <Icon name="done" size={12} className="lote-stamp" style={{ color: '#52A124' }} />}
+                                {estadoLote?.key === 'noCumple' && <span title={estadoLote.label} style={{ width: 7, height: 7, borderRadius: '50%', background: '#C0392B', flexShrink: 0 }} />}
                                 {lote.extra && <span title="Lote añadido más allá del mínimo normativo calculado" style={{ fontSize: 9.5, fontWeight: 700, color: '#C47610', background: '#FEF3DB', borderRadius: 4, padding: '1px 4px', letterSpacing: '0.02em' }}>EXTRA</span>}
                               </span>
                             </td>
@@ -5842,7 +5916,10 @@ function ControlHormigon({ obra, onSave }) {
                           <td style={{ ...tdCell, ...NUM_TAB }}>{acta?.refAlbaran || '—'}</td>
                           <td style={{ ...tdCell, ...NUM_TAB }}>{acta?.fechaHormigonado ? fmtDate(acta.fechaHormigonado) : '—'}</td>
                           <td style={{ ...tdCell, ...NUM_TAB }}>{acta?.resistencia7 || '—'}</td>
-                          <td style={{ ...tdCell, ...NUM_TAB }}>{r28}</td>
+                          <td style={{ ...tdCell, ...NUM_TAB }}>
+                            {r28}
+                            {recorridoRelativoOk(acta) === false && <span title="Recorrido entre probetas > 13% — revisar fiabilidad del ensayo (CE art. 57.5.4.3)" style={{ marginLeft: 4, color: '#C47610' }}>⚠</span>}
+                          </td>
                           <td style={{ ...tdCell, ...NUM_TAB }}>{acta?.resistencia56 || '—'}</td>
                           <td style={tdCell}><Pill label={estado.label} bg={estado.bg} color={estado.color} /></td>
                           <td style={tdCell}>
@@ -6045,8 +6122,14 @@ function ModalActa({ info, elemento, guardando, onGuardar, onEliminar, onClose }
       </div>
 
       {cumpleCalc !== null && (
-        <div style={{ marginBottom: 12 }}>
-          <Pill label={cumpleCalc ? `Cumple (media 28d ${media28.toFixed(1)} ≥ fck ${elemento.fck} N/mm²)` : `No cumple (media 28d ${media28.toFixed(1)} < fck ${elemento.fck} N/mm²)`} bg={cumpleCalc ? '#E8F5E0' : '#FDECEC'} color={cumpleCalc ? '#2D5E10' : '#8A1F1F'} />
+        <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <Pill label={cumpleCalc ? `≥ fck (media 28d ${media28.toFixed(1)} ≥ ${elemento.fck} N/mm²)` : `< fck (media 28d ${media28.toFixed(1)} < ${elemento.fck} N/mm²)`} bg={cumpleCalc ? '#E8F5E0' : '#FDECEC'} color={cumpleCalc ? '#2D5E10' : '#8A1F1F'} />
+          <span style={{ fontSize: 11, color: '#9B9B97' }}>Esta amasada — el cumplimiento del lote se decide por separado con todas sus amasadas.</span>
+        </div>
+      )}
+      {valores28.length === 2 && recorridoRelativoOk({ resistencia28a, resistencia28b }) === false && (
+        <div style={{ fontSize: 11.5, color: '#7C4A00', background: '#FEF3DB', borderRadius: 7, padding: '6px 10px', marginBottom: 12 }}>
+          Recorrido entre probetas &gt; 13% — revisa la fiabilidad del ensayo (Código Estructural art. 57.5.4.3).
         </div>
       )}
 
@@ -11073,12 +11156,14 @@ function hexToRgb(hex) {
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 }
 
-// Estado conjunto de un elemento (para la fila de resumen): el peor estado de sus series manda.
-function estadoGlobalElemento(seriesEl, fck) {
-  if (!seriesEl.length) return { label: 'Sin series', bg: '#F5F4F0', color: '#9B9B97' };
-  const estados = seriesEl.map(s => evaluarActa(s.acta, fck));
+// Estado conjunto de un elemento (para la fila de resumen): el peor estado de sus LOTES manda
+// (criterio normativo real, no el de cada amasada suelta — ver evaluarLote).
+function estadoGlobalElemento(elemento) {
+  const lotes = elemento?.lotes || [];
+  if (!lotes.length) return { label: 'Sin lotes', bg: '#F5F4F0', color: '#9B9B97' };
+  const estados = lotes.map(l => evaluarLote(l, elemento));
   if (estados.some(e => e.key === 'noCumple')) return { label: 'Incidencia', bg: '#FDECEC', color: '#8A1F1F' };
-  if (estados.some(e => e.key === 'pendiente' || e.key === 'pendiente28')) return { label: 'En curso', bg: '#F5F4F0', color: '#9B9B97' };
+  if (estados.some(e => e.key === 'pendiente' || e.key === 'incompleto' || e.key === 'sinFck')) return { label: 'En curso', bg: '#F5F4F0', color: '#9B9B97' };
   return { label: 'Conforme', bg: '#E8F5E0', color: '#2D5E10' };
 }
 
@@ -11278,7 +11363,7 @@ async function generarInformeHormigon(obra, opts = {}) {
       const conActa = seriesEl.filter(s => s.acta).length;
       const numLotesExtra = (el.lotes || []).filter(l => l.extra).length;
       const numLotes = (el.lotes || []).length;
-      const estadoG = estadoGlobalElemento(seriesEl, el.fck);
+      const estadoG = estadoGlobalElemento(el);
 
       doc.setFontSize(7);
       const colsTxt = [
@@ -11395,8 +11480,8 @@ async function generarInformeHormigon(obra, opts = {}) {
   doc.text('Leyenda:', lx, yMidLeg, { baseline: 'middle' });
   lx += doc.getTextWidth('Leyenda:') + 4;
   [
-    ['Cumple', '#E8F5E0', '#2D5E10'],
-    ['No cumple', '#FDECEC', '#8A1F1F'],
+    ['>= fck', '#E8F5E0', '#2D5E10'],
+    ['< fck', '#FDECEC', '#8A1F1F'],
     ['Pend. 28d', '#FEF3DB', '#C47610'],
     ['Pendiente', '#F5F4F0', '#9B9B97'],
     ['EXTRA', '#FEF3DB', '#C47610'],
