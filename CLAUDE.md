@@ -70,11 +70,11 @@ Aquest ha estat el focus de la majoria de sessions recents. Estructura de `vo` (
 
 ## Com treballar en aquest repo (Claude Code)
 
-- **Branques**: mai treballar directament a `main`. Crear `git checkout -b feat/<nom>`, fer commits petits, `git push` i provar la *preview* de Vercel abans de fer merge. `main` desplega a producció.
+- **Branques**: es treballa directament a `main`. Quan Jan diu "commit y push" (o similar), és un commit + push a `main` — Vercel desplega `main` a producció automàticament, sense pas intermedi de preview/PR. No crear branques `feat/<nom>` tret que Jan ho demani explícitament per a alguna cosa concreta que vulgui provar abans de tenir-la en producció.
 - **Sincronització entre PCs**: `git pull` en començar, `git push` en acabar. Les converses de Claude Code NO es sincronitzen entre dispositius; el codi sí (via GitHub).
 - **Verificació**: després de tocar codi, `npm run build` ha de passar. Un hook (`.claude/hooks/check-syntax.mjs`) ja valida la sintaxi de cada `.jsx/.js` editat.
 - **Skills del projecte** (`.claude/skills/`): `probar-pdf-acta`, `campo-nuevo-obra`, `qa-movil`, `cambio-supabase-seguro`, `flujo-publicacion`. Usar-les quan la tasca coincideixi.
-- **Subagent `revisor`** (`.claude/agents/revisor.md`): revisió de només lectura del diff contra els errors històrics. Cridar-lo abans de cada merge a `main`.
+- **Subagent `revisor`** (`.claude/agents/revisor.md`): revisió de només lectura del diff contra els errors històrics. Cridar-lo abans de cada push a `main`.
 - **Supabase**: el MCP va en mode `read_only`. Mai executar SQL d'escriptura contra producció sense confirmació explícita de Jan.
 - **Secrets**: mai llegir ni imprimir `.env*`; mai commitejar claus.
 - **Idioma**: respondre a Jan en castellà; comentaris de codi nous en català.

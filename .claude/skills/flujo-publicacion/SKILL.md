@@ -1,15 +1,14 @@
 ---
 name: flujo-publicacion
-description: Flujo de trabajo con ramas, preview de Vercel y merge a main para publicar cambios de la app PLAAT DEO. Úsala al empezar una tarea nueva, al terminarla o cuando Jan diga "súbelo", "publica" o "despliega".
+description: Flujo de trabajo para publicar cambios de la app PLAAT DEO directamente en producción. Úsala al empezar una tarea nueva, al terminarla o cuando Jan diga "súbelo", "publica", "despliega" o "commit y push".
 ---
 
 # Flujo de publicación
 
-`main` = producción (`plaat.vercel.app`). Nunca se trabaja directamente en `main`.
+`main` = producción (`plaat.vercel.app`). Se trabaja **directamente en `main`**: un push a `main` dispara el deploy de producción en Vercel automáticamente, sin paso intermedio de preview/PR. No crear ramas `feat/<nombre>` salvo que Jan lo pida explícitamente para algo que quiera probar antes de tenerlo en producción.
 
 ## Al empezar
-1. `git status` (debe estar limpio) → `git switch main` → `git pull`.
-2. `git switch -c feat/<nombre-corto>` (o `fix/…`).
+1. `git status` (revisar que no haya cambios sueltos de otra tarea) → `git switch main` → `git pull`.
 
 ## Durante
 - Commits pequeños y descriptivos, en castellano.
@@ -18,9 +17,8 @@ description: Flujo de trabajo con ramas, preview de Vercel y merge a main para p
 ## Al terminar
 1. Skills según el cambio: `probar-pdf-acta` (si toca PDF), `qa-movil` (si toca UI), `campo-nuevo-obra` (si toca datos).
 2. Llamar al subagente **`revisor`** sobre el diff y resolver lo bloqueante.
-3. `git push -u origin <rama>` (pide confirmación).
-4. Vercel genera automáticamente una **URL de preview** para la rama: dársela a Jan para que la pruebe en el móvil y en el PC.
-5. Solo cuando Jan dé el visto bueno: merge a `main` (PR en GitHub o `git switch main && git merge --no-ff <rama> && git push`), y comprobar que el despliegue de producción termina en verde.
+3. `git add` + `git commit` + `git push` a `main` (pide confirmación antes del push, como con cualquier acción que afecte a producción).
+4. Vercel despliega `main` automáticamente — avisar a Jan de que el cambio ya está en producción y que compruebe en el móvil y en el PC.
 
 ## Si algo sale mal en producción
 - Rollback inmediato: en Vercel → Deployments → desplegar la versión anterior (*Promote*), o `git revert <commit>` y push. Después se investiga con calma.
