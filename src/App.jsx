@@ -8905,18 +8905,23 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
   const eo = vo.estadoObra || {};
   const ubicacionsEo = eo.ubicacions || (eo.fotos?.length ? [{ id:'leg', nom:'', fotos: eo.fotos }] : []);
   const totalFotesEo = ubicacionsEo.reduce((a, u) => a + (u.fotos?.length || 0), 0);
-  const numFilesEo = Math.ceil(totalFotesEo / 3);
 
   if (eo.descripcion || totalFotesEo > 0) {
-    // Calcular alçada TOTAL del punt 0 (capçalera + text + totes les fotos + títols ubicació)
+    // Calcular alçada de la capçalera + descripció + primer bloc (títol+fila) — NO de tot el
+    // contingut, que amb moltes ubicacions/fotos podria no cabre mai en una sola pàgina; la resta
+    // de blocs es parteixen a dins del bucle d'ubicacions/fotos més avall.
     const altCapEo = 5.5;
     const altDescEo = eo.descripcion ? Math.max(10, eo.descripcion.split('\n').length * 4.2 + 5) : 0;
-    const altFotesEo = numFilesEo * (37.5 + 4); // fH0 + GAP0 per fila
-    const altTitolsEo = ubicacionsEo.filter(u => u.nom).length * 6;
-    const altTotal0 = altCapEo + altDescEo + altFotesEo + altTitolsEo + 4;
+    const primeraUbEo = ubicacionsEo.find(u => (u.fotos||[]).length || u.nom);
+    let altPrimerBlocEo = 0;
+    if (primeraUbEo) {
+      if (primeraUbEo.nom) altPrimerBlocEo += 6;
+      if ((primeraUbEo.fotos||[]).length) altPrimerBlocEo += 37.5 + 4; // fH0 + GAP0
+    }
+    const altMinim0 = altCapEo + altDescEo + altPrimerBlocEo;
 
-    // Si no cap tot el punt 0, saltar de pàgina sencera ABANS de la capçalera
-    if (y + altTotal0 > PH - MB - 12) {
+    // Si ni la capçalera + el primer bloc caben, saltar de pàgina sencera ABANS de la capçalera
+    if (y + altMinim0 > PH - MB - 12) {
       doc.addPage(); pagActual++;
       dibuixarCapçalera(false); dibuixarPeu();
     }
@@ -8975,11 +8980,23 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
       const fotsUb = ub.fotos || [];
       if (!fotsUb.length && !ub.nom) return;
       if (ub.nom) {
+        // Salt de pàgina si el títol de la ubicació + la seva primera fila no caben junts
+        // (evita que el títol quedi sol al final de la pàgina, sense cap foto a sota)
+        const altTitolMesPrimeraFila = 6 + (fotsUb.length ? fH0 + GAP0 : 0);
+        if (y + altTitolMesPrimeraFila > PH - MB - 12) {
+          doc.addPage(); pagActual++;
+          dibuixarCapçalera(false); dibuixarPeu();
+        }
         doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(0,0,0);
         doc.text(ub.nom.toUpperCase(), ML + 2, y + 3.5, { baseline:'middle' });
         y += 6;
       }
       for (let fi = 0; fi < fotsUb.length; fi += 3) {
+        // Salt de pàgina abans de cada fila de fotos si no hi cap entera a la pàgina actual
+        if (y + fH0 + GAP0 > PH - MB - 12) {
+          doc.addPage(); pagActual++;
+          dibuixarCapçalera(false); dibuixarPeu();
+        }
         const triple = [fotsUb[fi], fotsUb[fi+1], fotsUb[fi+2]].filter(Boolean);
         dibuixaFilaFotos(triple);
       }
