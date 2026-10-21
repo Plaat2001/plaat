@@ -23,18 +23,6 @@ Comunicació habitual amb Jan Moreno: espanyol/català barrejat. Comentaris de c
 - **Guardat amb debounce**: `actualizarObra()` (a `App`) actualitza l'estat local a l'instant i espera 700ms abans d'escriure a Supabase (`saveUnaObra`). Es fa *flush* forçat (`desarPendentsAra()`) en: sortir de l'obra, canviar de pestanya dins de `DetalleObra` (prop `onFlush`), i tancar la pestanya del navegador. **Important**: `actualizarObra` només toca `obraActiva` si l'obra editada ja és l'activa — si no, es podria navegar-hi sense voler en fer una edició ràpida des del tauler.
 - **Mode offline**: `main.jsx` cacheja lectures a IndexedDB i encua escriptures quan no hi ha xarxa; les reintenta en recuperar connexió.
 
-## Control de hormigón (mòdul `ControlHormigon`)
-
-- Els elements viuen a `obra.lotes` (nom històric: cada element té `lotes[]` i cada lot `series[]` amb `acta`).
-- **Alcance del control** — una obra pot tractar-se com una sola estructura o dividida en edificis/blocs independents:
-  - `obra.hormigonModo`: `'unico'` (per defecte, retrocompatible) o `'bloques'`
-  - `obra.hormigonBloques`: `[{ id, codi, nombre, creadoEn }]` — `codi` és el prefix curt editable (A, B, T1…)
-  - cada element de `obra.lotes` guarda `bloqueId` (o `null` = "Sin asignar")
-  - helpers a nivell de mòdul: `esModoBloques`, `bloquesObra`, `bloquePorId`, `refElemento`, `siguienteNumLC`, `agruparPorBloque`
-- **Numeració LC**: global a l'obra en mode únic (`LC1`, `LC2`…), reiniciada dins de cada bloc en mode dividit (`A·LC1`, `B·LC1`…). Mai es renumera res sol: moure un element a un altre edifici li dona el següent LC lliure del destí, i la resta no es toca.
-- Canviar de mode no destrueix res: els elements ja creats queden a "Sin asignar" i es reparteixen a mà. Eliminar un bloc tampoc — els seus elements tornen a "Sin asignar" amb lots i actes.
-- `generarInformeHormigon(obra, { bloqueId })` — amb `bloqueId` surt un informe complet d'aquell edifici (codi al nom del fitxer, a la fila ALCANCE i al peu); sense, surt tota l'obra amb una franja per edifici a les seccions A i B.
-
 ## Acta de Visita d'Obra (mòdul més treballat)
 
 Aquest ha estat el focus de la majoria de sessions recents. Estructura de `vo` (objecte `actaVO` de l'obra):
@@ -63,14 +51,9 @@ Aquest ha estat el focus de la majoria de sessions recents. Estructura de `vo` (
 
 - Tres pestanyes internes: **Temes** (contingut real, per defecte), **Equip**, **Dades** (Trabajos en curso + Hitos + Contrataciones + Clima)
 - Capçalera *sticky* (compte amb marges negatius verticals combinats amb `position: sticky` — ja va causar un bug de solapament; només s'usen marges negatius horitzontals)
-- Botó flotant "+" (crear tema nou) i tots els modals (`Modal`, `ConfirmMini`) usen **`createPortal` a `document.body`** — necessari per YouTube evitar bugs de `position: fixed` dins de contenidors amb scroll niat en mòbil real. **Advertència**: l'entorn de previsualització d'artefactes de Claude (dins del xat) NO permet `import ... from "react-dom"` i mostrarà error — això només afecta la previsualització en aquest xat, no el desplegament real a Vercel.
+- Botó flotant "+" (crear tema nou) i tots els modals (`Modal`, `ConfirmMini`) usen **`createPortal` a `document.body`** — necessari per evitar bugs de `position: fixed` dins de contenidors amb scroll niat en mòbil real. **Advertència**: l'entorn de previsualització d'artefactes de Claude (dins del xat) NO permet `import ... from "react-dom"` i mostrarà error — això només afecta la previsualització en aquest xat, no el desplegament real a Vercel.
 - Totes les seccions de temes es poden plegar; els temes es llisten en **ordre d'inserció** (no ordenats per estat — es va provar i es va revertir perquè feia que els punts nous no aparegueguessin al final)
-- Data per defecte en crear un tema/seguiment: **no és "avui"**, és `vo.fechaActa` (la data de dalt de tot de l'acta que s'estigui editant, viva o antiga) — mai es calcula a partir de la data real del sistema, perquè en editar una acta antiga "avui" no hi té cap relació
-- **Edició d'actes antigues arxivades** (`actas_vo_versions`, obrir-ne una des de "Versions" per corregir-la): com que és una acta viva, els canvis fets a una acta antiga es propaguen **cap endavant** (a l'acta viva i a totes les versions ja exportades amb número superior), buscant el mateix tema/entrada per `id`:
-  - Editar un camp d'un tema o entrada existent (`updTema`/`updEntrada`, fotos): es corregeix igual a totes les posteriors, sense tocar mai `resuelto`/`resueltoEnActa` de cap d'elles
-  - Afegir un tema o un punt de seguiment nou (`addTema`/`addEntrada`): també es crea a totes les posteriors, **col·locat per data** entre els temes/entrades ja existents (no sempre al final); el número del tema es reassigna al següent lliure de cada destí, sense renumerar la resta
-  - Esborrar un tema/entrada des d'una acta antiga **no** es propaga (de moment, decisió pendent de confirmar)
-  - Helpers: `patchEntradaVO`, `patchTemaVO`, `insertEntradaVO`, `insertTemaVO`, `inserirPerData` (a nivell de mòdul, a sobre de `ModuloActaVO`), orquestrats per `propagarForward()` dins del component
+- Data per defecte en crear un tema/seguiment: **no és "avui"**, és el dia de visita configurat més recent (`obra.diasVisita`), calculat amb `dataVisitaRecent()`
 
 ## Convencions i patrons a seguir
 
@@ -84,3 +67,14 @@ Aquest ha estat el focus de la majoria de sessions recents. Estructura de `vo` (
 - El fitxer `App.jsx` és molt gran; **bona oportunitat per dividir-lo en mòduls** ara que es treballa des de Claude Code (per exemple: `pdf/generarActaVO.js`, `components/ObraCard.jsx`, `modules/ModuloActaVO.jsx`, etc.)
 - Fer servir git per a l'historial en lloc de còpies manuals de fitxers
 - Si es canvia l'esquema de Supabase (columnes, RLS), verificar que no trenqui l'app d'algú que tingui la versió anterior carregada al navegador
+
+## Com treballar en aquest repo (Claude Code)
+
+- **Branques**: mai treballar directament a `main`. Crear `git checkout -b feat/<nom>`, fer commits petits, `git push` i provar la *preview* de Vercel abans de fer merge. `main` desplega a producció.
+- **Sincronització entre PCs**: `git pull` en començar, `git push` en acabar. Les converses de Claude Code NO es sincronitzen entre dispositius; el codi sí (via GitHub).
+- **Verificació**: després de tocar codi, `npm run build` ha de passar. Un hook (`.claude/hooks/check-syntax.mjs`) ja valida la sintaxi de cada `.jsx/.js` editat.
+- **Skills del projecte** (`.claude/skills/`): `probar-pdf-acta`, `campo-nuevo-obra`, `qa-movil`, `cambio-supabase-seguro`, `flujo-publicacion`. Usar-les quan la tasca coincideixi.
+- **Subagent `revisor`** (`.claude/agents/revisor.md`): revisió de només lectura del diff contra els errors històrics. Cridar-lo abans de cada merge a `main`.
+- **Supabase**: el MCP va en mode `read_only`. Mai executar SQL d'escriptura contra producció sense confirmació explícita de Jan.
+- **Secrets**: mai llegir ni imprimir `.env*`; mai commitejar claus.
+- **Idioma**: respondre a Jan en castellà; comentaris de codi nous en català.
