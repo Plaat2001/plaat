@@ -4813,7 +4813,9 @@ function valorAmasada(acta) {
 // designación/fck en Lotificación, el estado de Seguimiento se actualice solo.
 // IMPORTANTE: esto es un aviso informativo por amasada, NO el criterio de aceptación
 // normativo (que se decide por LOTE completo, ver evaluarLote más abajo) — por eso las
-// etiquetas son "≥ fck" / "< fck" y no "Cumple" / "No cumple".
+// etiquetas son ">= fck" / "< fck" y no "Cumple" / "No cumple". Se usa ">=" y no "≥"
+// porque esta etiqueta también se pinta en el informe PDF con jsPDF, que no soporta
+// ese carácter con las fuentes estándar (igual que ya pasa con los emoji, ver línea ~8723).
 function evaluarActa(acta, fck) {
   if (!acta) return { key: 'pendiente', label: 'Pendiente', bg: '#F5F4F0', color: '#9B9B97' };
   const media28 = valorAmasada(acta);
@@ -4821,7 +4823,7 @@ function evaluarActa(acta, fck) {
   const fckNum = parseFloat(fck);
   if (isNaN(fckNum)) return { key: 'conActa', label: 'Con acta', bg: '#EEEDE7', color: '#52524E' };
   return media28 >= fckNum
-    ? { key: 'cumple', label: '≥ fck', bg: '#E8F5E0', color: '#2D5E10' }
+    ? { key: 'cumple', label: '>= fck', bg: '#E8F5E0', color: '#2D5E10' }
     : { key: 'noCumple', label: '< fck', bg: '#FDECEC', color: '#8A1F1F' };
 }
 
@@ -11478,7 +11480,7 @@ async function generarInformeHormigon(obra, opts = {}) {
   doc.text('Leyenda:', lx, yMidLeg, { baseline: 'middle' });
   lx += doc.getTextWidth('Leyenda:') + 4;
   [
-    ['≥ fck', '#E8F5E0', '#2D5E10'],
+    ['>= fck', '#E8F5E0', '#2D5E10'],
     ['< fck', '#FDECEC', '#8A1F1F'],
     ['Pend. 28d', '#FEF3DB', '#C47610'],
     ['Pendiente', '#F5F4F0', '#9B9B97'],
