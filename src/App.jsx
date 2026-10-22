@@ -19,6 +19,7 @@ const RESPONSABLES = [
 
 const ESTADOS_OBRA = {
   proyecto:   { label: 'Proyecto',   bg: '#EEEDE7', color: '#52524E' },
+  derribo:    { label: 'Derribo',    bg: '#FBE8DC', color: '#7A3310' },
   estructura: { label: 'Estructura', bg: '#FEF3DB', color: '#7C4A00' },
   obra_civil: { label: 'Obra Civil', bg: '#E3EEFB', color: '#1D4E89' },
   repasos:    { label: 'Repasos',    bg: '#F4ECFA', color: '#6C3483' },
@@ -27,7 +28,7 @@ const ESTADOS_OBRA = {
 };
 // Fases "actives" (en construcció) a efectes dels resums/estadístiques del tauler —
 // Proyecto encara no ha començat a construir-se i Acabada/Paralizada ja no estan en curs.
-const FASES_OBRA_EN_CURSO = ['estructura', 'obra_civil', 'repasos'];
+const FASES_OBRA_EN_CURSO = ['derribo', 'estructura', 'obra_civil', 'repasos'];
 // Migració d'estats antics (eliminats a favor de les noves fases d'obra) — es normalitzen
 // en llegir perquè les obres ja guardades a Supabase amb el valor antic es vegin bé de
 // seguida; a més es reescriu el valor nou a Supabase en segon pla (veure migrarEstatsObra).
@@ -1276,6 +1277,7 @@ function BottomNav({ nav, setNav, stats }) {
 
 const STATUS_ACCENT = {
   proyecto:   '#9B9B97',
+  derribo:    '#C2571C',
   estructura: '#D48A0C',
   obra_civil: '#3B82C4',
   repasos:    '#A569BD',
