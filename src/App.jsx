@@ -6929,6 +6929,8 @@ function ModuloActaVO({ obra, onSave }) {
   }
 
   const [showIdioma, setShowIdioma] = useState(false);
+  const [showIdiomaPreview, setShowIdiomaPreview] = useState(false);
+  const [generandoPreview, setGenerandoPreview] = useState(false);
   const [vistaVO, setVistaVO] = useState('temes');
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [seccColapsades, setSeccColapsades] = useState({});
@@ -6981,6 +6983,22 @@ function ModuloActaVO({ obra, onSave }) {
       }
     }
     setGenerando(false);
+  }
+
+  // Genera el PDF tal com quedaria ara mateix, sense cap efecte persistent:
+  // no incrementa `vo.num` ni arxiva cap versió a `actas_vo_versions`. Permet
+  // revisar l'acta abans de "comprometre-la" amb el botó Exportar.
+  async function previsualizar(idioma) {
+    setShowIdiomaPreview(false);
+    setGenerandoPreview(true);
+    try {
+      await generarActaVO_v2(obra, vo, idioma, { preview: true });
+    } catch (e) {
+      if (!e.message?.includes('Load failed') && !e.message?.includes('fetch')) {
+        alert('Error al generar la vista previa: ' + e.message);
+      }
+    }
+    setGenerandoPreview(false);
   }
 
   // Abans d'exportar en mode normal: si ja existeix una versió arxivada amb aquest número
@@ -7049,10 +7067,25 @@ function ModuloActaVO({ obra, onSave }) {
           </div>
           {!editingVersion && <Btn onClick={abrirVersions}>Actas exportadas</Btn>}
           {!editingVersion && <Btn onClick={() => setShowHistorico(true)}>Resueltos ({todosResueltos.length})</Btn>}
+          <Btn disabled={generandoPreview} onClick={() => setShowIdiomaPreview(true)}>
+            {generandoPreview ? 'Generando...' : 'Vista previa'}
+          </Btn>
           <Btn primary disabled={generando} onClick={iniciarExportacio}>
             {generando ? 'Generando...' : editingVersion ? `↓ Reexportar Acta Nº ${String(vo.num).padStart(2,'0')} (corregida)` : `↓ Exportar Acta Nº ${String(vo.num).padStart(2,'0')}`}
           </Btn>
         </div>
+
+        {showIdiomaPreview && (
+          <Modal title="Idioma de la vista previa" onClose={() => setShowIdiomaPreview(false)} footer={<Btn onClick={() => setShowIdiomaPreview(false)}>Cancelar</Btn>}>
+            <p style={{ fontSize: 13, color: '#6B6B66', marginBottom: 16 }}>
+              Elige el idioma para previsualizar el Acta Nº {String(vo.num).padStart(2,'0')} tal como está ahora. No se exporta ni se archiva nada.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <Btn full onClick={() => previsualizar('ca')}>Catalán</Btn>
+              <Btn primary full onClick={() => previsualizar('es')}>Castellano</Btn>
+            </div>
+          </Modal>
+        )}
 
         {showIdioma && (
           <Modal title="Idioma del acta" onClose={() => setShowIdioma(false)} footer={<Btn onClick={() => setShowIdioma(false)}>Cancelar</Btn>}>
@@ -8397,7 +8430,7 @@ function dibuixarLiniesJustificades(doc, lines, x, yStart, lineHeight, totalWidt
 const PLAAT_LOGO_B64 = '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';
 
 // ── ACTA VO v2 — FORMAT PLAAT BRANDBOOK 2026 ─────────────────────────────────
-async function generarActaVO_v2(obra, vo, idioma = 'ca') {
+async function generarActaVO_v2(obra, vo, idioma = 'ca', opcions = {}) {
   if (!window.jspdf) {
     await new Promise((res, rej) => {
       const s = document.createElement('script');
@@ -9587,6 +9620,16 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
     // Escriure numeració correcta
     doc.setFont('helvetica','normal'); doc.setFontSize(6.5); doc.setTextColor(0,0,0);
     doc.text(`${T.peuAlt}  |  ${p} de ${totalPags}`, PW - MR, peuY2, { align: 'right' });
+
+    // Vista prèvia: marca d'aigua perquè quedi clar que no és l'acta exportada
+    // oficialment (no s'ha incrementat el número ni s'ha arxivat cap versió).
+    if (opcions.preview) {
+      doc.saveGraphicsState();
+      doc.setGState(new doc.GState({ opacity: 0.14 }));
+      doc.setFont('helvetica','bold'); doc.setFontSize(52); doc.setTextColor(120,30,30);
+      doc.text(esCA ? 'ESBORRANY — NO EXPORTAT' : 'BORRADOR — NO EXPORTADO', PW/2, PH/2, { align: 'center', angle: 35 });
+      doc.restoreGraphicsState();
+    }
   }
 
   // Nom del fitxer: NomObra_ActaVO_XX_CA/ES.pdf — es guarda com a propietat del PDF
@@ -9594,7 +9637,7 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca') {
   // (Chrome/Edge) el faci servir com a nom suggerit en lloc d'un nom genèric del blob
   const nomObraFitxer = (obra.nombre||'Obra').replace(/[^a-zA-Z0-9À-ÿ\s\-_]/g,'').trim().replace(/\s+/g,'_');
   const langStr = esCA ? 'CA' : 'ES';
-  const fileName = `${nomObraFitxer}_ActaVO_${num}_${langStr}.pdf`;
+  const fileName = `${nomObraFitxer}_ActaVO_${num}_${langStr}${opcions.preview ? '_PREVIEW' : ''}.pdf`;
   doc.setProperties({ title: fileName });
 
   // Obrir en nova pestanya (compatible iOS Safari)
@@ -10260,6 +10303,7 @@ export default function App() {
   const [xarxa, setXarxa] = useState({ online: true, pendents: 0, sincronitzant: false });
   const desatTimers  = useRef({});
   const desatPendent = useRef({});
+  const meuUltimaEscripturaVO = useRef({}); // obraId -> timestamp (ms) de l'última escriptura pròpia a actas_vo — distingeix l'eco del temps real d'un canvi fet des d'una altra sessió
   const userCarregatRef = useRef(null); // id d'usuari pel qual ja s'han carregat les obres
 
   // No perdre res en tancar la pestanya
@@ -10731,6 +10775,9 @@ export default function App() {
       // PROTECCIÓ: mai guardar si l'obra està en fase de càrrega (_cargando)
       // PROTECCIÓ: mai sobreescriure amb null/undefined (significaria que els mòduls no s'han carregat encara)
       if (!obra._cargando && obra.actaVO !== undefined && obra.actaVO !== null && obra.actaVO !== prev.actaVO) {
+        // Marcar el moment abans d'enviar: si el temps real ens retorna l'eco
+        // d'aquest mateix guardat, no l'hem de confondre amb un canvi extern.
+        meuUltimaEscripturaVO.current[obra.id] = Date.now();
         await window.db.upsertModulo('actas_vo', { id: obra.id + '_vo', obra_id: obra.id, data: obra.actaVO, updated_at: now() });
       }
 
@@ -10828,8 +10875,14 @@ export default function App() {
     desatTimers.current[updated.id] = setTimeout(() => {
       const p = desatPendent.current[updated.id];
       if (!p) return;
-      delete desatPendent.current[updated.id];
-      saveUnaObra(p.updated, p.lista, p.anterior).catch(e => console.error('Error desant:', e));
+      // No esborrem `desatPendent` fins que el guardat acaba: mentre està en curs,
+      // `aplicarActaVOFresca` l'ha de seguir veient com a pendent (si no, un canvi
+      // extern de temps real que arribi just en aquest interval es podria aplicar
+      // a `obraActiva` un instant abans que el nostre propi guardat el torni a
+      // sobreescriure — no es perd res a BD, però parpellejaria a la UI).
+      saveUnaObra(p.updated, p.lista, p.anterior)
+        .catch(e => console.error('Error desant:', e))
+        .finally(() => { if (desatPendent.current[updated.id] === p) delete desatPendent.current[updated.id]; });
     }, 700);
   }
 
@@ -10883,6 +10936,52 @@ export default function App() {
     });
     return unsub;
   }, [user]);
+
+  // Aplica una fila fresca d'`actas_vo` (vinguda d'un fetch o del temps real),
+  // sempre en silenci — sense avisos a l'usuari. Si el guardat pendent
+  // (debounce de 700ms) d'aquesta obra inclou realment un canvi d'`actaVO`
+  // (no només d'un altre camp, com marcar un dia de visita des de la
+  // targeta), deixem que guanyi l'edició pròpia en curs (com faria
+  // qualsevol app sense edició col·laborativa en viu): no la sobreescrivim
+  // ara, i el seu guardat normal seguirà el seu curs tot sol.
+  function aplicarActaVOFresca(obraId, fresca) {
+    const pendent = desatPendent.current[obraId];
+    const pendentTocaVO = pendent && pendent.updated?.actaVO !== undefined && pendent.updated.actaVO !== pendent.anterior?.actaVO;
+    if (pendentTocaVO) return;
+    setObras(lista => lista.map(o => o.id === obraId ? { ...o, actaVO: fresca.data } : o));
+    setObraActiva(prev => (prev && prev.id === obraId) ? { ...prev, actaVO: fresca.data } : prev);
+  }
+
+  // Temps real per a l'obra activa: detecta si l'Acta VO ha canviat a
+  // Supabase mentre la teníem oberta (p.ex. una altra pestanya o dispositiu
+  // que encara tenia una còpia antiga en memòria i ha fet un guardat).
+  // Bug real que això corregeix: l'acta Nº42 sortia amb el contingut de la
+  // Nº40 — una sessió desactualitzada va sobreescriure en silenci la feina
+  // feta per a la Nº41. També refresquem en obrir l'obra, perquè `obras` es
+  // carrega sencer un sol cop en entrar a l'app i no es torna a refrescar en
+  // navegar-hi.
+  useEffect(() => {
+    if (!obraActiva?.id || !window.db?.subscribeObra) return;
+    const obraId = obraActiva.id;
+
+    (async () => {
+      try {
+        const rows = await window.db.getModulo('actas_vo', obraId);
+        if (rows?.[0]) aplicarActaVOFresca(obraId, rows[0]);
+      } catch {}
+    })();
+
+    const unsub = window.db.subscribeObra(obraId, async (tabla) => {
+      if (tabla !== 'actas_vo') return;
+      // Eco del nostre propi guardat (arriba quasi a l'instant): ignorar.
+      if (Date.now() - (meuUltimaEscripturaVO.current[obraId] || 0) < 4000) return;
+      try {
+        const rows = await window.db.getModulo('actas_vo', obraId);
+        if (rows?.[0]) aplicarActaVOFresca(obraId, rows[0]);
+      } catch {}
+    });
+    return unsub;
+  }, [obraActiva?.id]);
 
   // Realtime solo para lista de obras (nuevas obras de compañeros)
   // La obra activa NO usa Realtime — se actualiza solo desde estado local

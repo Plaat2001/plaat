@@ -1,3 +1,6 @@
 .vercel
 .env*
 node_modules
+dist/
+out/
+scripts/_extracted-acta.js
