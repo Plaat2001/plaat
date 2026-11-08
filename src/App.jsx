@@ -2265,12 +2265,15 @@ const ESTADOS_VO = {
 // perquè a 5-7px de diàmetre els colors de text (pensats per llegir sobre fons clar)
 // es veuen massa semblants entre ells.
 const DOT_COLOR_VO = { P: '#F0A02B', R: '#2FA84F', I: '#3B82C4' };
+// Llista de codis de responsable amb la qual s'inicialitza `vo.respList` la primera vegada
+// que s'obre l'Acta VO d'una obra — a partir d'aquí cada obra té la seva pròpia llista,
+// totalment editable (afegir/reanomenar/eliminar), sense afectar les altres obres.
 const RESP_VO = ['EC', 'DO', 'DEO', 'PR', 'DOE', 'DOI', 'CSS', 'ATE', 'INT'];
 
-// Modal per triar responsables d'un seguiment/tema: la llista predeterminada (RESP_VO,
-// fixa, compartida per totes les obres) més els codis personalitzats d'aquesta obra
-// (`extra`, a vo.respExtra), amb alta/edició/baixa dels personalitzats des del mateix modal.
-function ModalResponsables({ activos, extra = [], onChange, onAdd, onEdit, onDelete, onClose }) {
+// Modal per triar i gestionar els responsables d'aquesta obra: `lista` és la llista completa
+// (vo.respList, editable sencera — no hi ha distinció entre "predeterminats" i "personalitzats"),
+// `activos` els codis marcats per al seguiment/tema actual.
+function ModalResponsables({ activos, lista = [], onChange, onAdd, onEdit, onDelete, onClose }) {
   const [nou, setNou] = useState('');
   const [editant, setEditant] = useState(null);
   const [editVal, setEditVal] = useState('');
@@ -2282,7 +2285,7 @@ function ModalResponsables({ activos, extra = [], onChange, onAdd, onEdit, onDel
   function afegirNou() {
     const c = nou.trim().toUpperCase();
     setNou('');
-    if (!c || RESP_VO.includes(c) || extra.includes(c)) return;
+    if (!c || lista.includes(c)) return;
     onAdd(c);
     if (!activos.includes(c)) onChange([...activos, c]);
   }
@@ -2290,42 +2293,35 @@ function ModalResponsables({ activos, extra = [], onChange, onAdd, onEdit, onDel
     const c = editVal.trim().toUpperCase();
     const antic = editant;
     setEditant(null); setEditVal('');
-    if (!c || c === antic || RESP_VO.includes(c) || extra.includes(c)) return;
+    if (!c || c === antic || lista.includes(c)) return;
     onEdit(antic, c);
   }
-
-  const Fila = (r, esExtra) => (
-    <div key={r} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px' }}>
-      <input type="checkbox" checked={activos.includes(r)} onChange={() => toggle(r)} style={{ width: 15, height: 15, flexShrink: 0 }} />
-      {editant === r ? (
-        <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value.toUpperCase())}
-          onKeyDown={e => { if (e.key === 'Enter') guardarEdicio(); if (e.key === 'Escape') { setEditant(null); setEditVal(''); } }}
-          onBlur={guardarEdicio}
-          style={{ flex: 1, fontSize: 13, fontWeight: 600, padding: '3px 6px' }} />
-      ) : (
-        <span onClick={() => toggle(r)} style={{ flex: 1, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{r}</span>
-      )}
-      {esExtra && editant !== r && (
-        <>
-          <button onClick={() => { setEditant(r); setEditVal(r); }} title="Editar código"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C4C3BE', padding: '2px 4px', display: 'inline-flex' }}>✏️</button>
-          <button onClick={() => setConfirmDel(r)} title="Eliminar de esta obra"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 16, lineHeight: 1, padding: '0 3px' }}>×</button>
-        </>
-      )}
-    </div>
-  );
 
   return (
     <Modal title="Responsables" onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column' }}>
-        {RESP_VO.map(r => Fila(r, false))}
-        {extra.length > 0 && (
-          <div style={{ fontSize: 10.5, fontWeight: 700, color: '#9B9B97', textTransform: 'uppercase', letterSpacing: '.05em', margin: '10px 0 2px' }}>
-            Personalizados de esta obra
+        {lista.map(r => (
+          <div key={r} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px' }}>
+            <input type="checkbox" checked={activos.includes(r)} onChange={() => toggle(r)} style={{ width: 15, height: 15, flexShrink: 0 }} />
+            {editant === r ? (
+              <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value.toUpperCase())}
+                onKeyDown={e => { if (e.key === 'Enter') guardarEdicio(); if (e.key === 'Escape') { setEditant(null); setEditVal(''); } }}
+                onBlur={guardarEdicio}
+                style={{ flex: 1, fontSize: 13, fontWeight: 600, padding: '3px 6px' }} />
+            ) : (
+              <span onClick={() => toggle(r)} style={{ flex: 1, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{r}</span>
+            )}
+            {editant !== r && (
+              <>
+                <button onClick={() => { setEditant(r); setEditVal(r); }} title="Editar código"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C4C3BE', padding: '2px 4px', display: 'inline-flex' }}>✏️</button>
+                <button onClick={() => setConfirmDel(r)} title="Eliminar de esta obra"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#D4D3CE', fontSize: 16, lineHeight: 1, padding: '0 3px' }}>×</button>
+              </>
+            )}
           </div>
-        )}
-        {extra.map(r => Fila(r, true))}
+        ))}
+        {lista.length === 0 && <div style={{ fontSize: 12.5, color: '#9B9B97', padding: '8px 4px' }}>No hay responsables en la lista de esta obra.</div>}
       </div>
 
       <div style={{ display: 'flex', gap: 6, marginTop: 14, paddingTop: 12, borderTop: '1px solid #ECEAE4' }}>
@@ -6388,7 +6384,14 @@ function migrateVO(raw) {
   // Els rols marcats com `opcional` (p.ex. DAO) no entren per defecte: s'han d'activar
   // expressament des del selector de firmes per a l'obra que els necessiti.
   if (!Array.isArray(vo.firmasSeleccionadas)) vo.firmasSeleccionadas = ROLES_FIRMA.filter(r => !r.opcional).map(r => r.id);
-  if (!Array.isArray(vo.respExtra)) vo.respExtra = [];
+  // Llista de responsables d'aquesta obra — es sembra amb RESP_VO la primera vegada i a partir
+  // d'aquí és totalment editable (afegir/reanomenar/eliminar) sense afectar altres obres.
+  // Migració: si ja hi havia `vo.respExtra` (versió anterior, només permetia afegir-ne),
+  // s'incorporen els seus codis a la nova llista perquè no es perdin.
+  if (!Array.isArray(vo.respList)) {
+    const legacy = Array.isArray(vo.respExtra) ? vo.respExtra : [];
+    vo.respList = Array.from(new Set([...RESP_VO, ...legacy]));
+  }
   if (!vo.estadoObra) vo.estadoObra = { descripcion: '', ubicacions: [] };
 
   // B — Trabajos en curso
@@ -6707,29 +6710,30 @@ function ModuloActaVO({ obra, onSave }) {
     guardarVO({ ...vo, equipo: [...vo.equipo, { id: uid(), nombre: 'NUEVO ROL', personas: [{ id: uid(), empresa: '', nombre: '', email: '', tel: '', asistio: false }] }] });
   }
   function delRol(id) { guardarVO({ ...vo, equipo: vo.equipo.filter(r => r.id !== id) }); }
-  // Responsables personalizados — codis curts que no estan a RESP_VO, propis d'aquesta obra
-  function addRespExtra(codi) {
+  // Llista de responsables d'aquesta obra (vo.respList) — totalment editable: afegir, reanomenar
+  // i eliminar, sense distinció entre codis "de sèrie" i personalitzats.
+  function addResp(codi) {
     const c = (codi || '').trim().toUpperCase();
-    if (!c || RESP_VO.includes(c) || (vo.respExtra || []).includes(c)) return;
-    guardarVO({ ...vo, respExtra: [...(vo.respExtra || []), c] });
+    if (!c || (vo.respList || []).includes(c)) return;
+    guardarVO({ ...vo, respList: [...(vo.respList || []), c] });
   }
-  // Reanomena un codi personalitzat — propaga el canvi als seguiments que ja el tinguin assignat
-  // perquè no quedin amb un codi "orfe" que ja no apareix al llistat.
-  function editRespExtra(codiAntic, codiNou) {
+  // Reanomena un codi — propaga el canvi als seguiments que ja el tinguin assignat perquè no
+  // quedin amb un codi "orfe" que ja no apareix al llistat.
+  function editResp(codiAntic, codiNou) {
     const c = (codiNou || '').trim().toUpperCase();
-    if (!c || c === codiAntic || RESP_VO.includes(c) || (vo.respExtra || []).includes(c)) return;
+    if (!c || c === codiAntic || (vo.respList || []).includes(c)) return;
     guardarVO({
       ...vo,
-      respExtra: (vo.respExtra || []).map(x => x === codiAntic ? c : x),
+      respList: (vo.respList || []).map(x => x === codiAntic ? c : x),
       secciones: vo.secciones.map(s => ({ ...s, temas: (s.temas||[]).map(t => ({ ...t, entradas: (t.entradas||[]).map(e =>
         Array.isArray(e.resp) && e.resp.includes(codiAntic) ? { ...e, resp: e.resp.map(r => r === codiAntic ? c : r) } : e
       ) })) })),
     });
   }
-  // Elimina un codi personalitzat del llistat d'aquesta obra — no toca els seguiments que ja
-  // el tinguin assignat (el conserven com a text, igual que si s'esborrés un rol de l'equip).
-  function delRespExtra(codi) {
-    guardarVO({ ...vo, respExtra: (vo.respExtra || []).filter(x => x !== codi) });
+  // Elimina un codi del llistat d'aquesta obra — no toca els seguiments que ja el tinguin
+  // assignat (el conserven com a text, igual que si s'esborrés un rol de l'equip).
+  function delResp(codi) {
+    guardarVO({ ...vo, respList: (vo.respList || []).filter(x => x !== codi) });
   }
   function moveRol(id, dir) {
     const eq = [...(vo.equipo||[])];
@@ -7662,7 +7666,7 @@ function ModuloActaVO({ obra, onSave }) {
                   {/* Temas activos — ordre d'inserció, sense botó d'afegir (la captura ràpida flotant ho substitueix) */}
                   {!colapsada && visibles.map(t => (
                     <TemaVO key={t.id} t={t} est={ESTADOS_VO[estatAgregatTema(t)]} secId={sec.id} voNum={vo.num}
-                      secciones={vo.secciones} resaltar={busq} respExtra={vo.respExtra||[]} onAddResp={addRespExtra} onEditResp={editRespExtra} onDeleteResp={delRespExtra}
+                      secciones={vo.secciones} resaltar={busq} respLista={vo.respList||RESP_VO} onAddResp={addResp} onEditResp={editResp} onDeleteResp={delResp}
                       onUpdEntrada={(tId,eId,campo,val) => updEntrada(sec.id, tId, eId, campo, val)}
                       onUpdTema={(tId,campo,val) => updTema(sec.id, tId, campo, val)}
                       onAddEntrada={(tId,txt) => addEntrada(sec.id, tId, txt)}
@@ -7698,10 +7702,10 @@ function ModuloActaVO({ obra, onSave }) {
           obraId={obra?.id}
           fechaDefault={vo.fechaActa}
           nextNum={nextNum}
-          respExtra={vo.respExtra||[]}
-          onAddResp={addRespExtra}
-          onEditResp={editRespExtra}
-          onDeleteResp={delRespExtra}
+          respLista={vo.respList||RESP_VO}
+          onAddResp={addResp}
+          onEditResp={editResp}
+          onDeleteResp={delResp}
           onAdd={(secId, dades) => { addTema(secId, dades.titulo, dades.texto, dades); setShowQuickAdd(false); }}
           onCancel={() => setShowQuickAdd(false)}
         />
@@ -7744,7 +7748,7 @@ function ModuloActaVO({ obra, onSave }) {
 }
 
 // Componente de un tema (para evitar closures stale en los selects)
-function TemaVO({ t, est, secId, voNum, secciones, resaltar, respExtra = [], onAddResp, onEditResp, onDeleteResp, onUpdEntrada, onUpdTema, onAddEntrada, onAddFoto, onDelFoto, onEditFoto, onDelEntrada, onMover, onReordenar, onDel }) {
+function TemaVO({ t, est, secId, voNum, secciones, resaltar, respLista = RESP_VO, onAddResp, onEditResp, onDeleteResp, onUpdEntrada, onUpdTema, onAddEntrada, onAddFoto, onDelFoto, onEditFoto, onDelEntrada, onMover, onReordenar, onDel }) {
   const isMobile = useIsMobile();
   const [abierto, setAbierto] = useState(false);
   const [editEnt, setEditEnt] = useState(null);
@@ -7917,7 +7921,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, respExtra = [], onA
 
                     {/* Modal de responsables */}
                     {openResp === en.id && (
-                      <ModalResponsables activos={resps} extra={respExtra}
+                      <ModalResponsables activos={resps} lista={respLista}
                         onChange={nous => onUpdEntrada(t.id, en.id, 'resp', nous)}
                         onAdd={onAddResp} onEdit={onEditResp} onDelete={onDeleteResp}
                         onClose={() => setOpenResp(null)} />
@@ -8008,7 +8012,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, respExtra = [], onA
 
 // Captura ràpida: tria secció + títol, sense haver de navegar-hi
 // Formulari complet per crear un tema nou — secció, títol, text, estat, responsable i fotos
-function QuickAddTema({ secciones, obraId, fechaDefault, nextNum, respExtra = [], onAddResp, onEditResp, onDeleteResp, onAdd, onCancel }) {
+function QuickAddTema({ secciones, obraId, fechaDefault, nextNum, respLista = RESP_VO, onAddResp, onEditResp, onDeleteResp, onAdd, onCancel }) {
   const isMobile = useIsMobile();
   const [secId, setSecId] = useState(secciones[0]?.id || '');
   const [titulo, setTitulo, clearTitulo] = useDraftState(`quickAddTemaTitulo:${obraId}`, '');
@@ -8113,7 +8117,7 @@ function QuickAddTema({ secciones, obraId, fechaDefault, nextNum, respExtra = []
         </div>
       </div>
       {openResp && (
-        <ModalResponsables activos={resp} extra={respExtra}
+        <ModalResponsables activos={resp} lista={respLista}
           onChange={setResp} onAdd={onAddResp} onEdit={onEditResp} onDelete={onDeleteResp}
           onClose={() => setOpenResp(false)} />
       )}
