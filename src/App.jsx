@@ -7782,6 +7782,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, respLista = RESP_VO
   const [confirmFoto, setConfirmFoto] = useState(null);
   const [confirmDelEntrada, setConfirmDelEntrada] = useState(null); // id de l'entrada a eliminar
   const [openResp, setOpenResp] = useState(null);   // id entrada amb el selector de resp obert
+  const [gestResp, setGestResp] = useState(null);   // id entrada des d'on s'ha obert el modal de gestió de la llista
   const [openEstado, setOpenEstado] = useState(null); // id entrada amb el selector d'estado obert
   const [showAdmin, setShowAdmin] = useState(false); // controls poc freqüents
 
@@ -7945,13 +7946,29 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, respLista = RESP_VO
                       </span>
                     </div>
 
-                    {/* Modal de responsables */}
+                    {/* Selector de responsables desplegat */}
                     {openResp === en.id && (
+                      <div className="fade" style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: '7px 8px', background: '#FAFAF8', borderRadius: 7, marginBottom: 6, alignItems: 'center' }}>
+                        {respLista.map(r => {
+                          const actiu = resps.includes(r);
+                          return (
+                            <button key={r} onClick={() => onUpdEntrada(t.id, en.id, 'resp', actiu ? resps.filter(x=>x!==r) : [...resps, r])}
+                              style={{ ...NUM, padding: '3px 9px', borderRadius: 5, fontSize: 11, fontWeight: actiu?700:500,
+                                border: `1px solid ${actiu?'#1C1C1A':'#E5E4DF'}`, background: actiu?'#1C1C1A':'#fff', color: actiu?'#fff':'#6B6B66', cursor:'pointer' }}>{r}</button>
+                          );
+                        })}
+                        <button onClick={() => setGestResp(en.id)} title="Añadir, editar o eliminar responsables de esta obra"
+                          style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#9B9B97', fontSize: 13, padding: '2px 5px', flexShrink: 0 }}>⚙️</button>
+                      </div>
+                    )}
+
+                    {/* Modal de gestió de la llista de responsables d'aquesta obra */}
+                    {gestResp === en.id && (
                       <ModalResponsables activos={resps} lista={respLista}
                         onChange={nous => onUpdEntrada(t.id, en.id, 'resp', nous)}
                         onAdd={onAddResp} onAddYActivar={codigo => onAddRespActivo(codigo, secId, t.id, en.id)}
                         onEdit={onEditResp} onDelete={onDeleteResp}
-                        onClose={() => setOpenResp(null)} />
+                        onClose={() => setGestResp(null)} />
                     )}
 
                     {/* Selector d'estado desplegat */}
@@ -8131,15 +8148,18 @@ function QuickAddTema({ secciones, obraId, fechaDefault, nextNum, respLista = RE
         <div style={{ flex: 1, minWidth: isMobile ? '100%' : 140 }}>
           <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#52524E', marginBottom: 5 }}>Responsable</label>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-            {resp.map(r => (
-              <span key={r} onClick={() => setResp(resp.filter(x => x !== r))}
-                title="Quitar responsable"
-                style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 5, background: '#18180F', color: '#fff', cursor: 'pointer', letterSpacing: '.03em' }}>{r}</span>
-            ))}
-            <button onClick={() => setOpenResp(true)}
-              style={{ padding: '6px 10px', borderRadius: 6, fontSize: 11, border: '1px dashed #DEDDD8', background: 'transparent', color: '#9B9B97', cursor: 'pointer' }}>
-              {resp.length ? '+' : '+ resp'}
-            </button>
+            {respLista.map(r => {
+              const actiu = resp.includes(r);
+              return (
+                <button key={r} onClick={() => setResp(actiu ? resp.filter(x=>x!==r) : [...resp, r])}
+                  style={{ padding: '6px 10px', borderRadius: 6, fontSize: 11, fontWeight: actiu?700:500, cursor: 'pointer',
+                    border: `1px solid ${actiu?'#18180F':'#E5E4DF'}`, background: actiu?'#18180F':'#fff', color: actiu?'#fff':'#8A8A85' }}>
+                  {r}
+                </button>
+              );
+            })}
+            <button onClick={() => setOpenResp(true)} title="Añadir, editar o eliminar responsables de esta obra"
+              style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#9B9B97', fontSize: 14, padding: '2px 5px', flexShrink: 0 }}>⚙️</button>
           </div>
         </div>
       </div>
