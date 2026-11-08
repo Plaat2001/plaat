@@ -2273,7 +2273,7 @@ const RESP_VO = ['EC', 'DO', 'DEO', 'PR', 'DOE', 'DOI', 'CSS', 'ATE', 'INT'];
 // Modal per triar i gestionar els responsables d'aquesta obra: `lista` és la llista completa
 // (vo.respList, editable sencera — no hi ha distinció entre "predeterminats" i "personalitzats"),
 // `activos` els codis marcats per al seguiment/tema actual.
-function ModalResponsables({ activos, lista = [], onChange, onAdd, onEdit, onDelete, onClose }) {
+function ModalResponsables({ activos, lista = [], onChange, onAdd, onAddYActivar, onEdit, onDelete, onClose }) {
   const [nou, setNou] = useState('');
   const [editant, setEditant] = useState(null);
   const [editVal, setEditVal] = useState('');
@@ -2286,6 +2286,10 @@ function ModalResponsables({ activos, lista = [], onChange, onAdd, onEdit, onDel
     const c = nou.trim().toUpperCase();
     setNou('');
     if (!c || lista.includes(c)) return;
+    // Quan hi ha `onAddYActivar` cal fer-lo servir EN LLOC de onAdd()+onChange() seguits:
+    // totes dues crides partirien del mateix estat de `vo` i la segona sobreescriuria el que
+    // afegeix la primera (vegeu addRespYMarcarEnEntrada a ModuloActaVO).
+    if (onAddYActivar) { onAddYActivar(c); return; }
     onAdd(c);
     if (!activos.includes(c)) onChange([...activos, c]);
   }
@@ -6735,6 +6739,28 @@ function ModuloActaVO({ obra, onSave }) {
   function delResp(codi) {
     guardarVO({ ...vo, respList: (vo.respList || []).filter(x => x !== codi) });
   }
+  // Afegeix un codi nou al llistat de l'obra I el marca actiu en una entrada concreta, tot en
+  // una sola crida a guardarVO(). Cal fer-ho així i no amb addResp() + onUpdEntrada() seguits:
+  // totes dues crides partirien del mateix `vo` (closure d'aquest render) i, com que guardarVO()
+  // no fa servir l'actualització funcional de setState, la segona crida sobreescriuria la
+  // primera — el codi nou es quedava fora de vo.respList encara que la UI el donés per afegit.
+  function addRespYMarcarEnEntrada(codi, secId, temaId, entId) {
+    const c = (codi || '').trim().toUpperCase();
+    if (!c) return;
+    const respList = (vo.respList || []).includes(c) ? (vo.respList || []) : [...(vo.respList || []), c];
+    const temaActual = vo.secciones.find(s => s.id === secId)?.temas?.find(t => t.id === temaId);
+    const entradaActual = temaActual?.entradas?.find(e => e.id === entId);
+    const respActual = Array.isArray(entradaActual?.resp) ? entradaActual.resp : (entradaActual?.resp ? [entradaActual.resp] : []);
+    const respFinal = respActual.includes(c) ? respActual : [...respActual, c];
+    guardarVO({
+      ...vo,
+      respList,
+      secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: (s.temas||[]).map(t => t.id !== temaId ? t : { ...t, entradas: t.entradas.map(e => e.id === entId ? { ...e, resp: respFinal } : e) }) }),
+    });
+    // Igual que updEntrada(): si s'està editant una versió arxivada, el canvi de responsable
+    // es propaga a les actes posteriors que encara no s'hagin corregit.
+    if (editingVersion) propagarForward(v => patchEntradaVO(v, secId, temaId, entId, 'resp', respFinal));
+  }
   function moveRol(id, dir) {
     const eq = [...(vo.equipo||[])];
     const idx = eq.findIndex(r => r.id === id);
@@ -7666,7 +7692,7 @@ function ModuloActaVO({ obra, onSave }) {
                   {/* Temas activos — ordre d'inserció, sense botó d'afegir (la captura ràpida flotant ho substitueix) */}
                   {!colapsada && visibles.map(t => (
                     <TemaVO key={t.id} t={t} est={ESTADOS_VO[estatAgregatTema(t)]} secId={sec.id} voNum={vo.num}
-                      secciones={vo.secciones} resaltar={busq} respLista={vo.respList||RESP_VO} onAddResp={addResp} onEditResp={editResp} onDeleteResp={delResp}
+                      secciones={vo.secciones} resaltar={busq} respLista={vo.respList||RESP_VO} onAddResp={addResp} onAddRespActivo={addRespYMarcarEnEntrada} onEditResp={editResp} onDeleteResp={delResp}
                       onUpdEntrada={(tId,eId,campo,val) => updEntrada(sec.id, tId, eId, campo, val)}
                       onUpdTema={(tId,campo,val) => updTema(sec.id, tId, campo, val)}
                       onAddEntrada={(tId,txt) => addEntrada(sec.id, tId, txt)}
@@ -7748,7 +7774,7 @@ function ModuloActaVO({ obra, onSave }) {
 }
 
 // Componente de un tema (para evitar closures stale en los selects)
-function TemaVO({ t, est, secId, voNum, secciones, resaltar, respLista = RESP_VO, onAddResp, onEditResp, onDeleteResp, onUpdEntrada, onUpdTema, onAddEntrada, onAddFoto, onDelFoto, onEditFoto, onDelEntrada, onMover, onReordenar, onDel }) {
+function TemaVO({ t, est, secId, voNum, secciones, resaltar, respLista = RESP_VO, onAddResp, onAddRespActivo, onEditResp, onDeleteResp, onUpdEntrada, onUpdTema, onAddEntrada, onAddFoto, onDelFoto, onEditFoto, onDelEntrada, onMover, onReordenar, onDel }) {
   const isMobile = useIsMobile();
   const [abierto, setAbierto] = useState(false);
   const [editEnt, setEditEnt] = useState(null);
@@ -7923,7 +7949,8 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, respLista = RESP_VO
                     {openResp === en.id && (
                       <ModalResponsables activos={resps} lista={respLista}
                         onChange={nous => onUpdEntrada(t.id, en.id, 'resp', nous)}
-                        onAdd={onAddResp} onEdit={onEditResp} onDelete={onDeleteResp}
+                        onAdd={onAddResp} onAddYActivar={codigo => onAddRespActivo(codigo, secId, t.id, en.id)}
+                        onEdit={onEditResp} onDelete={onDeleteResp}
                         onClose={() => setOpenResp(null)} />
                     )}
 
