@@ -49,6 +49,10 @@ const vo = {
     { id: uid(), nombre: 'CONTRATISTA (EC)', grupo: 'CONTRATISTA', personas: [
       { id: uid(), empresa: 'Construccions i Obra Civil Nord-Est, S.A.', nombre: 'Ramon Vila Soler', email: 'rvila@construccionsnordest.com', tel: '93 500 88 99', asistio: true },
     ] },
+    // Rol opcional de prova — comprova que getEmpresa() el troba via el clau 'AMBIENT'
+    { id: uid(), nombre: 'DIRECCIÓN AMBIENTAL DE OBRA (DAO)', grupo: 'DIRECCIÓN DE EJECUCIÓN', personas: [
+      { id: uid(), empresa: 'Consultoria Ambiental i Sostenibilitat del Vallès, S.L.', nombre: 'Laia Font Roca', email: 'lfont@consultoriambiental.cat', tel: '93 600 77 88', asistio: true },
+    ] },
   ],
   estadoObra: { descripcion: '', ubicacions: [] },
   trabajosEnCurso: [
@@ -60,7 +64,8 @@ const vo = {
       { id: uid(), num: '1.01', titulo: 'Documentació tècnica climatització pendent', entradas: [
         entrada({ estado: 'P', fecha: '2026-09-15', resp: ['EC'], texto: textoLargo, nueva: false }),
         entrada({ estado: 'P', fecha: '2026-10-06', resp: ['EC','DEO'], texto: 'Es reitera la petició, sense resposta de l\'instal·lador.', nueva: true }),
-        entrada({ estado: 'P', fecha: '2026-10-20', resp: ['EC'], texto: 'Tercera reiteració. El contractista indica que ho tindrà la propera setmana.', nueva: true }),
+        // Responsable personalitzat (fora de RESP_VO) — comprova que s'imprimeix igual que els predeterminats
+        entrada({ estado: 'P', fecha: '2026-10-20', resp: ['EC','GEST'], texto: 'Tercera reiteració. El contractista indica que ho tindrà la propera setmana.', nueva: true }),
         entrada({ estado: 'R', fecha: '2026-11-03', resp: ['EC'], texto: 'Documentació rebuda i validada per la DEO.', nueva: true, fin: '2026-11-03' }),
       ] },
     ] },
@@ -99,3 +104,7 @@ async function render(opcions, outName) {
 
 await render({ preview: true }, 'acta-preview.pdf');
 await render({}, 'acta-normal.pdf');
+
+// Variant amb el rol opcional DAO actiu — comprova el quadre de firmes amb 7 firmants (files de 3+3+1)
+vo.firmasSeleccionadas = ['promotor', 'pm', 'do', 'deo', 'css', 'ec', 'dao'];
+await render({}, 'acta-dao.pdf');

@@ -2266,6 +2266,46 @@ const ESTADOS_VO = {
 // es veuen massa semblants entre ells.
 const DOT_COLOR_VO = { P: '#F0A02B', R: '#2FA84F', I: '#3B82C4' };
 const RESP_VO = ['EC', 'DO', 'DEO', 'PR', 'DOE', 'DOI', 'CSS', 'ATE', 'INT'];
+
+// Selector de codis de responsable d'un seguiment/tema: la llista predeterminada (RESP_VO)
+// més els codis personalitzats d'aquesta acta (`extra`), amb un camp per afegir-ne un de nou
+// que no estigui a cap de les dues llistes.
+function SelectorResp({ activos, extra = [], onChange, onAdd }) {
+  const [editantNou, setEditantNou] = useState(false);
+  const [val, setVal] = useState('');
+  function toggle(r) {
+    onChange(activos.includes(r) ? activos.filter(x => x !== r) : [...activos, r]);
+  }
+  function confirmarNou() {
+    const c = val.trim().toUpperCase();
+    setVal(''); setEditantNou(false);
+    if (!c) return;
+    onAdd?.(c);
+    if (!activos.includes(c)) onChange([...activos, c]);
+  }
+  return (
+    <>
+      {[...RESP_VO, ...extra].map(r => {
+        const actiu = activos.includes(r);
+        return (
+          <button key={r} onClick={() => toggle(r)}
+            style={{ fontVariantNumeric: 'tabular-nums', letterSpacing: '0.01em', padding: '3px 9px', borderRadius: 5, fontSize: 11, fontWeight: actiu ? 700 : 500,
+              border: `1px solid ${actiu ? '#1C1C1A' : '#E5E4DF'}`, background: actiu ? '#1C1C1A' : '#fff', color: actiu ? '#fff' : '#6B6B66', cursor: 'pointer' }}>{r}</button>
+        );
+      })}
+      {editantNou ? (
+        <input autoFocus value={val} onChange={e => setVal(e.target.value.toUpperCase())}
+          onKeyDown={e => { if (e.key === 'Enter') confirmarNou(); if (e.key === 'Escape') { setVal(''); setEditantNou(false); } }}
+          onBlur={confirmarNou}
+          placeholder="Código"
+          style={{ width: 66, fontSize: 11, padding: '3px 6px', borderRadius: 5, border: '1px solid #1C1C1A' }} />
+      ) : (
+        <button onClick={() => setEditantNou(true)} title="Añadir un responsable que no está en la lista"
+          style={{ padding: '3px 8px', borderRadius: 5, fontSize: 11, border: '1px dashed #C4C3BE', background: 'transparent', color: '#9B9B97', cursor: 'pointer' }}>+ nuevo</button>
+      )}
+    </>
+  );
+}
 // Editor de fotos de l'Acta VO — colors i eines de marcatge disponibles
 const COLORS_EDITOR_FOTO = ['#E53935', '#FDD835', '#1E88E5', '#43A047', '#FFFFFF', '#111111'];
 const EINES_EDITOR_FOTO = [
@@ -2284,6 +2324,8 @@ const ROLES_FIRMA = [
   { id: 'deo',      label_es: 'DIRECCIÓN EJECUCIÓN OBRA',  label_ca: "DIRECCIÓ D'EXECUCIÓ",       clau: ['EJECUCIÓN', 'EXECUCIÓ'] },
   { id: 'css',      label_es: 'COORDINADOR DE SEGURIDAD',  label_ca: 'COORDINADOR DE SEGURETAT',  clau: 'SEGUR' },
   { id: 'ec',       label_es: 'CONTRATISTA',               label_ca: 'CONTRACTISTA',              clau: 'CONTRA' },
+  // Rol opcional — no surt per defecte a actes noves, s'ha d'activar des del selector de firmes
+  { id: 'dao',      label_es: 'DIRECCIÓN AMBIENTAL DE OBRA', label_ca: "DIRECCIÓ AMBIENTAL D'OBRA", clau: 'AMBIENT', opcional: true },
 ];
 const DIAS_DEFAULT = [1, 3]; // Lunes y Miércoles
 
@@ -6306,8 +6348,11 @@ function migrateVO(raw) {
   let vo = raw ? { ...raw } : {};
   if (!vo.num) vo.num = 1;
   if (!vo.fechaActa) vo.fechaActa = today();
-  // Per defecte totes les firmes actives — retrocompatible amb actes existents
-  if (!Array.isArray(vo.firmasSeleccionadas)) vo.firmasSeleccionadas = ROLES_FIRMA.map(r => r.id);
+  // Per defecte totes les firmes "base" actives — retrocompatible amb actes existents.
+  // Els rols marcats com `opcional` (p.ex. DAO) no entren per defecte: s'han d'activar
+  // expressament des del selector de firmes per a l'obra que els necessiti.
+  if (!Array.isArray(vo.firmasSeleccionadas)) vo.firmasSeleccionadas = ROLES_FIRMA.filter(r => !r.opcional).map(r => r.id);
+  if (!Array.isArray(vo.respExtra)) vo.respExtra = [];
   if (!vo.estadoObra) vo.estadoObra = { descripcion: '', ubicacions: [] };
 
   // B — Trabajos en curso
@@ -6626,6 +6671,12 @@ function ModuloActaVO({ obra, onSave }) {
     guardarVO({ ...vo, equipo: [...vo.equipo, { id: uid(), nombre: 'NUEVO ROL', personas: [{ id: uid(), empresa: '', nombre: '', email: '', tel: '', asistio: false }] }] });
   }
   function delRol(id) { guardarVO({ ...vo, equipo: vo.equipo.filter(r => r.id !== id) }); }
+  // Responsables personalizados — codis curts que no estan a RESP_VO, propis d'aquesta acta
+  function addRespExtra(codi) {
+    const c = (codi || '').trim().toUpperCase();
+    if (!c || RESP_VO.includes(c) || (vo.respExtra || []).includes(c)) return;
+    guardarVO({ ...vo, respExtra: [...(vo.respExtra || []), c] });
+  }
   function moveRol(id, dir) {
     const eq = [...(vo.equipo||[])];
     const idx = eq.findIndex(r => r.id === id);
@@ -7557,7 +7608,7 @@ function ModuloActaVO({ obra, onSave }) {
                   {/* Temas activos — ordre d'inserció, sense botó d'afegir (la captura ràpida flotant ho substitueix) */}
                   {!colapsada && visibles.map(t => (
                     <TemaVO key={t.id} t={t} est={ESTADOS_VO[estatAgregatTema(t)]} secId={sec.id} voNum={vo.num}
-                      secciones={vo.secciones} resaltar={busq}
+                      secciones={vo.secciones} resaltar={busq} respExtra={vo.respExtra||[]} onAddResp={addRespExtra}
                       onUpdEntrada={(tId,eId,campo,val) => updEntrada(sec.id, tId, eId, campo, val)}
                       onUpdTema={(tId,campo,val) => updTema(sec.id, tId, campo, val)}
                       onAddEntrada={(tId,txt) => addEntrada(sec.id, tId, txt)}
@@ -7593,6 +7644,8 @@ function ModuloActaVO({ obra, onSave }) {
           obraId={obra?.id}
           fechaDefault={vo.fechaActa}
           nextNum={nextNum}
+          respExtra={vo.respExtra||[]}
+          onAddResp={addRespExtra}
           onAdd={(secId, dades) => { addTema(secId, dades.titulo, dades.texto, dades); setShowQuickAdd(false); }}
           onCancel={() => setShowQuickAdd(false)}
         />
@@ -7635,7 +7688,7 @@ function ModuloActaVO({ obra, onSave }) {
 }
 
 // Componente de un tema (para evitar closures stale en los selects)
-function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpdTema, onAddEntrada, onAddFoto, onDelFoto, onEditFoto, onDelEntrada, onMover, onReordenar, onDel }) {
+function TemaVO({ t, est, secId, voNum, secciones, resaltar, respExtra = [], onAddResp, onUpdEntrada, onUpdTema, onAddEntrada, onAddFoto, onDelFoto, onEditFoto, onDelEntrada, onMover, onReordenar, onDel }) {
   const isMobile = useIsMobile();
   const [abierto, setAbierto] = useState(false);
   const [editEnt, setEditEnt] = useState(null);
@@ -7809,14 +7862,9 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
                     {/* Selector de responsables desplegat */}
                     {openResp === en.id && (
                       <div className="fade" style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: '7px 8px', background: '#FAFAF8', borderRadius: 7, marginBottom: 6 }}>
-                        {RESP_VO.map(r => {
-                          const actiu = resps.includes(r);
-                          return (
-                            <button key={r} onClick={() => onUpdEntrada(t.id, en.id, 'resp', actiu ? resps.filter(x=>x!==r) : [...resps, r])}
-                              style={{ ...NUM, padding: '3px 9px', borderRadius: 5, fontSize: 11, fontWeight: actiu?700:500,
-                                border: `1px solid ${actiu?'#1C1C1A':'#E5E4DF'}`, background: actiu?'#1C1C1A':'#fff', color: actiu?'#fff':'#6B6B66', cursor:'pointer' }}>{r}</button>
-                          );
-                        })}
+                        <SelectorResp activos={resps} extra={respExtra}
+                          onChange={nous => onUpdEntrada(t.id, en.id, 'resp', nous)}
+                          onAdd={onAddResp} />
                       </div>
                     )}
 
@@ -7905,7 +7953,7 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, onUpdEntrada, onUpd
 
 // Captura ràpida: tria secció + títol, sense haver de navegar-hi
 // Formulari complet per crear un tema nou — secció, títol, text, estat, responsable i fotos
-function QuickAddTema({ secciones, obraId, fechaDefault, nextNum, onAdd, onCancel }) {
+function QuickAddTema({ secciones, obraId, fechaDefault, nextNum, respExtra = [], onAddResp, onAdd, onCancel }) {
   const isMobile = useIsMobile();
   const [secId, setSecId] = useState(secciones[0]?.id || '');
   const [titulo, setTitulo, clearTitulo] = useDraftState(`quickAddTemaTitulo:${obraId}`, '');
@@ -7996,16 +8044,7 @@ function QuickAddTema({ secciones, obraId, fechaDefault, nextNum, onAdd, onCance
         <div style={{ flex: 1, minWidth: isMobile ? '100%' : 140 }}>
           <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#52524E', marginBottom: 5 }}>Responsable</label>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            {RESP_VO.map(r => {
-              const actiu = resp.includes(r);
-              return (
-                <button key={r} onClick={() => setResp(actiu ? resp.filter(x=>x!==r) : [...resp, r])}
-                  style={{ padding: '6px 10px', borderRadius: 6, fontSize: 11, fontWeight: actiu?700:500, cursor: 'pointer',
-                    border: `1px solid ${actiu?'#18180F':'#E5E4DF'}`, background: actiu?'#18180F':'#fff', color: actiu?'#fff':'#8A8A85' }}>
-                  {r}
-                </button>
-              );
-            })}
+            <SelectorResp activos={resp} extra={respExtra} onChange={setResp} onAdd={onAddResp} />
           </div>
         </div>
       </div>
