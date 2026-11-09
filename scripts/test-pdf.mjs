@@ -68,6 +68,10 @@ const vo = {
         entrada({ estado: 'P', fecha: '2026-10-20', resp: ['EC','GEST'], texto: 'Tercera reiteració. El contractista indica que ho tindrà la propera setmana.', nueva: true }),
         entrada({ estado: 'R', fecha: '2026-11-03', resp: ['EC'], texto: 'Documentació rebuda i validada per la DEO.', nueva: true, fin: '2026-11-03' }),
       ] },
+      // Tema amb un únic punt nou marcat com a Informatiu — comprova la badge 'N/I'
+      { id: uid(), num: '1.02', titulo: 'Nova normativa d\'accessibilitat aplicable a l\'obra', entradas: [
+        entrada({ estado: 'I', fecha: '2026-11-03', resp: ['DO'], texto: 'S\'informa que a partir de gener entra en vigor la nova normativa d\'accessibilitat; es traslladarà a la resta d\'agents en la propera reunió.', nueva: true }),
+      ] },
     ] },
     { id: uid(), codigo: '2', titulo: 'INSTALACIONES', temas: [] },
     { id: uid(), codigo: '3', titulo: 'CONTROL DE CALIDAD', temas: [] },

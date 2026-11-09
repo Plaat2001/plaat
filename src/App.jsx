@@ -9396,13 +9396,13 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca', opcions = {}) {
           // ES — independent per punt de seguiment, alineat amb la primera línia del seu propi
           // text (abans era un únic estat per tot el tema, alineat amb el títol; ara cada punt
           // mostra el seu propi estat P/R/I, igual que Inici/Fi/Responsable i el color de fons).
-          // Els punts nous d'aquesta acta mostren 'N' (o 'N/R' si ja venen marcats com a resolts)
-          // en lloc de l'estat, per destacar-los igual que ja feien abans.
+          // Els punts nous d'aquesta acta mostren 'N' (o 'N/R'/'N/I' si ja venen marcats
+          // com a resolts o informatius) en lloc de l'estat, per destacar-los igual que ja feien abans.
           {
             const badgeY = ey + 3 + e.lh*0.8 + titolH;
             doc.setFont('helvetica','bold');
             if (e.esNova) {
-              const badgeTxt = e.en.estado === 'R' ? 'N/R' : 'N';
+              const badgeTxt = e.en.estado === 'R' ? 'N/R' : (e.en.estado === 'I' || e.en.estado === 'INF') ? 'N/I' : 'N';
               doc.setFontSize(8.5); doc.setTextColor(0,0,0);
               doc.text(badgeTxt, ML+cNum+cDesc+cEs/2, badgeY, { align:'center', baseline:'middle' });
             } else {
