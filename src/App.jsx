@@ -6762,24 +6762,60 @@ function ModuloActaVO({ obra, onSave }) {
     if (editingVersion) propagarForward(v => patchEntradaVO(v, secId, temaId, entId, 'resp', respFinal));
   }
   function moveRol(id, dir) {
+    // Les files es mouen dins del seu propi grup, no dins de l'array pla sencer: si es
+    // bescanviessin posicions directament a l'array, un rol intercalat amb un altre grup
+    // (p.ex. afegit amb "+ Añadir rol a este grupo") podia bescanviar-se amb un veí d'un
+    // altre grup sense que es notés cap canvi visual (es filtra per grupo en pintar), fent
+    // que calguessin diversos clics "invisibles" abans que un bescanvi real dins del mateix
+    // grup saltés la fila de cop diverses posicions.
     const eq = [...(vo.equipo||[])];
-    const idx = eq.findIndex(r => r.id === id);
-    if (idx < 0) return;
-    const newIdx = idx + dir;
-    if (newIdx < 0 || newIdx >= eq.length) return;
-    [eq[idx], eq[newIdx]] = [eq[newIdx], eq[idx]];
+    const rol = eq.find(r => r.id === id);
+    if (!rol) return;
+    const grupo = rol.grupo || '';
+    const idxGlobals = eq.reduce((a, r, i) => (r.grupo||'') === grupo ? [...a, i] : a, []);
+    const miembros = idxGlobals.map(i => eq[i]);
+    const pos = miembros.findIndex(r => r.id === id);
+    const nuevaPos = pos + dir;
+    if (nuevaPos < 0 || nuevaPos >= miembros.length) return;
+    [miembros[pos], miembros[nuevaPos]] = [miembros[nuevaPos], miembros[pos]];
+    idxGlobals.forEach((globalIdx, i) => { eq[globalIdx] = miembros[i]; });
     guardarVO({ ...vo, equipo: eq });
   }
 
   // Secciones
+  // El codi de cada secció ha de reflectir sempre la seva posició real (1, 2, 3...) perquè
+  // mai es quedi "endarrerit" en afegir/esborrar/reordenar seccions, i perquè mai col·lideixi
+  // amb la numeració dinàmica d'Hitos/Contrataciones/Clima (que es calcula a partir de
+  // vo.secciones.length a generarActaVO_v2). En canviar el codi d'una secció, cal regenerar
+  // també el "num" dels seus temes (abans "<codiVell>.NN") perquè segueixin sent coherents.
+  function renumerarSecciones(secs) {
+    return secs.map((s, i) => {
+      const nuevoCodigo = String(i + 1);
+      return {
+        ...s,
+        codigo: nuevoCodigo,
+        temas: (s.temas||[]).map(t => {
+          const sufijo = (t.num||'').split('.').pop() || '01';
+          return { ...t, num: `${nuevoCodigo}.${sufijo}` };
+        }),
+      };
+    });
+  }
   function addSeccion() {
-    const n = vo.secciones.length + 1;
-    guardarVO({ ...vo, secciones: [...vo.secciones, { id: uid(), codigo: String(n), titulo: 'NUEVA SECCIÓN', temas: [] }] });
+    guardarVO({ ...vo, secciones: renumerarSecciones([...vo.secciones, { id: uid(), codigo: '', titulo: 'NUEVA SECCIÓN', temas: [] }]) });
   }
   function updSeccion(id, campo, val) {
     guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id === id ? { ...s, [campo]: val } : s) });
   }
-  function delSeccion(id) { guardarVO({ ...vo, secciones: vo.secciones.filter(s => s.id !== id) }); setBorrar(null); }
+  function delSeccion(id) { guardarVO({ ...vo, secciones: renumerarSecciones(vo.secciones.filter(s => s.id !== id)) }); setBorrar(null); }
+  function moveSeccion(id, dir) {
+    const secs = [...vo.secciones];
+    const idx = secs.findIndex(s => s.id === id);
+    const newIdx = idx + dir;
+    if (idx < 0 || newIdx < 0 || newIdx >= secs.length) return;
+    [secs[idx], secs[newIdx]] = [secs[newIdx], secs[idx]];
+    guardarVO({ ...vo, secciones: renumerarSecciones(secs) });
+  }
 
   // Temas
   function nextNum(sec) {
@@ -7071,6 +7107,36 @@ function ModuloActaVO({ obra, onSave }) {
   const [seccColapsades, setSeccColapsades] = useState({});
   const [buscarTema, setBuscarTema] = useState('');
   const [editandoFoto, setEditandoFoto] = useState(null); // { foto, onSave }
+  // Orden del día — selecció manual de punts de seguiment concrets (no temes sencers) per
+  // generar un PDF senzill a banda, pensat per enviar-se abans d'una visita. Selecció
+  // efímera (no es desa a l'obra): un Set d'ids d'entrada n'hi ha prou perquè són uid() únics.
+  const [modoSeleccionOrden, setModoSeleccionOrden] = useState(false);
+  const [puntosOrdenDia, setPuntosOrdenDia] = useState(() => new Set());
+  const [generandoOrdenDia, setGenerandoOrdenDia] = useState(false);
+  function toggleSeleccionOrden(entId) {
+    setPuntosOrdenDia(prev => {
+      const next = new Set(prev);
+      next.has(entId) ? next.delete(entId) : next.add(entId);
+      return next;
+    });
+  }
+  async function generarOrdenDia() {
+    const items = [];
+    (vo.secciones||[]).forEach(sec => (sec.temas||[]).forEach(t => {
+      const marcadas = (t.entradas||[]).filter(en => puntosOrdenDia.has(en.id));
+      if (marcadas.length) items.push({ temaNum: t.num, temaTitulo: t.titulo, entradas: marcadas });
+    }));
+    if (!items.length) return;
+    setGenerandoOrdenDia(true);
+    try {
+      await generarOrdenDelDia(obra, vo, items);
+      setModoSeleccionOrden(false);
+      setPuntosOrdenDia(new Set());
+    } catch (e) {
+      alert(e.message || 'Error generando la orden del día.');
+    }
+    setGenerandoOrdenDia(false);
+  }
 
   // El clima sempre acaba el mateix dia que la data de l'acta — abans calia triar-la
   // dues vegades (a "Data de l'acta" i a "Fins al dia" del clima) i es desincronitzaven.
@@ -7468,6 +7534,10 @@ function ModuloActaVO({ obra, onSave }) {
 
       {vistaVO === 'dades' && (
       <>
+      {/* Numeració dinàmica dels apartats fixos (Hitos/Contrataciones/Clima) — igual que a
+          generarActaVO_v2 (numBaseFinal), perquè mai coincideixin amb els números de secció
+          de temes ni es quedin endarrerits si s'afegeixen o s'esborren seccions. */}
+      {(() => { const numBaseFinalUI = (vo.secciones||[]).length; return <>
       {/* ── B. TREBALLS EN CURS ──────────────────────────────────────────── */}
       <div style={{ marginBottom: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -7493,7 +7563,7 @@ function ModuloActaVO({ obra, onSave }) {
       {/* ── 6. SEGUIMENT FITES CONTRACTUALS ─────────────────────────────── */}
       <div style={{ marginBottom: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#8A8A85' }}>6</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#8A8A85' }}>{numBaseFinalUI + 1}</span>
           <span style={{ fontSize: 13, fontWeight: 600, color: '#141412' }}>Seguimiento hitos contractuales</span>
         </div>
         {[['esenciales','Plazos esenciales'],['intermedios','Plazos intermedios']].map(([grupo, label]) => (
@@ -7533,13 +7603,13 @@ function ModuloActaVO({ obra, onSave }) {
       {/* ── 7. SEGUIMENT CONTRACTACIONS ──────────────────────────────────── */}
       <div style={{ marginBottom: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#8A8A85' }}>7</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#8A8A85' }}>{numBaseFinalUI + 2}</span>
           <span style={{ fontSize: 13, fontWeight: 600, color: '#141412' }}>Seguimiento contrataciones</span>
         </div>
         {(vo.contrataciones||[]).map((c, i) => (
           <div key={c.id} style={{ background: '#FAFAF8', borderRadius: 9, padding: 9, marginBottom: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-              <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, color: '#BFBEB9', flexShrink: 0 }}>7.{String(i+1).padStart(2,'0')}</span>
+              <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, color: '#BFBEB9', flexShrink: 0 }}>{numBaseFinalUI + 2}.{String(i+1).padStart(2,'0')}</span>
               <input value={c.empresa||''} onChange={e => updContratacion(c.id, 'empresa', e.target.value)}
                 placeholder="Empresa" style={{ flex: 1, fontSize: 12.5, fontWeight: 600 }} />
               <button onClick={() => setConfirmacion({ titulo: 'Eliminar contratación', texto: `Vas a eliminar "${c.empresa||'esta contratación'}".`, onSi: () => { delContratacion(c.id); setConfirmacion(null); } })} style={{ background:'none', border:'none', cursor:'pointer', color:'#D4D3CE', fontSize:15, lineHeight:1, flexShrink:0 }}>×</button>
@@ -7562,7 +7632,7 @@ function ModuloActaVO({ obra, onSave }) {
       {/* ── 8. CLIMA ──────────────────────────────────────────────────────── */}
       <div style={{ marginBottom: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#8A8A85' }}>8</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#8A8A85' }}>{numBaseFinalUI + 3}</span>
           <span style={{ fontSize: 13, fontWeight: 600, color: '#141412' }}>Clima</span>
           <span style={{ ...NUM, fontSize: 10, color: '#BFBEB9', marginLeft: 'auto' }}>{(vo.clima||[]).length}/7</span>
         </div>
@@ -7628,6 +7698,7 @@ function ModuloActaVO({ obra, onSave }) {
           </div>
         )}
       </div>
+      </>; })()}
       </>
       )}
 
@@ -7635,16 +7706,34 @@ function ModuloActaVO({ obra, onSave }) {
       <>
       {/* Buscador de temes — filtra per títol/número, ignora accents; desplega automàticament
           les seccions amb coincidències mentre hi ha text a la cerca */}
-      <div style={{ position: 'relative', marginBottom: 14 }}>
-        <Icon name="search" size={13} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: '#BFBEB9', pointerEvents: 'none' }} />
-        <input value={buscarTema} onChange={e => setBuscarTema(e.target.value)}
-          placeholder="Buscar tema por título o número..."
-          style={{ width: '100%', padding: '9px 32px', fontSize: 13.5, borderRadius: 9, border: '1px solid #E5E4DF' }} />
-        {buscarTema && (
-          <button onClick={() => setBuscarTema('')} title="Limpiar"
-            style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#BFBEB9', fontSize: 15, lineHeight: 1, padding: 4 }}>×</button>
-        )}
+      <div style={{ display: 'flex', gap: 7, marginBottom: 14 }}>
+        <div style={{ position: 'relative', flex: 1 }}>
+          <Icon name="search" size={13} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: '#BFBEB9', pointerEvents: 'none' }} />
+          <input value={buscarTema} onChange={e => setBuscarTema(e.target.value)}
+            placeholder="Buscar tema por título o número..."
+            style={{ width: '100%', padding: '9px 32px', fontSize: 13.5, borderRadius: 9, border: '1px solid #E5E4DF' }} />
+          {buscarTema && (
+            <button onClick={() => setBuscarTema('')} title="Limpiar"
+              style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#BFBEB9', fontSize: 15, lineHeight: 1, padding: 4 }}>×</button>
+          )}
+        </div>
+        <button
+          onClick={() => { if (modoSeleccionOrden) setPuntosOrdenDia(new Set()); setModoSeleccionOrden(v => !v); }}
+          title="Marcar puntos de seguimiento para la orden del día"
+          style={{ flexShrink: 0, padding: '0 12px', borderRadius: 9, border: modoSeleccionOrden ? 'none' : '1px solid #E5E4DF', background: modoSeleccionOrden ? '#18180F' : '#fff', color: modoSeleccionOrden ? '#fff' : '#52524E', cursor: 'pointer', fontSize: 12.5, fontWeight: 500, whiteSpace: 'nowrap' }}>
+          {modoSeleccionOrden ? 'Cancelar' : 'Orden del día'}
+        </button>
       </div>
+      {modoSeleccionOrden && createPortal(
+        <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: isMobile ? 'calc(74px + env(safe-area-inset-bottom))' : 24, zIndex: 9990, display: 'flex', alignItems: 'center', gap: 10, background: '#18180F', color: '#fff', borderRadius: 30, padding: '9px 10px 9px 16px', boxShadow: '0 6px 20px rgba(0,0,0,.25)' }}>
+          <span style={{ fontSize: 12.5 }}>{puntosOrdenDia.size} punto{puntosOrdenDia.size !== 1 ? 's' : ''} marcado{puntosOrdenDia.size !== 1 ? 's' : ''}</span>
+          <button onClick={generarOrdenDia} disabled={!puntosOrdenDia.size || generandoOrdenDia}
+            style={{ padding: '7px 14px', borderRadius: 20, border: 'none', cursor: puntosOrdenDia.size ? 'pointer' : 'default', background: puntosOrdenDia.size ? '#fff' : '#3A3A33', color: puntosOrdenDia.size ? '#18180F' : '#8A8A85', fontSize: 12.5, fontWeight: 600 }}>
+            {generandoOrdenDia ? 'Generando…' : 'Generar PDF'}
+          </button>
+        </div>,
+        document.body
+      )}
 
       {/* Secciones editables — cada una plegable; temes en ordre d'inserció (els nous sempre al final real) */}
       {(() => {
@@ -7680,6 +7769,8 @@ function ModuloActaVO({ obra, onSave }) {
                       ? <input autoFocus value={sec.titulo} onChange={e => updSeccion(sec.id, 'titulo', e.target.value)} onBlur={() => setEditandoSec(null)} style={{ flex: 1, fontSize: 12, fontWeight: 600 }} />
                       : <span onClick={() => setSeccColapsades(s => ({ ...s, [sec.id]: !s[sec.id] }))} style={{ fontSize: 12, fontWeight: 600, color: '#141412', flex: 1, cursor: 'pointer' }}>{sec.titulo}</span>}
                     {!editandoSec && <button onClick={() => setEditandoSec(sec.id)} title="Editar" style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C3BE', padding:'0 2px', flexShrink:0, display: 'inline-flex' }}>✏️</button>}
+                    <button onClick={() => moveSeccion(sec.id, -1)} title="Mover arriba" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#A5A5A0', fontSize: 13, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}>↑</button>
+                    <button onClick={() => moveSeccion(sec.id, 1)} title="Mover abajo" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#A5A5A0', fontSize: 13, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}>↓</button>
                     {pendents > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, color: '#7C4A00', background: '#FEF3DB', borderRadius: 10, padding: '1px 7px' }}>{pendents}</span>}
                     {porRevisar > 0 && (
                       <span title="Seguimientos marcados para revisar en esta sección" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, fontWeight: 700, color: '#C47610', background: '#FEF3DB', borderRadius: 10, padding: '1px 7px' }}>
@@ -7702,7 +7793,8 @@ function ModuloActaVO({ obra, onSave }) {
                       onDelEntrada={(tId,eId) => delEntrada(sec.id, tId, eId)}
                       onMover={(secDestId) => moverTema(sec.id, t.id, secDestId)}
                       onReordenar={(dir) => reordenarTema(sec.id, t.id, dir)}
-                      onDel={() => setBorrar({ tipo: 'tema', secId: sec.id, id: t.id, label: t.num })} />
+                      onDel={() => setBorrar({ tipo: 'tema', secId: sec.id, id: t.id, label: t.num })}
+                      modoSeleccionOrden={modoSeleccionOrden} puntosOrdenDia={puntosOrdenDia} onToggleSeleccionOrden={toggleSeleccionOrden} />
                   ))}
                 </div>
               );
@@ -7774,7 +7866,7 @@ function ModuloActaVO({ obra, onSave }) {
 }
 
 // Componente de un tema (para evitar closures stale en los selects)
-function TemaVO({ t, est, secId, voNum, secciones, resaltar, respLista = RESP_VO, onAddResp, onAddRespActivo, onEditResp, onDeleteResp, onUpdEntrada, onUpdTema, onAddEntrada, onAddFoto, onDelFoto, onEditFoto, onDelEntrada, onMover, onReordenar, onDel }) {
+function TemaVO({ t, est, secId, voNum, secciones, resaltar, respLista = RESP_VO, onAddResp, onAddRespActivo, onEditResp, onDeleteResp, onUpdEntrada, onUpdTema, onAddEntrada, onAddFoto, onDelFoto, onEditFoto, onDelEntrada, onMover, onReordenar, onDel, modoSeleccionOrden, puntosOrdenDia, onToggleSeleccionOrden }) {
   const isMobile = useIsMobile();
   const [abierto, setAbierto] = useState(false);
   const [editEnt, setEditEnt] = useState(null);
@@ -7875,8 +7967,15 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, respLista = RESP_VO
               const oculta = !!en.oculta;
               const revisar = !!en.revisar;
 
+              const seleccionado = puntosOrdenDia?.has(en.id);
               return (
                 <div key={en.id} style={{ display: 'flex', gap: 10, marginBottom: 14, opacity: oculta ? .45 : 1 }}>
+                  {/* Checkbox per a la "orden del día" — només visible en mode selecció */}
+                  {modoSeleccionOrden && (
+                    <input type="checkbox" checked={!!seleccionado} onChange={() => onToggleSeleccionOrden(en.id)}
+                      title="Marcar este punto para la orden del día"
+                      style={{ width: 16, height: 16, flexShrink: 0, marginTop: 2, cursor: 'pointer' }} />
+                  )}
                   {/* Rail d'estat — mateix color que el PDF */}
                   <div style={{ width: 3, borderRadius: 2, background: esNueva ? '#D8D7D1' : e.color, opacity: esNueva ? 1 : .45, flexShrink: 0 }} />
 
@@ -9232,6 +9331,10 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca', opcions = {}) {
   // Seccions de temes tractats
   const cNum=14, cEs=9, cIni=15, cFi=15, cRes=10, cDesc=CW-cNum-cEs-cIni-cFi-cRes;
   const LW_THIN = 0.25; // línies horitzontals a la meitat de 0.5pt
+  // Marge vertical (superior i inferior) entre el contingut d'un tema i les línies que el
+  // delimiten — abans 3mm, reduït per generar menys pàgines. Igual a dalt (títol/número) i
+  // a baix (últim text o última foto), perquè quedi simètric.
+  const PAD_V_TEMA = 1.5;
 
   (vo.secciones||[]).forEach(sec => {
     const actius=(sec.temas||[]).filter(t=>!(t.resuelto&&t.resueltoEnActa&&t.resueltoEnActa<vo.num));
@@ -9269,7 +9372,7 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca', opcions = {}) {
     ].forEach(([x,w,t]) => {
       doc.text(t, x+w/2, y + secH/2, { align:'center', baseline:'middle' });
     });
-    y += secH + 5; // 5mm espai entre capçalera grisa i primer tema (sense línia)
+    y += secH + 3; // espai entre capçalera grisa i primer tema (sense línia)
 
     // Textos de columnes ES/INICI/FI/RES dins de la fila grisa (sense fila blanca separada)
     // Ja s'han afegit a la fila grisa de secció anterior
@@ -9284,6 +9387,21 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca', opcions = {}) {
       const colorPerEstat = (es) => es==='R' ? C_R : es==='I'||es==='INF' ? C_I : es==='A' ? C_A : C_P;
 
       const respLH = 7.5*0.3528+0.4;
+      const lh85 = 8.5*0.3528+0.6;
+      const GAP = 2;          // espai entre files de fotos consecutives (mai després de l'última)
+      const GAP_FY = PAD_V_TEMA; // espai text->primera foto, igual al marge final després de l'última
+      // Alçada d'un bloc (text + opcionalment fotos) amb un cert nombre de línies, files de fotos
+      // i responsables — es fa servir tant per mesurar l'entrada sencera com, a partirEntrada(),
+      // per mesurar només el tros que cap a l'espai restant d'una pàgina.
+      function calcAlturaBloc(nLinies, fotoRowsArr, nResps, titolHInicial) {
+        const textH = nLinies*lh85 + PAD_V_TEMA + titolHInicial + PAD_V_TEMA;
+        const respsH = nResps ? (PAD_V_TEMA + titolHInicial + nResps*respLH + PAD_V_TEMA) : 0;
+        let fotosH = 0;
+        fotoRowsArr.forEach((row, i) => { fotosH += row.rh; if (i < fotoRowsArr.length - 1) fotosH += GAP; });
+        const h = Math.max(textH, respsH) + fotosH + (fotoRowsArr.length > 0 ? PAD_V_TEMA : 0);
+        return { textH, h };
+      }
+
       const ed = entradesOrdenades.map((en, pi) => {
         const esNova = !!en.nueva;
         const resps = Array.isArray(en.resp) ? en.resp : (en.resp ? [en.resp] : []);
@@ -9294,48 +9412,103 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca', opcions = {}) {
         doc.setFont('helvetica', esNova ? 'bold' : 'normal');
         doc.setFontSize(8.5);
         const lines = doc.splitTextToSize(en.texto||'', cDesc-3);
-        const lh85 = 8.5*0.3528+0.6;
         const titolOffset = (pi === 0 && t.titulo) ? lh85 + 2 : 0;
-        const GAP = 2;
-        // El marge inferior (última línia de text -> vora del bloc) ha de ser igual al superior
-        // (vora del bloc -> títol/text): 3mm, el mateix valor que s'usa a l'inici de cada entrada.
-        const PAD_TEXT_END = 3;
-        const textH = lines.length*lh85 + 3 + titolOffset + PAD_TEXT_END;
-        // Alçada que ocupa la llista de responsables — hi ha punts amb tants responsables que
-        // ocupen més que el propi text, i el bloc no pot ser més baix que ells o es tallen.
-        const respsH = resps.length ? (3 + titolOffset + resps.length*respLH + PAD_TEXT_END) : 0;
-        const fotos=en.fotos||[]; const fotoRows=[]; let fotosH=0;
+        const fotos=en.fotos||[]; const fotoRows=[];
         for(let i=0;i<fotos.length;i+=2){
           const pair=[fotos[i],fotos[i+1]].filter(Boolean);
           const dims=pair.map(f=>{try{const pr=doc.getImageProperties(f.url||f.data);const r=pr.height/pr.width;const h=Math.min(fW3*r,38);return{w:h/r,h};}catch(e){return{w:fW3,h:28};}});
           const rh=Math.max(...dims.map(d=>d.h));
-          fotoRows.push({pair,dims,rh}); fotosH+=rh+GAP;
+          fotoRows.push({pair,dims,rh});
         }
-        const h = Math.max(textH, respsH) + fotosH + (fotos.length > 0 ? GAP : 0);
-        return{en,esNova,resps,lines,textH,fotoRows,h,lh:lh85};
+        const { textH, h } = calcAlturaBloc(lines.length, fotoRows, resps.length, titolOffset);
+        return{en,esNova,resps,lines,textH,fotoRows,h,lh:lh85,titolOffset,esContinuacio:false};
       });
 
       // Número i títol del tema, i dades compartides per tot el bloc (independents de si es parteix o no)
       const titolTema = t.titulo || '';
-      const tituloLH = 8.5*0.3528+0.6;
+      const tituloLH = lh85;
       const yTopPagina = MT + 12 + 9; // y just sota la capçalera d'una pàgina nova
 
-      // Si un tema té molts punts de seguiment, es dibuixa per trossos: quan un punt de seguiment
-      // no cap a l'espai que queda a la pàgina actual, es fa salt de pàgina AQUÍ (no es parteix cap
-      // punt de seguiment a mitges) i el tema continua a la pàgina següent amb els punts restants.
+      // Parteix una entrada que no cap sencera a l'espai restant: torna un fragment "primera" (el
+      // que es dibuixa ara, amb data/responsable/badge com una entrada normal) i un "resta" (el
+      // que continua a la pàgina següent, sense repetir-los). El tall només pot caure entre línies
+      // de text o entre files de fotos — mai a mitges d'una línia o d'una imatge. Torna null si ni
+      // així hi cap res d'útil (en aquest cas cal passar de pàgina sencera).
+      function partirEntrada(e, disponible) {
+        // La columna de responsables es independent del nombre de línies de text i no es parteix
+        // mai (sempre va sencera al primer fragment) — si per si sola ja no hi cap, cap "k" de
+        // línies de text farà que el fragment hi càpiga, així que cal descartar-ho d'entrada.
+        const respsHFull = e.resps.length ? (PAD_V_TEMA + e.titolOffset + e.resps.length * respLH + PAD_V_TEMA) : 0;
+        if (respsHFull > disponible) return null;
+        const nLines = e.lines.length;
+        let k = 0;
+        while (k < nLines && calcAlturaBloc(k + 1, [], 0, e.titolOffset).textH <= disponible) k++;
+        if (k === 0 && nLines > 0) return null;
+        const textFits = k === nLines;
+        let j = 0;
+        if (textFits && e.fotoRows.length) {
+          const altTextAbansFotos = calcAlturaBloc(nLines, [], 0, e.titolOffset).textH - PAD_V_TEMA;
+          const restant = disponible - altTextAbansFotos - GAP_FY;
+          while (j < e.fotoRows.length) {
+            const candidates = e.fotoRows.slice(0, j + 1);
+            let alt = 0;
+            candidates.forEach((row, i) => { alt += row.rh; if (i < candidates.length - 1) alt += GAP; });
+            if (alt + PAD_V_TEMA > restant) break;
+            j++;
+          }
+        }
+        const totFotos = j === e.fotoRows.length;
+        if (k === nLines && totFotos) return null; // càpiga tot: no cal partir
+        if (k === 0 && j === 0) return null; // ni una línia ni una fila de fotos hi caben
+
+        const primeraLines = e.lines.slice(0, k);
+        const primeraFotos = textFits ? e.fotoRows.slice(0, j) : [];
+        const pCalc = calcAlturaBloc(primeraLines.length, primeraFotos, e.resps.length, e.titolOffset);
+        const primera = { ...e, lines: primeraLines, fotoRows: primeraFotos, textH: pCalc.textH, h: pCalc.h };
+
+        const restaLines = e.lines.slice(k);
+        const restaFotos = textFits ? e.fotoRows.slice(j) : e.fotoRows;
+        const rCalc = calcAlturaBloc(restaLines.length, restaFotos, 0, 0);
+        const resta = { ...e, lines: restaLines, fotoRows: restaFotos, resps: [], textH: rCalc.textH, h: rCalc.h, titolOffset: 0, esContinuacio: true };
+
+        return { primera, resta };
+      }
+
+      // Si un tema té molts punts de seguiment, es dibuixa per trossos que omplen tant com poden
+      // la pàgina actual. Quan un punt de seguiment sol no hi cap sencer, es parteix amb
+      // partirEntrada() (entre línies de text, o abans/entre les seves fotos) en lloc de saltar-lo
+      // sencer a la pàgina següent, per no deixar un espai buit gran a la pàgina anterior.
       let idxEntrada = 0;
       let esPrimerTros = true;
       while (idxEntrada < ed.length) {
-        if (ed[idxEntrada].h > (PH - MB - 12 - y) && y > yTopPagina + 0.01) {
-          doc.addPage(); pagActual++;
-          dibuixarCapçalera(false); dibuixarPeu();
-          continue;
+        const disponible0 = PH - MB - 12 - y;
+        if (ed[idxEntrada].h > disponible0) {
+          const frag = partirEntrada(ed[idxEntrada], disponible0);
+          if (frag) {
+            ed.splice(idxEntrada, 1, frag.primera, frag.resta);
+          } else if (y > yTopPagina + 0.01) {
+            doc.addPage(); pagActual++;
+            dibuixarCapçalera(false); dibuixarPeu();
+            continue;
+          }
+          // Si ni així hi cap (ni a l'inici d'una pàgina nova), es deixa desbordar — mateix cas
+          // extrem que ja existia abans de poder partir entrades.
         }
         const disponible = PH - MB - 12 - y;
         let finTros = idxEntrada, trosH = 0;
         while (finTros < ed.length && (finTros === idxEntrada || trosH + ed[finTros].h <= disponible)) {
           trosH += ed[finTros].h;
           finTros++;
+        }
+        // Si encara queda espai i la següent entrada no hi cap sencera, partir-la per aprofitar
+        // el que quedi de pàgina al màxim en lloc de deixar-la tota per a la pàgina següent.
+        if (finTros < ed.length) {
+          const frag = partirEntrada(ed[finTros], disponible - trosH);
+          if (frag && frag.primera.h > 0) {
+            ed.splice(finTros, 1, frag.primera, frag.resta);
+            trosH += frag.primera.h;
+            finTros++;
+          }
         }
 
         const yTros = y;
@@ -9358,10 +9531,10 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca', opcions = {}) {
         // Número i títol — només al primer troç (a la resta el tema ja s'identifica per continuïtat)
         if (esPrimerTros) {
           doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(0,0,0);
-          doc.text(t.num||'', ML+cNum/2, yTros + 3 + tituloLH*0.8, { align:'center', baseline:'middle' });
+          doc.text(t.num||'', ML+cNum/2, yTros + PAD_V_TEMA + tituloLH*0.8, { align:'center', baseline:'middle' });
           if (titolTema) {
             doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(0,0,0);
-            doc.text(titolTema, ML+cNum+2, yTros + 3 + tituloLH*0.8, { baseline:'middle' });
+            doc.text(titolTema, ML+cNum+2, yTros + PAD_V_TEMA + tituloLH*0.8, { baseline:'middle' });
           }
         }
 
@@ -9371,8 +9544,8 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca', opcions = {}) {
           // Text narratiu — negreta si l'entrada pertany a l'acta actual, normal si és històric
           doc.setFont('helvetica', e.esNova?'bold':'normal');
           doc.setFontSize(8.5); doc.setTextColor(0,0,0);
-          const titolH = (titolTema && pi === 0) ? tituloLH + 2 : 0;
-          let ty = ey + 3 + e.lh*0.8 + titolH;
+          const titolH = e.titolOffset;
+          let ty = ey + PAD_V_TEMA + e.lh*0.8 + titolH;
           e.lines.forEach(l => {
             if (ty < ey + e.h - 1) {
               const isLastLine = l === e.lines[e.lines.length - 1];
@@ -9380,26 +9553,28 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca', opcions = {}) {
             }
             ty += e.lh;
           });
-          // Inici/Fi — independent per punt de seguiment, alineat amb la primera línia del seu propi
-          // text (abans eren úniques per tot el tema, alineades amb el títol; ara cada punt de
-          // seguiment porta la seva pròpia data d'inici i de fi, igual que el responsable).
-          doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(0,0,0);
-          const iniciFiY = ey + 3 + e.lh*0.8 + titolH;
-          doc.text(e.en.fecha ? fmtFechaCorta(e.en.fecha) : '', ML+cNum+cDesc+cEs+cIni/2, iniciFiY, { align:'center', baseline:'middle' });
-          doc.text(e.en.estado === 'R' && e.en.fin ? fmtFechaCorta(e.en.fin) : '', ML+cNum+cDesc+cEs+cIni+cFi/2, iniciFiY, { align:'center', baseline:'middle' });
-          // Responsable — independent per punt de seguiment, alineat amb la primera línia del seu propi text
-          if (e.resps.length) {
-            doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(0,0,0);
-            let respY = ey + 3 + e.lh*0.8 + titolH;
-            e.resps.forEach(r => { doc.text(r, ML+cNum+cDesc+cEs+cIni+cFi+cRes/2, respY, { align:'center', baseline:'middle' }); respY += respLH; });
-          }
-          // ES — independent per punt de seguiment, alineat amb la primera línia del seu propi
-          // text (abans era un únic estat per tot el tema, alineat amb el títol; ara cada punt
-          // mostra el seu propi estat P/R/I, igual que Inici/Fi/Responsable i el color de fons).
-          // Els punts nous d'aquesta acta mostren 'N' (o 'N/R'/'N/I' si ja venen marcats
-          // com a resolts o informatius) en lloc de l'estat, per destacar-los igual que ja feien abans.
-          {
-            const badgeY = ey + 3 + e.lh*0.8 + titolH;
+          // Inici/Fi/Responsable/badge d'estat — només al primer fragment d'una entrada (si s'ha
+          // partit entre pàgines, el fragment de continuació ("resta") no els repeteix).
+          if (!e.esContinuacio) {
+            // Inici/Fi — independent per punt de seguiment, alineat amb la primera línia del seu
+            // propi text (abans eren úniques per tot el tema, alineades amb el títol; ara cada punt
+            // de seguiment porta la seva pròpia data d'inici i de fi, igual que el responsable).
+            doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(0,0,0);
+            const iniciFiY = ey + PAD_V_TEMA + e.lh*0.8 + titolH;
+            doc.text(e.en.fecha ? fmtFechaCorta(e.en.fecha) : '', ML+cNum+cDesc+cEs+cIni/2, iniciFiY, { align:'center', baseline:'middle' });
+            doc.text(e.en.estado === 'R' && e.en.fin ? fmtFechaCorta(e.en.fin) : '', ML+cNum+cDesc+cEs+cIni+cFi/2, iniciFiY, { align:'center', baseline:'middle' });
+            // Responsable — independent per punt de seguiment, alineat amb la primera línia del seu propi text
+            if (e.resps.length) {
+              doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(0,0,0);
+              let respY = ey + PAD_V_TEMA + e.lh*0.8 + titolH;
+              e.resps.forEach(r => { doc.text(r, ML+cNum+cDesc+cEs+cIni+cFi+cRes/2, respY, { align:'center', baseline:'middle' }); respY += respLH; });
+            }
+            // ES — independent per punt de seguiment, alineat amb la primera línia del seu propi
+            // text (abans era un únic estat per tot el tema, alineat amb el títol; ara cada punt
+            // mostra el seu propi estat P/R/I, igual que Inici/Fi/Responsable i el color de fons).
+            // Els punts nous d'aquesta acta mostren 'N' (o 'N/R'/'N/I' si ja venen marcats
+            // com a resolts o informatius) en lloc de l'estat, per destacar-los igual que ja feien abans.
+            const badgeY = ey + PAD_V_TEMA + e.lh*0.8 + titolH;
             doc.setFont('helvetica','bold');
             if (e.esNova) {
               const badgeTxt = e.en.estado === 'R' ? 'N/R' : (e.en.estado === 'I' || e.en.estado === 'INF') ? 'N/I' : 'N';
@@ -9413,9 +9588,8 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca', opcions = {}) {
             }
           }
           // Fotos — inline, just sota el paràgraf al qual pertanyen
-          const GAP_FY = 2;
           let fy = ey + e.textH + GAP_FY;
-          e.fotoRows.forEach(row=>{
+          e.fotoRows.forEach((row, ri) => {
             row.pair.forEach((f,fi)=>{
               const src=f.url||f.data;
               if(!src) return;
@@ -9426,7 +9600,7 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca', opcions = {}) {
                 doc.addImage(src,'JPEG',xCentered,fy,imgW,imgH);
               } catch(er) {}
             });
-            fy+=row.rh+2;
+            fy += row.rh + (ri < e.fotoRows.length - 1 ? GAP : 0);
           });
           ey+=e.h;
         }
@@ -9808,7 +9982,85 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca', opcions = {}) {
   setTimeout(()=>URL.revokeObjectURL(url),600000);
 }
 
+// ── ORDEN DEL DÍA — PDF senzill amb punts de seguiment marcats manualment ───────────────
+// A diferència de l'Acta VO (format oficial complet), aquest és un document de treball:
+// es genera a partir de punts de seguiment marcats a mà a la pestanya "Temas" (no temes
+// sencers), pensat per enviar-se abans d'una visita amb només els punts a tractar. Per ara
+// només es genera el PDF — s'obre en una pestanya nova, igual que l'Acta; l'enviament per
+// correu es deixa per a més endavant.
+async function generarOrdenDelDia(obra, vo, items) {
+  if (!window.jspdf) {
+    await new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      s.onload = res; s.onerror = () => rej(new Error('No es pot carregar jsPDF'));
+      document.head.appendChild(s);
+    });
+  }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
+  const PW = 210, PH = 297;
+  const ML = 15, MR = 15, MT = 12.5, MB = 15;
+  const CW = PW - ML - MR;
+
+  let y = 0;
+  let pagActual = 1;
+
+  function dibuixarCapçalera() {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(13); doc.setTextColor(0, 0, 0);
+    doc.text(obra.nombre || '', ML, MT + 5);
+    const logoH = 10, logoW = logoH * (515 / 152);
+    try { doc.addImage(PLAAT_LOGO_B64, 'PNG', PW - MR - logoW, MT, logoW, logoH); } catch (e) {}
+    y = MT + 14;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(0, 0, 0);
+    doc.text('ORDEN DEL DÍA', ML, y);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90, 90, 85);
+    doc.text(fmtDate(today()), PW - MR, y, { align: 'right' });
+    y += 7;
+    doc.setDrawColor(0, 0, 0); doc.setLineWidth(0.3); doc.line(ML, y, ML + CW, y);
+    y += 7;
+  }
+  function dibuixarPeu() {
+    const peuY = PH - MB + 3;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(120, 120, 115);
+    doc.text('Plaat Arquitectura Técnica  |  Barcelona - Madrid  |  plaat.es', ML, peuY);
+    doc.text(String(pagActual), PW - MR, peuY, { align: 'right' });
+  }
+  function checkPage(h) {
+    if (y + h > PH - MB - 6) {
+      doc.addPage(); pagActual++;
+      dibuixarCapçalera(); dibuixarPeu();
+    }
+  }
+
+  dibuixarCapçalera(); dibuixarPeu();
+
+  items.forEach(item => {
+    checkPage(12);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(0, 0, 0);
+    const cab = `${item.temaNum ? item.temaNum + ' — ' : ''}${item.temaTitulo || ''}`;
+    doc.text(cab, ML, y);
+    y += 7;
+    item.entradas.forEach(en => {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(0, 0, 0);
+      const lines = doc.splitTextToSize(en.texto || '', CW - 5);
+      const lh = 9.5 * 0.3528 + 1.1;
+      checkPage(lines.length * lh + 4);
+      lines.forEach(l => { doc.text(l, ML + 4, y); y += lh; });
+      y += 4;
+    });
+    y += 2;
+  });
+
+  const nomObraFitxer = (obra.nombre || 'Obra').replace(/[^a-zA-Z0-9À-ÿ\s\-_]/g, '').trim().replace(/\s+/g, '_');
+  const fileName = `${nomObraFitxer}_OrdenDelDia_${today()}.pdf`;
+  doc.setProperties({ title: fileName });
+  const pdfBlob = doc.output('blob');
+  const url = URL.createObjectURL(pdfBlob);
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 600000);
+}
 
 // ─── MÓDULO: Seguimiento global de obra ──────────────────────────────────────
 const TEMATICAS = ['ESTRUCTURAS','INSTALACIONES','OBRA CIVIL','ACABADOS','COSTES OBRA','PLANIFICACIÓN','OTROS'];

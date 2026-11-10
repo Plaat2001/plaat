@@ -4,3 +4,4 @@ node_modules
 dist/
 out/
 scripts/_extracted-acta.js
+scripts/_extracted-orden-dia.js
