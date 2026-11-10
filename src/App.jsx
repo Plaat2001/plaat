@@ -6403,7 +6403,7 @@ function migrateVO(raw) {
   // El número (p.ex. "B.3") es editable a mà des de la UI (no es recalcula sol per ordre,
   // a diferència de les seccions) — les actes antigues sense `codigo` reben el seu número
   // actual segons la posició, per no canviar res de cop en obrir-les.
-  vo.trabajosEnCurso = vo.trabajosEnCurso.map((tr, i) => tr.codigo ? tr : { ...tr, codigo: String(i + 1) });
+  vo.trabajosEnCurso = vo.trabajosEnCurso.map((tr, i) => tr.codigo ? tr : { ...tr, codigo: `B.${i + 1}` });
 
   // 6 — Seguiment hitos contractuals (Plazos esenciales / intermedios)
   if (!vo.hitos || typeof vo.hitos !== 'object') vo.hitos = { esenciales: [], intermedios: [] };
@@ -6967,7 +6967,7 @@ function ModuloActaVO({ obra, onSave }) {
 
   // B — Trabajos en curso
   function addTrabajo() {
-    const codigo = String((vo.trabajosEnCurso||[]).length + 1);
+    const codigo = `B.${(vo.trabajosEnCurso||[]).length + 1}`;
     guardarVO({ ...vo, trabajosEnCurso: [...(vo.trabajosEnCurso||[]), { id: uid(), codigo, descripcion: '', porcentaje: '' }] });
   }
   function updTrabajo(id, campo, val) {
@@ -7551,12 +7551,9 @@ function ModuloActaVO({ obra, onSave }) {
         </div>
         {(vo.trabajosEnCurso||[]).map((tr, i) => (
           <div key={tr.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-            <span style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-              <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, color: '#BFBEB9' }}>B.</span>
-              <input value={tr.codigo ?? String(i + 1)} onChange={e => updTrabajo(tr.id, 'codigo', e.target.value)}
-                title="Número editable a mano — no se recalcula solo por orden" maxLength={8}
-                style={{ ...NUM, width: 26, fontSize: 10.5, fontWeight: 700, color: '#6B6B66', padding: '2px 3px', textAlign: 'center' }} />
-            </span>
+            <input value={tr.codigo ?? `B.${i + 1}`} onChange={e => updTrabajo(tr.id, 'codigo', e.target.value)}
+              title="Número/etiqueta editable del todo — no se recalcula solo por orden" maxLength={10}
+              style={{ ...NUM, width: 46, flexShrink: 0, fontSize: 10.5, fontWeight: 700, color: '#6B6B66', padding: '2px 4px', textAlign: 'center' }} />
             <input value={tr.descripcion||''} onChange={e => updTrabajo(tr.id, 'descripcion', e.target.value)}
               placeholder="Descripción del trabajo..." style={{ flex: 1, fontSize: 12.5 }} />
             <input value={tr.porcentaje||''} onChange={e => updTrabajo(tr.id, 'porcentaje', e.target.value.replace(/[^0-9]/g,''))}
@@ -9326,7 +9323,7 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca', opcions = {}) {
     trabajos.forEach((tr, i) => {
       const rh = 5.5;
       doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(0,0,0);
-      const codi = `B.${tr.codigo ?? (i + 1)}`;
+      const codi = tr.codigo ?? `B.${i + 1}`;
       doc.setFont('helvetica','bold');
       doc.text(codi, ML + 2, y + rh/2, { baseline:'middle' });
       // El codi és ara text lliure (editable a mà, no només un número curt): l'ample reservat

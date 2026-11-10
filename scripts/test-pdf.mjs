@@ -69,11 +69,13 @@ const vo = {
   trabajosEnCurso: [
     // codigo editable a mà — comprova que el PDF respecta un número no seqüencial (p.ex.
     // "3" tot i ser el primer de la llista) en lloc de calcular-lo per posició.
-    { id: uid(), codigo: '3', descripcion: 'Execució de forjat de planta primera i inici de tancaments de façana nord', porcentaje: '65', fotos: [] },
-    { id: uid(), codigo: '1 bis', descripcion: 'Petita reiteració sobre el mateix punt.', porcentaje: '30', fotos: [] },
-    // Codi llarg (dins del límit de 8 caràcters de la UI) — comprova que el desplaçament de
-    // la descripció creix amb l'ample real del codi i no es solapa.
-    { id: uid(), codigo: '12345678', descripcion: 'Comprovació de que el desplaçament de la descripció no es solapa amb un codi llarg.', porcentaje: '10', fotos: [] },
+    // codigo = etiqueta COMPLETA i lliure (ja no només el sufix darrere d'un "B." fix) —
+    // comprova que es pot escriure qualsevol cosa, fins i tot sense el prefix "B.".
+    { id: uid(), codigo: 'B.3', descripcion: 'Execució de forjat de planta primera i inici de tancaments de façana nord', porcentaje: '65', fotos: [] },
+    { id: uid(), codigo: 'B.1 bis', descripcion: 'Petita reiteració sobre el mateix punt.', porcentaje: '30', fotos: [] },
+    // Etiqueta llarga (dins del límit de 10 caràcters de la UI) — comprova que el desplaçament
+    // de la descripció creix amb l'ample real i no es solapa.
+    { id: uid(), codigo: 'FASE2.B.07', descripcion: 'Comprovació de que el desplaçament de la descripció no es solapa amb una etiqueta llarga.', porcentaje: '10', fotos: [] },
   ],
   secciones: [
     { id: uid(), codigo: '1', titulo: 'TEMAS GENERALES, ARQUITECTURA Y ESTRUCTURA', temas: [
