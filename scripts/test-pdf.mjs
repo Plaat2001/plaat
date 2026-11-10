@@ -67,8 +67,13 @@ const vo = {
   ],
   estadoObra: { descripcion: '', ubicacions: [] },
   trabajosEnCurso: [
-    { id: uid(), descripcion: 'Execució de forjat de planta primera i inici de tancaments de façana nord', pctEjecutado: 65, fotos: [] },
-    { id: uid(), descripcion: textoLargo, pctEjecutado: 30, fotos: [] },
+    // codigo editable a mà — comprova que el PDF respecta un número no seqüencial (p.ex.
+    // "3" tot i ser el primer de la llista) en lloc de calcular-lo per posició.
+    { id: uid(), codigo: '3', descripcion: 'Execució de forjat de planta primera i inici de tancaments de façana nord', porcentaje: '65', fotos: [] },
+    { id: uid(), codigo: '1 bis', descripcion: 'Petita reiteració sobre el mateix punt.', porcentaje: '30', fotos: [] },
+    // Codi llarg (dins del límit de 8 caràcters de la UI) — comprova que el desplaçament de
+    // la descripció creix amb l'ample real del codi i no es solapa.
+    { id: uid(), codigo: '12345678', descripcion: 'Comprovació de que el desplaçament de la descripció no es solapa amb un codi llarg.', porcentaje: '10', fotos: [] },
   ],
   secciones: [
     { id: uid(), codigo: '1', titulo: 'TEMAS GENERALES, ARQUITECTURA Y ESTRUCTURA', temas: [
