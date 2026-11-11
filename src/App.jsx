@@ -9944,7 +9944,9 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca', opcions = {}) {
   // no és un rol de l'equip, ve directament de les dades de la pròpia obra.
   const seleccioFirmes = vo.firmasSeleccionadas || ['promotor', ...(vo.equipo||[]).map(r => r.id)];
   const firmants = [
-    ...(seleccioFirmes.includes('promotor') ? [{ rol: 'PROMOTOR', empresa: obra.propiedad || obra.cliente || '' }] : []),
+    // .toUpperCase() perquè coincideixi amb la capçalera de l'acta (dibuixarCapçalera), que
+    // ja mostra el promotor en majúscules — mateixa convenció que la resta de generadors PDF.
+    ...(seleccioFirmes.includes('promotor') ? [{ rol: 'PROMOTOR', empresa: (obra.propiedad || obra.cliente || '').toUpperCase() }] : []),
     ...(vo.equipo || [])
       .filter(r => seleccioFirmes.includes(r.id))
       .map(r => ({ rol: r.nombre, empresa: r.personas?.find(p => p.empresa)?.empresa || '' })),
