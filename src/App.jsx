@@ -2353,15 +2353,18 @@ const EINES_EDITOR_FOTO = [
 ];
 const GROSSORS_EDITOR_FOTO = [3, 6, 11];
 // Rols possibles al quadre de firmes — l'usuari tria quins hi apareixen (no totes les obres tenen els mateixos signants)
-const ROLES_FIRMA = [
-  { id: 'promotor', label_es: 'PROMOTOR',                  label_ca: 'PROMOTOR',                 clau: 'promotor' },
-  { id: 'pm',       label_es: 'PROJECT MANAGER',           label_ca: 'PROJECT MANAGER',           clau: 'PROJECT' },
-  { id: 'do',       label_es: 'DIRECCIÓN DE OBRA',         label_ca: "DIRECCIÓ D'OBRA",           clau: 'OBRA (DO)' },
-  { id: 'deo',      label_es: 'DIRECCIÓN EJECUCIÓN OBRA',  label_ca: "DIRECCIÓ D'EXECUCIÓ",       clau: ['EJECUCIÓN', 'EXECUCIÓ'] },
-  { id: 'css',      label_es: 'COORDINADOR DE SEGURIDAD',  label_ca: 'COORDINADOR DE SEGURETAT',  clau: 'SEGUR' },
-  { id: 'ec',       label_es: 'CONTRATISTA',               label_ca: 'CONTRACTISTA',              clau: 'CONTRA' },
-  // Rol opcional — no surt per defecte a actes noves, s'ha d'activar des del selector de firmes
-  { id: 'dao',      label_es: 'DIRECCIÓN AMBIENTAL DE OBRA', label_ca: "DIRECCIÓ AMBIENTAL D'OBRA", clau: 'AMBIENT', opcional: true },
+// Llista fixa antiga de rols de firma — ja NO s'usa per mostrar el selector (ara surt
+// directament de vo.equipo, vegeu migrateVO), només per traduir la selecció d'actes
+// creades abans d'aquest canvi als rols equivalents de l'equip. No tocar sense revisar
+// la migració a migrateVO.
+const ROLES_FIRMA_LEGACY = [
+  { id: 'promotor', clau: 'promotor' },
+  { id: 'pm',       clau: 'PROJECT' },
+  { id: 'do',       clau: 'OBRA (DO)' },
+  { id: 'deo',      clau: ['EJECUCIÓN', 'EXECUCIÓ'] },
+  { id: 'css',      clau: 'SEGUR' },
+  { id: 'ec',       clau: 'CONTRA' },
+  { id: 'dao',      clau: 'AMBIENT' },
 ];
 const DIAS_DEFAULT = [1, 3]; // Lunes y Miércoles
 
@@ -6384,10 +6387,6 @@ function migrateVO(raw) {
   let vo = raw ? { ...raw } : {};
   if (!vo.num) vo.num = 1;
   if (!vo.fechaActa) vo.fechaActa = today();
-  // Per defecte totes les firmes "base" actives — retrocompatible amb actes existents.
-  // Els rols marcats com `opcional` (p.ex. DAO) no entren per defecte: s'han d'activar
-  // expressament des del selector de firmes per a l'obra que els necessiti.
-  if (!Array.isArray(vo.firmasSeleccionadas)) vo.firmasSeleccionadas = ROLES_FIRMA.filter(r => !r.opcional).map(r => r.id);
   // Llista de responsables d'aquesta obra — es sembra amb RESP_VO la primera vegada i a partir
   // d'aquí és totalment editable (afegir/reanomenar/eliminar) sense afectar altres obres.
   // Migració: si ja hi havia `vo.respExtra` (versió anterior, només permetia afegir-ne),
@@ -6459,6 +6458,32 @@ function migrateVO(raw) {
     else grupo = 'DIRECCIÓN DE EJECUCIÓN';
     return { ...r, grupo };
   });
+  // Firmes: la llista de rols disponibles surt directament de vo.equipo (cada obra es
+  // personalitza sola) en lloc d'una llista global fixa — "promotor" és l'únic cas especial,
+  // no és un rol de l'equip, ve directament de les dades de la pròpia obra.
+  if (!Array.isArray(vo.firmasSeleccionadas)) {
+    vo.firmasSeleccionadas = ['promotor', ...vo.equipo.map(r => r.id)];
+  } else {
+    // Migració d'actes antigues: abans els ids venien de ROLES_FIRMA_LEGACY ('pm','do','deo',
+    // 'css','ec','dao') en lloc de l'id real del rol a vo.equipo — es tradueixen als rols
+    // equivalents (pel mateix prefix `clau` que s'usava abans per cercar l'empresa) perquè
+    // no es perdi la selecció que ja tenia l'usuari.
+    const idsLegacy = new Set(ROLES_FIRMA_LEGACY.map(r => r.id));
+    if (vo.firmasSeleccionadas.some(id => idsLegacy.has(id))) {
+      const nova = [];
+      vo.firmasSeleccionadas.forEach(id => {
+        if (id === 'promotor') { nova.push('promotor'); return; }
+        const legacy = ROLES_FIRMA_LEGACY.find(r => r.id === id);
+        if (!legacy) { if (!nova.includes(id)) nova.push(id); return; }
+        const claus = Array.isArray(legacy.clau) ? legacy.clau : [legacy.clau];
+        vo.equipo.forEach(rol => {
+          const n = (rol.nombre || '').toUpperCase();
+          if (claus.some(c => n.includes(c.toUpperCase().slice(0, 8))) && !nova.includes(rol.id)) nova.push(rol.id);
+        });
+      });
+      vo.firmasSeleccionadas = nova;
+    }
+  }
   if (!Array.isArray(vo.secciones)) {
     const secs = getDefaultSecciones();
     if (Array.isArray(vo.temas)) {
@@ -7473,12 +7498,14 @@ function ModuloActaVO({ obra, onSave }) {
         )}
       </div>
 
-      {/* Quins rols signen aquesta obra — no totes tenen els mateixos signants */}
+      {/* Quins rols signen aquesta obra — surten directament de l'equip tècnic d'aquí a dalt
+          (cada obra es personalitza sola). "Promotor" és l'únic cas especial: no és un rol de
+          l'equip, ve directament de les dades de la pròpia obra (propiedad/cliente). */}
       <div style={{ border: '1px solid #E8E7E1', borderRadius: 10, padding: '12px 14px', marginBottom: 14 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: '#141412', marginBottom: 3 }}>Firmas del acta</div>
-        <div style={{ fontSize: 11.5, color: '#9B9B97', marginBottom: 10 }}>Elige qué roles deben firmar esta obra en concreto.</div>
+        <div style={{ fontSize: 11.5, color: '#9B9B97', marginBottom: 10 }}>Elige qué roles del equipo deben firmar esta obra en concreto.</div>
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr', gap: 8 }}>
-          {ROLES_FIRMA.map(r => {
+          {[{ id: 'promotor', nombre: 'PROMOTOR' }, ...(vo.equipo || [])].map(r => {
             const actiu = (vo.firmasSeleccionadas||[]).includes(r.id);
             return (
               <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', padding: '6px 8px', borderRadius: 7, background: actiu ? '#F5F4F0' : 'transparent' }}>
@@ -7489,7 +7516,7 @@ function ModuloActaVO({ obra, onSave }) {
                     guardarVO({ ...vo, firmasSeleccionadas: nou });
                   }}
                   style={{ width: 15, height: 15, flexShrink: 0 }} />
-                <span style={{ fontSize: 12, color: '#141412' }}>{r.label_es}</span>
+                <span style={{ fontSize: 12, color: '#141412' }}>{r.nombre}</span>
               </label>
             );
           })}
@@ -9912,31 +9939,16 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca', opcions = {}) {
   const fH2 = 24; // alçada fila firma
   const lh65 = 6.5*0.3528+0.4;
 
-  // Obtenir empresa de cada rol de l'equip VO
-  // rolNom pot ser un string o un array de possibles prefixos (p.ex. castellà i català del mateix
-  // rol) — cal admetre'ls tots perquè el nom del rol a vo.equipo pot venir en qualsevol dels dos
-  // idiomes segons com es va crear o editar l'obra.
-  const getEmpresa = (rolNom) => {
-    const eq = vo.equipo || [];
-    const claus = Array.isArray(rolNom) ? rolNom : [rolNom];
-    for (const rol of eq) {
-      const n = rol.nombre?.toUpperCase() || '';
-      if (claus.some(c => n.includes(c.toUpperCase().slice(0,8)))) {
-        const p = rol.personas?.find(p => p.empresa);
-        if (p) return p.empresa;
-      }
-    }
-    return '';
-  };
-
-  // Firmants: [{rol, empresa}] — només els rols que l'usuari ha triat que signin aquesta obra
-  const seleccioFirmes = vo.firmasSeleccionadas || ROLES_FIRMA.map(r => r.id);
-  const firmants = ROLES_FIRMA
-    .filter(r => seleccioFirmes.includes(r.id))
-    .map(r => ({
-      rol: esCA ? r.label_ca : r.label_es,
-      empresa: r.id === 'promotor' ? (obra.propiedad || obra.cliente || '') : (getEmpresa(r.clau) || ''),
-    }));
+  // Firmants: [{rol, empresa}] — només els rols que l'usuari ha triat que signin aquesta obra,
+  // tal com surten a l'equip tècnic (vo.equipo) de l'obra. "Promotor" és l'únic cas especial,
+  // no és un rol de l'equip, ve directament de les dades de la pròpia obra.
+  const seleccioFirmes = vo.firmasSeleccionadas || ['promotor', ...(vo.equipo||[]).map(r => r.id)];
+  const firmants = [
+    ...(seleccioFirmes.includes('promotor') ? [{ rol: 'PROMOTOR', empresa: obra.propiedad || obra.cliente || '' }] : []),
+    ...(vo.equipo || [])
+      .filter(r => seleccioFirmes.includes(r.id))
+      .map(r => ({ rol: r.nombre, empresa: r.personas?.find(p => p.empresa)?.empresa || '' })),
+  ];
 
   // Dibuixar firma individual centrada
   function dibuixaFirma(fx, fy, fw, firmant) {

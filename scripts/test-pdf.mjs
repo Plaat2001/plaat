@@ -45,24 +45,28 @@ const vo = {
   fase: 'Estructura i tancaments',
   lloc: 'Obra — Can Fàbregues, Granollers',
   equipo: [
-    { id: uid(), nombre: 'PROJECT MANAGER', grupo: 'PROJECT MANAGER', personas: [
+    { id: 'rol-pm', nombre: 'PROJECT MANAGER', grupo: 'PROJECT MANAGER', personas: [
       { id: uid(), empresa: 'Gestió i Direcció Integral de Projectes Catalunya, S.L.P.', nombre: 'Marta Soler Puig', email: 'msoler@gdipc.cat', tel: '93 200 11 22', asistio: true },
     ] },
-    { id: uid(), nombre: 'DIRECCIÓN DE OBRA (DO)', grupo: 'DIRECCIÓN FACULTATIVA', personas: [
+    { id: 'rol-do', nombre: 'DIRECCIÓN DE OBRA (DO)', grupo: 'DIRECCIÓN FACULTATIVA', personas: [
       { id: uid(), empresa: 'Estudi d\'Arquitectura Bosch & Associats', nombre: 'Jordi Bosch Ferrer', email: 'jbosch@boscharquitectura.es', tel: '93 310 44 55', asistio: true },
     ] },
-    { id: uid(), nombre: 'DIRECCIÓN DE EJECUCIÓN (DEO)', grupo: 'DIRECCIÓN DE EJECUCIÓN', personas: [
+    { id: 'rol-deo', nombre: 'DIRECCIÓN DE EJECUCIÓN (DEO)', grupo: 'DIRECCIÓN DE EJECUCIÓN', personas: [
       { id: uid(), empresa: 'PLAAT', nombre: 'Xavier Pla', email: 'xpla@plaat.es', tel: '629 72 72 62', asistio: true },
     ] },
-    { id: uid(), nombre: 'COORDINADOR DE SEGURIDAD (CSS)', grupo: 'DIRECCIÓN DE EJECUCIÓN', personas: [
+    { id: 'rol-css', nombre: 'COORDINADOR DE SEGURIDAD (CSS)', grupo: 'DIRECCIÓN DE EJECUCIÓN', personas: [
       { id: uid(), empresa: 'Seguretat i Coordinació d\'Obres del Mediterrani, S.L.', nombre: 'Anna Puig Coma', email: 'apuig@segurcoord.cat', tel: '93 450 66 77', asistio: false },
     ] },
-    { id: uid(), nombre: 'CONTRATISTA (EC)', grupo: 'CONTRATISTA', personas: [
+    { id: 'rol-ec', nombre: 'CONTRATISTA (EC)', grupo: 'CONTRATISTA', personas: [
       { id: uid(), empresa: 'Construccions i Obra Civil Nord-Est, S.A.', nombre: 'Ramon Vila Soler', email: 'rvila@construccionsnordest.com', tel: '93 500 88 99', asistio: true },
     ] },
-    // Rol opcional de prova — comprova que getEmpresa() el troba via el clau 'AMBIENT'
-    { id: uid(), nombre: 'DIRECCIÓN AMBIENTAL DE OBRA (DAO)', grupo: 'DIRECCIÓN DE EJECUCIÓN', personas: [
+    { id: 'rol-dao', nombre: 'DIRECCIÓN AMBIENTAL DE OBRA (DAO)', grupo: 'DIRECCIÓN DE EJECUCIÓN', personas: [
       { id: uid(), empresa: 'Consultoria Ambiental i Sostenibilitat del Vallès, S.L.', nombre: 'Laia Font Roca', email: 'lfont@consultoriambiental.cat', tel: '93 600 77 88', asistio: true },
+    ] },
+    // Grup i rol totalment personalitzats (afegits a mà a l'equip, com ara ja es pot fer) —
+    // comprova que el selector de firmes els recull igual que els rols "de sèrie".
+    { id: 'rol-proveedor', nombre: 'PROVEEDOR BIM', grupo: 'PROVEEDORES EXTERNOS', personas: [
+      { id: uid(), empresa: 'Modelatge BIM i Coordinació Digital, S.C.P.', nombre: 'Núria Camps Alsina', email: 'ncamps@bimcoord.cat', tel: '93 700 99 11', asistio: true },
     ] },
   ],
   estadoObra: { descripcion: '', ubicacions: [] },
@@ -138,7 +142,9 @@ const vo = {
     { fecha: '2026-11-03', temp: 12, precip: 0.4, condicion: 'nublado' },
     { fecha: '2026-11-04', temp: 15, precip: 0,   condicion: 'soleado' },
   ],
-  firmasSeleccionadas: ['promotor', 'pm', 'do', 'deo', 'ec'],
+  // ids reals de vo.equipo (ja no la llista fixa antiga) — comprova que el rol personalitzat
+  // 'rol-proveedor' (grup "PROVEEDORES EXTERNOS", creat a mà, no "de sèrie") també pot firmar.
+  firmasSeleccionadas: ['promotor', 'rol-pm', 'rol-do', 'rol-deo', 'rol-ec', 'rol-proveedor'],
 };
 
 async function render(opcions, outName) {
@@ -153,6 +159,7 @@ async function render(opcions, outName) {
 await render({ preview: true }, 'acta-preview.pdf');
 await render({}, 'acta-normal.pdf');
 
-// Variant amb el rol opcional DAO actiu — comprova el quadre de firmes amb 7 firmants (files de 3+3+1)
-vo.firmasSeleccionadas = ['promotor', 'pm', 'do', 'deo', 'css', 'ec', 'dao'];
+// Variant amb tots els rols actius (incloent DAO i el personalitzat) — comprova el quadre de
+// firmes amb 8 firmants (files de 3+3+2)
+vo.firmasSeleccionadas = ['promotor', 'rol-pm', 'rol-do', 'rol-deo', 'rol-css', 'rol-ec', 'rol-dao', 'rol-proveedor'];
 await render({}, 'acta-dao.pdf');
