@@ -6400,10 +6400,19 @@ function migrateVO(raw) {
 
   // B — Trabajos en curso
   if (!Array.isArray(vo.trabajosEnCurso)) vo.trabajosEnCurso = [];
-  // El número (p.ex. "B.3") es editable a mà des de la UI (no es recalcula sol per ordre,
+  // El número (p.ex. "B.3") és editable a mà des de la UI (no es recalcula sol per ordre,
   // a diferència de les seccions) — les actes antigues sense `codigo` reben el seu número
   // actual segons la posició, per no canviar res de cop en obrir-les.
-  vo.trabajosEnCurso = vo.trabajosEnCurso.map((tr, i) => tr.codigo ? tr : { ...tr, codigo: `B.${i + 1}` });
+  vo.trabajosEnCurso = vo.trabajosEnCurso.map((tr, i) => {
+    if (!tr.codigo) return { ...tr, codigo: `B.${i + 1}` };
+    // Compatibilitat amb la breu finestra (abans d'afegir el prefix "B." al valor per
+    // defecte) en què es guardava només el número, p.ex. "3" en lloc de "B.3" — com el
+    // camp ja quedava marcat com "editat" en desar-se, `migrateVO` mai el tornava a tocar.
+    // Només es corregeix si és exactament un número; una etiqueta lliure (amb lletres)
+    // es deixa intacta perquè pot ser un criteri de numeració triat a mà.
+    if (/^\d+$/.test(tr.codigo)) return { ...tr, codigo: `B.${tr.codigo}` };
+    return tr;
+  });
 
   // 6 — Seguiment hitos contractuals (Plazos esenciales / intermedios)
   if (!vo.hitos || typeof vo.hitos !== 'object') vo.hitos = { esenciales: [], intermedios: [] };
@@ -6436,9 +6445,12 @@ function migrateVO(raw) {
     }
     vo.equipo = eq;
   }
-  // Afegir grup per defecte als rols antics que no el tinguin
+  // Afegir grup per defecte als rols LEGACY (dades antigues que no tenien el camp `grupo`
+  // directament). Un rol creat per l'usuari amb `grupo: ''` explícit és un grup NOU pendent
+  // de nom — si aquí es tractés igual que un legacy, cada guardat el tornaria a fusionar amb
+  // "DIRECCIÓN DE EJECUCIÓN" i mai es podria crear un grup nou (bug real detectat).
   vo.equipo = vo.equipo.map(r => {
-    if (r.grupo) return r;
+    if (r.grupo !== undefined) return r;
     const n = r.nombre.toUpperCase();
     let grupo = '';
     if (n.includes('PROJECT MANAGER')) grupo = 'PROJECT MANAGER';
@@ -6715,7 +6727,9 @@ function ModuloActaVO({ obra, onSave }) {
     guardarVO({ ...vo, equipo: vo.equipo.map(r => r.id !== rolId ? r : { ...r, personas: r.personas.filter(p => p.id !== pId) }) });
   }
   function addRol() {
-    guardarVO({ ...vo, equipo: [...vo.equipo, { id: uid(), nombre: 'NUEVO ROL', personas: [{ id: uid(), empresa: '', nombre: '', email: '', tel: '', asistio: false }] }] });
+    // grupo: '' explícit → nou grup pendent de nom (vegeu comentari a migrateVO sobre per què
+    // no es pot ometre aquest camp).
+    guardarVO({ ...vo, equipo: [...vo.equipo, { id: uid(), nombre: 'NUEVO ROL', grupo: '', personas: [{ id: uid(), empresa: '', nombre: '', email: '', tel: '', asistio: false }] }] });
   }
   function delRol(id) { guardarVO({ ...vo, equipo: vo.equipo.filter(r => r.id !== id) }); }
   // Llista de responsables d'aquesta obra (vo.respList) — totalment editable: afegir, reanomenar
@@ -7454,7 +7468,7 @@ function ModuloActaVO({ obra, onSave }) {
                 })}
               </>;
             })()}
-            <button onClick={addRol} style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1.5px dashed #E0DFD9', background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#9B9B97', marginTop: 4 }}>+ Añadir rol</button>
+            <button onClick={addRol} title="Crea un grupo nuevo con un primer rol; luego puedes nombrarlo" style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1.5px dashed #E0DFD9', background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#9B9B97', marginTop: 4 }}>+ Añadir grupo</button>
           </div>
         )}
       </div>
