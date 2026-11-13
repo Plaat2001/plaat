@@ -60,7 +60,7 @@ const vo = {
     { id: 'rol-ec', nombre: 'CONTRATISTA (EC)', grupo: 'CONTRATISTA', personas: [
       { id: uid(), empresa: 'Construccions i Obra Civil Nord-Est, S.A.', nombre: 'Ramon Vila Soler', email: 'rvila@construccionsnordest.com', tel: '93 500 88 99', asistio: true },
     ] },
-    { id: 'rol-dao', nombre: 'DIRECCIÓN AMBIENTAL DE OBRA (DAO)', grupo: 'DIRECCIÓN DE EJECUCIÓN', personas: [
+    { id: 'rol-dao', nombre: 'CONTROL AMBIENTAL (DAO)', grupo: 'DIRECCIÓN DE EJECUCIÓN', personas: [
       { id: uid(), empresa: 'Consultoria Ambiental i Sostenibilitat del Vallès, S.L.', nombre: 'Laia Font Roca', email: 'lfont@consultoriambiental.cat', tel: '93 600 77 88', asistio: true },
     ] },
     // Rol amb nom que fa wrap a 3 línies, últim del seu grup (just abans del header gris

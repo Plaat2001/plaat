@@ -9172,14 +9172,14 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca', opcions = {}) {
       y += rowH;
     });
 
-    // Si el nom del rol ha fet wrap a més línies de les que caben a la fila
-    // estàndard, el text pot haver quedat per sota del bloc de persones i
-    // xocar amb el que vingui a continuació — una altra fila de rol (p.ex.
-    // "DIRECCIÓN AMBIENTAL DE OBRA (DAO)" envaint "INGENIERÍA INSTALACIONES")
-    // o la fila grisa del grup següent. NO es toca la mida de lletra ni
-    // l'alçada de cap fila (format ja validat) — només s'afegeix, aquí i
+    // Si aquest és el darrer rol del grup i el seu nom ha fet wrap a més línies
+    // de les que caben a la fila estàndard, el text pot haver quedat per sota
+    // del bloc de persones i xocar amb la fila grisa del grup següent (p.ex.
+    // "INGENIERÍA INSTALACIONES (DOI)"). NO es toca la mida de lletra ni
+    // l'alçada de CAP fila de contacte (format ja validat) — simplement es
+    // desplaça cap avall tot el que ve a partir de la fila grisa (inclosa),
     // només quan cal, l'espai mínim imprescindible perquè mai hi hagi solapament.
-    if (rolLines7.length > 0) {
+    if (isLastOfGroup && rolLines7.length > 0) {
       const rolBottomY = yInici + RH/2 + (rolLines7.length - 1) * rolLH7 + rolLH7 * 0.5;
       if (rolBottomY > y) {
         const yAbans = y;
