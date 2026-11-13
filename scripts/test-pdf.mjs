@@ -69,6 +69,11 @@ const vo = {
     { id: 'rol-ins', nombre: 'INGENIERÍA INSTALACIONES (DOI)', grupo: 'DIRECCIÓN DE EJECUCIÓN', personas: [
       { id: uid(), empresa: 'PGI ENGINEERING', nombre: 'Jordi Sala', email: 'jordi.sala@pgiengineering.com', tel: '616 551 919', asistio: false },
     ] },
+    // Rol amb nom EXTREMADAMENT llarg (ni reduint la lletra al mínim hi caben 2 línies) —
+    // comprova el fallback: la fila ha de créixer el mínim imprescindible, mai solapar.
+    { id: 'rol-extrem', nombre: 'DIRECCIÓN TÈCNICA DE COORDINACIÓ INTEGRAL DE SEGURETAT I SALUT EN FASE D\'EXECUCIÓ (DTCISSFE)', grupo: 'DIRECCIÓN DE EJECUCIÓN', personas: [
+      { id: uid(), empresa: 'TEST', nombre: 'Nom Extrem', email: 'extrem@test.cat', tel: '600 000 000', asistio: true },
+    ] },
     // Grup i rol totalment personalitzats (afegits a mà a l'equip, com ara ja es pot fer) —
     // comprova que el selector de firmes els recull igual que els rols "de sèrie".
     { id: 'rol-proveedor', nombre: 'PROVEEDOR BIM', grupo: 'PROVEEDORES EXTERNOS', personas: [
