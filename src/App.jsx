@@ -9093,23 +9093,25 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca', opcions = {}) {
     const rolLH7 = 7.5*0.3528+0.5;
     const rolMaxW = xEmpText - xRol - 2;
     const rolLines7 = doc.splitTextToSize(rol.nombre||'', rolMaxW);
-    // Alçada de fila SEMPRE estàndard (RH), encara que el nom del rol faci wrap: la 1a
-    // línia s'alinea amb l'empresa/nom i, si n'hi ha més, flueixen cap avall sense alterar
-    // l'alçada de la fila (poden envair l'espai inferior si el nom és molt llarg).
-    const rowH = RH;
+    // Alçada de fila: estàndard (RH), però si el nom del rol fa wrap a més línies
+    // que les que caben en una fila estàndard, la PRIMERA fila (on es dibuixa el
+    // rol) creix per encabir-les totes — evita que el text del rol envaeixi la
+    // fila grisa del grup següent (ja ha passat amb "INGENIERÍA INSTALACIONES (DOI)").
+    const rowHRol = Math.max(RH, rolLines7.length * rolLH7 + 2.5);
 
     persones.forEach((p, pi) => {
       const isFirst = pi === 0;
       const isLastPer = pi === persones.length - 1;
       const mateixaEmpresa = pi > 0 && (p.empresa||'') === (persones[pi-1]?.empresa||'');
+      const rowH = isFirst ? rowHRol : RH;
       checkPage(rowH);
-      const midY = y + RH/2;
+      const midY = y + rowH/2;
 
-      // ROL — bold, sols primera persona; la 1a línia comença exactament a midY
-      // (igual que l'empresa/nom) i la resta flueixen cap avall
+      // ROL — bold, sols primera persona; el bloc de línies (1 o més) es centra
+      // verticalment dins la fila, igual que l'empresa/nom
       if (isFirst && rolLines7.length > 0) {
         doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(0,0,0);
-        let ry = midY;
+        let ry = midY - (rolLines7.length-1)*rolLH7/2;
         rolLines7.forEach(l => { if(l) { doc.text(l, xRol+2, ry, {baseline:'middle'}); ry+=rolLH7; } });
       }
 

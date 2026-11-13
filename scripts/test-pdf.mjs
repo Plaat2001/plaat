@@ -63,6 +63,12 @@ const vo = {
     { id: 'rol-dao', nombre: 'DIRECCIÓN AMBIENTAL DE OBRA (DAO)', grupo: 'DIRECCIÓN DE EJECUCIÓN', personas: [
       { id: uid(), empresa: 'Consultoria Ambiental i Sostenibilitat del Vallès, S.L.', nombre: 'Laia Font Roca', email: 'lfont@consultoriambiental.cat', tel: '93 600 77 88', asistio: true },
     ] },
+    // Rol amb nom que fa wrap a 3 línies, últim del seu grup (just abans del header gris
+    // del grup següent) — reproducció del bug reportat: el text del rol envaïa la fila
+    // grisa "CONTRATISTA" de sota.
+    { id: 'rol-ins', nombre: 'INGENIERÍA INSTALACIONES (DOI)', grupo: 'DIRECCIÓN DE EJECUCIÓN', personas: [
+      { id: uid(), empresa: 'PGI ENGINEERING', nombre: 'Jordi Sala', email: 'jordi.sala@pgiengineering.com', tel: '616 551 919', asistio: false },
+    ] },
     // Grup i rol totalment personalitzats (afegits a mà a l'equip, com ara ja es pot fer) —
     // comprova que el selector de firmes els recull igual que els rols "de sèrie".
     { id: 'rol-proveedor', nombre: 'PROVEEDOR BIM', grupo: 'PROVEEDORES EXTERNOS', personas: [
