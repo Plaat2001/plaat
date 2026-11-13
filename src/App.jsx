@@ -9090,39 +9090,26 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca', opcions = {}) {
   // (per no solapar amb la fila grisa del grup següent)
   function dibuixaFilaRol(rol, persones, isLastOfGroup = false) {
     // ROL — nom del rol calculat UN COP per a tot el bloc (no per persona).
-    // 1r intent: si el nom fa wrap a massa línies, es redueix la mida de lletra
-    // (només del nom del rol) fins que hi càpiguen com a màxim 2 línies — així
-    // la fila es manté a l'alçada estàndard (RH) com sempre, sense créixer.
-    // 2n intent (fallback, per si ni reduint la lletra al mínim hi caben 2
-    // línies): la fila SÍ creix el mínim imprescindible perquè mai es solapi
-    // amb la fila grisa del grup següent (p.ex. "INGENIERÍA INSTALACIONES (DOI)").
+    // Format ORIGINAL intacte: mida de lletra sempre 7.5 i alçada de fila SEMPRE
+    // RH (no es toca mai), exactament com en el format ja validat.
+    const rolLH7 = 7.5*0.3528+0.5;
     const rolMaxW = xEmpText - xRol - 2;
-    const rolMaxLines = 2;
-    const rolMinFontSize = 5.5;
-    let rolFontSize = 7.5;
-    doc.setFont('helvetica','bold'); doc.setFontSize(rolFontSize);
-    let rolLines7 = doc.splitTextToSize(rol.nombre||'', rolMaxW);
-    while (rolLines7.length > rolMaxLines && rolFontSize > rolMinFontSize) {
-      rolFontSize -= 0.5;
-      doc.setFontSize(rolFontSize);
-      rolLines7 = doc.splitTextToSize(rol.nombre||'', rolMaxW);
-    }
-    const rolLH7 = rolFontSize*0.3528+0.5;
-    const rowHRol = rolLines7.length <= rolMaxLines ? RH : Math.max(RH, rolLines7.length*rolLH7 + 2.5);
+    const rolLines7 = doc.splitTextToSize(rol.nombre||'', rolMaxW);
+    const rowH = RH;
+    const yInici = y;
 
     persones.forEach((p, pi) => {
       const isFirst = pi === 0;
       const isLastPer = pi === persones.length - 1;
       const mateixaEmpresa = pi > 0 && (p.empresa||'') === (persones[pi-1]?.empresa||'');
-      const rowH = isFirst ? rowHRol : RH;
       checkPage(rowH);
-      const midY = y + rowH/2;
+      const midY = y + RH/2;
 
-      // ROL — bold, sols primera persona; el bloc de línies (1 o més) es centra
-      // verticalment dins la fila, igual que l'empresa/nom
+      // ROL — bold, sols primera persona; la 1a línia comença exactament a midY
+      // (igual que l'empresa/nom) i la resta flueixen cap avall
       if (isFirst && rolLines7.length > 0) {
-        doc.setFont('helvetica','bold'); doc.setFontSize(rolFontSize); doc.setTextColor(0,0,0);
-        let ry = midY - (rolLines7.length-1)*rolLH7/2;
+        doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(0,0,0);
+        let ry = midY;
         rolLines7.forEach(l => { if(l) { doc.text(l, xRol+2, ry, {baseline:'middle'}); ry+=rolLH7; } });
       }
 
@@ -9184,6 +9171,24 @@ async function generarActaVO_v2(obra, vo, idioma = 'ca', opcions = {}) {
 
       y += rowH;
     });
+
+    // Si el nom del rol ha fet wrap a més línies de les que caben a la fila
+    // estàndard, el text pot haver quedat per sota del bloc de persones i
+    // xocar amb el que vingui a continuació — una altra fila de rol (p.ex.
+    // "DIRECCIÓN AMBIENTAL DE OBRA (DAO)" envaint "INGENIERÍA INSTALACIONES")
+    // o la fila grisa del grup següent. NO es toca la mida de lletra ni
+    // l'alçada de cap fila (format ja validat) — només s'afegeix, aquí i
+    // només quan cal, l'espai mínim imprescindible perquè mai hi hagi solapament.
+    if (rolLines7.length > 0) {
+      const rolBottomY = yInici + RH/2 + (rolLines7.length - 1) * rolLH7 + rolLH7 * 0.5;
+      if (rolBottomY > y) {
+        const yAbans = y;
+        checkPage(rolBottomY - y);
+        // Si checkPage ha saltat de pàgina, y ja apunta al capçal de la nova
+        // pàgina — NO sobreescriure'l amb rolBottomY (coordenada de l'anterior).
+        if (y === yAbans) y = rolBottomY;
+      }
+    }
   }
 
   // Dibuixar tota la taula d'equip — usant rol.grupo (editable)
