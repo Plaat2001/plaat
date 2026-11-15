@@ -6585,6 +6585,69 @@ function insertTemaVO(voObj, secId, tema) {
   return trobat ? { ...voObj, secciones } : voObj;
 }
 
+// Números de tema que surten més d'una vegada dins d'una acta. Han de ser únics: el número
+// és el que identifica el punt a totes les actes ja emeses i al PDF.
+function numsRepetitsVO(voObj) {
+  const comptes = {};
+  (voObj?.secciones || []).forEach(s => (s.temas || []).forEach(t => {
+    const k = String(t.num || '').trim();
+    if (k) comptes[k] = (comptes[k] || 0) + 1;
+  }));
+  return Object.keys(comptes).filter(k => comptes[k] > 1);
+}
+
+// Prepara la recuperació de la numeració de temes a partir d'una acta ja exportada
+// (còpia congelada de `actas_vo_versions`): per a cada tema de l'acta actual busca el mateix
+// tema per `id` dins la versió i li torna el número amb què va sortir en aquell PDF.
+// Garanties:
+//   · no s'esborra ni es perd cap tema — només es reescriu el camp `num`;
+//   · els temes afegits després d'aquella exportació (no hi són a la versió) conserven el seu
+//     número, i només si xoca amb un dels recuperats reben el primer lliure de la seva secció;
+//   · els números recuperats es reserven abans de res, així cap tema nou els pot ocupar.
+// Torna { vo, canvis } — `canvis` és només per previsualitzar (una fila per tema que es mou).
+function planRestaurarNums(voActual, voVersio) {
+  const original = new Map();
+  (voVersio?.secciones || []).forEach(s => (s.temas || []).forEach(t => {
+    const n = String(t.num || '').trim();
+    if (n) original.set(t.id, n);
+  }));
+
+  const canvis = [];
+  const secciones = (voActual.secciones || []).map(sec => {
+    const temas = sec.temas || [];
+    const reservats = new Set();
+    temas.forEach(t => { const o = original.get(t.id); if (o) reservats.add(o); });
+
+    const usats = new Set();
+    const seguentLliure = () => {
+      for (let n = 1; n <= 999; n++) {
+        const cand = `${sec.codigo}.${String(n).padStart(2, '0')}`;
+        if (!usats.has(cand) && !reservats.has(cand)) return cand;
+      }
+      return `${sec.codigo}.${String(temas.length + 1).padStart(2, '0')}`;
+    };
+
+    const temasNous = temas.map(t => {
+      const actual = String(t.num || '').trim();
+      const o = original.get(t.id);
+      let num, estat;
+      if (o && !usats.has(o)) {
+        num = o; estat = (o === actual) ? 'igual' : 'recuperat';
+      } else if (!o && actual && !usats.has(actual) && !reservats.has(actual)) {
+        num = actual; estat = 'igual';
+      } else {
+        num = seguentLliure(); estat = o ? 'duplicat' : 'reasignat';
+      }
+      usats.add(num);
+      if (estat !== 'igual') canvis.push({ secCodigo: sec.codigo, titulo: t.titulo, de: actual || '—', a: num, estat });
+      return { ...t, num };
+    });
+    return { ...sec, temas: temasNous };
+  });
+
+  return { vo: { ...voActual, secciones }, canvis };
+}
+
 // ── ModuloActaVO ─────────────────────────────────────────────────────────────
 function ModuloActaVO({ obra, onSave }) {
   const isMobile = useIsMobile();
@@ -6650,6 +6713,7 @@ function ModuloActaVO({ obra, onSave }) {
   const [versiones,      setVersiones]      = useState(null); // null = encara no carregades
   const [cargandoVersiones, setCargandoVersiones] = useState(false);
   const [colisioPendent, setColisioPendent] = useState(null); // número d'acta en col·lisió, o null
+  const [restaurarNum,   setRestaurarNum]   = useState(null); // { versionId } mentre es restaura la numeració
   const versionSaveRef   = useRef(null);
   const versionSaveTimer = useRef(null);
 
@@ -6829,20 +6893,14 @@ function ModuloActaVO({ obra, onSave }) {
   // El codi de cada secció ha de reflectir sempre la seva posició real (1, 2, 3...) perquè
   // mai es quedi "endarrerit" en afegir/esborrar/reordenar seccions, i perquè mai col·lideixi
   // amb la numeració dinàmica d'Hitos/Contrataciones/Clima (que es calcula a partir de
-  // vo.secciones.length a generarActaVO_v2). En canviar el codi d'una secció, cal regenerar
-  // també el "num" dels seus temes (abans "<codiVell>.NN") perquè segueixin sent coherents.
+  // vo.secciones.length a generarActaVO_v2).
+  // IMPORTANT: això NO toca mai el `num` dels temes. El número d'un tema és la seva identitat
+  // en totes les actes ja emeses (el "4.07" ha de seguir sent el "4.07" per sempre), i
+  // reescriure'l en afegir/esborrar/moure una secció va trencar la numeració d'una obra
+  // sencera: barrejava els prefixos i deixava números repetits. Per canviar el número d'un
+  // tema es fa a mà des del peu "Numeración, orden y sección" del tema.
   function renumerarSecciones(secs) {
-    return secs.map((s, i) => {
-      const nuevoCodigo = String(i + 1);
-      return {
-        ...s,
-        codigo: nuevoCodigo,
-        temas: (s.temas||[]).map(t => {
-          const sufijo = (t.num||'').split('.').pop() || '01';
-          return { ...t, num: `${nuevoCodigo}.${sufijo}` };
-        }),
-      };
-    });
+    return secs.map((s, i) => ({ ...s, codigo: String(i + 1) }));
   }
   function addSeccion() {
     guardarVO({ ...vo, secciones: renumerarSecciones([...vo.secciones, { id: uid(), codigo: '', titulo: 'NUEVA SECCIÓN', temas: [] }]) });
@@ -6861,8 +6919,11 @@ function ModuloActaVO({ obra, onSave }) {
   }
 
   // Temas
+  // Següent número lliure de la secció. Descarta els sufixos no numèrics: un `num` escrit
+  // a mà com "4.07 bis" tornava NaN i feia que tots els temes nous nasquessin com "4.NaN".
   function nextNum(sec) {
-    const nums = (sec.temas||[]).map(t => parseInt((t.num||'').split('.').pop()||'0', 10));
+    if (!sec) return '';
+    const nums = (sec.temas||[]).map(t => parseInt((t.num||'').split('.').pop()||'0', 10)).filter(n => Number.isFinite(n));
     const n = (nums.length ? Math.max(...nums) : 0) + 1;
     return `${sec.codigo}.${String(n).padStart(2,'0')}`;
   }
@@ -7373,8 +7434,73 @@ function ModuloActaVO({ obra, onSave }) {
                   <Btn sm onClick={() => abrirVersion(r)}>Editar</Btn>
                 </div>
               ))}
+            {!!versiones?.length && (
+              <div style={{ marginTop: 14 }}>
+                <Btn full onClick={() => { setShowVersions(false); setRestaurarNum({ versionId: versiones.slice().sort((a, b) => (b.data?.num || 0) - (a.data?.num || 0))[0].id }); }}>
+                  Restaurar numeración de temas…
+                </Btn>
+              </div>
+            )}
           </Modal>
         )}
+
+        {/* Recuperació de la numeració: torna a cada tema el número amb què va sortir en una
+            acta ja exportada. Mai esborra temes — només reescriu el camp `num`. */}
+        {restaurarNum && (() => {
+          const files = (versiones || []).slice().sort((a, b) => (b.data?.num || 0) - (a.data?.num || 0));
+          const row = files.find(r => r.id === restaurarNum.versionId) || files[0];
+          if (!row) return null;
+          const voVersio = migrateVO(row.data);
+          const plan = planRestaurarNums(vo, voVersio);
+          const numActa = String(row.data?.num || '—').padStart(2, '0');
+          const repetitsVersio = numsRepetitsVO(voVersio);
+          const ETIQ = { recuperat: 'recuperado', duplicat: 'repetido en esa acta', reasignat: 'añadido después' };
+          return (
+            <Modal wide title="Restaurar numeración de temas" onClose={() => setRestaurarNum(null)} footer={
+              <>
+                <Btn onClick={() => setRestaurarNum(null)}>Cancelar</Btn>
+                <Btn primary disabled={!plan.canvis.length} onClick={() => { guardarVO(plan.vo); setRestaurarNum(null); }}>
+                  {plan.canvis.length ? `Aplicar a ${plan.canvis.length} tema${plan.canvis.length !== 1 ? 's' : ''}` : 'Nada que cambiar'}
+                </Btn>
+              </>
+            }>
+              <Field label="Acta exportada de referencia">
+                <select value={row.id} onChange={e => setRestaurarNum({ versionId: e.target.value })}>
+                  {files.map(r => (
+                    <option key={r.id} value={r.id}>
+                      Acta Nº {String(r.data?.num || '—').padStart(2, '0')}{r.data?.fechaActa ? ' · ' + new Date(r.data.fechaActa).toLocaleDateString('es-ES') : ''}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <p style={{ fontSize: 12.5, color: '#6B6B66', lineHeight: 1.55, marginBottom: 14 }}>
+                Devuelve a cada tema el número con el que salió en el PDF de esa acta. No se borra ni se pierde ningún tema:
+                los añadidos después conservan su número y solo reciben el primero libre de su sección si choca con uno recuperado.
+              </p>
+              {repetitsVersio.length > 0 && (
+                <div style={{ fontSize: 12, color: '#7C4A00', background: '#FEF3DB', borderRadius: 8, padding: '9px 11px', marginBottom: 14, lineHeight: 1.5 }}>
+                  Cuidado: el Acta Nº {numActa} ya tiene números repetidos ({repetitsVersio.slice(0, 6).join(', ')}{repetitsVersio.length > 6 ? '…' : ''}).
+                  Elige un acta anterior, de antes de que se rompiera la numeración.
+                </div>
+              )}
+              {!plan.canvis.length ? (
+                <div style={{ fontSize: 13, color: '#A5A5A0' }}>La numeración actual ya coincide con la del Acta Nº {numActa}.</div>
+              ) : (
+                <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid #EDECE7', borderRadius: 8 }}>
+                  {plan.canvis.map((c, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 11px', borderBottom: i === plan.canvis.length - 1 ? 'none' : '1px solid #F2F1ED' }}>
+                      <span style={{ ...NUM, fontSize: 11.5, fontWeight: 700, color: '#BFBEB9', flexShrink: 0, minWidth: 34 }}>{c.de}</span>
+                      <span style={{ fontSize: 11, color: '#C4C3BE', flexShrink: 0 }}>→</span>
+                      <span style={{ ...NUM, fontSize: 11.5, fontWeight: 700, color: '#18180F', flexShrink: 0, minWidth: 34 }}>{c.a}</span>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: '#141412', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.titulo || '(sin título)'}</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#8A8A85', flexShrink: 0, whiteSpace: 'nowrap' }}>{ETIQ[c.estat] || ''}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Modal>
+          );
+        })()}
 
         {/* Navegació interna — separa el que es toca constantment (Temes) de la configuració ocasional */}
         <div style={{ display: 'flex', gap: 3, marginBottom: 10, background: '#F0EFEA', borderRadius: 10, padding: 3 }}>
@@ -7787,6 +7913,9 @@ function ModuloActaVO({ obra, onSave }) {
       {(() => {
         const busq = buscarTema.trim();
         const busqN = normTxt(busq);
+        // Avís inline si dos temes comparteixen número (no es renumera res sol: es marca
+        // perquè es corregeixi a mà o amb "Restaurar numeración de temas")
+        const numsRepetits = new Set(numsRepetitsVO(vo));
         const seccionsFiltrades = (vo.secciones||[]).map(sec => {
           const activos = activosPorSec(sec.id);
           const visibles = busq ? activos.filter(t => normTxt(t.titulo).includes(busqN) || normTxt(t.num).includes(busqN)) : activos;
@@ -7831,6 +7960,7 @@ function ModuloActaVO({ obra, onSave }) {
                   {/* Temas activos — ordre d'inserció, sense botó d'afegir (la captura ràpida flotant ho substitueix) */}
                   {!colapsada && visibles.map(t => (
                     <TemaVO key={t.id} t={t} est={ESTADOS_VO[estatAgregatTema(t)]} secId={sec.id} voNum={vo.num}
+                      numRepetit={numsRepetits.has(String(t.num || '').trim())}
                       secciones={vo.secciones} resaltar={busq} respLista={vo.respList||RESP_VO} onAddResp={addResp} onAddRespActivo={addRespYMarcarEnEntrada} onEditResp={editResp} onDeleteResp={delResp}
                       onUpdEntrada={(tId,eId,campo,val) => updEntrada(sec.id, tId, eId, campo, val)}
                       onUpdTema={(tId,campo,val) => updTema(sec.id, tId, campo, val)}
@@ -7914,7 +8044,7 @@ function ModuloActaVO({ obra, onSave }) {
 }
 
 // Componente de un tema (para evitar closures stale en los selects)
-function TemaVO({ t, est, secId, voNum, secciones, resaltar, respLista = RESP_VO, onAddResp, onAddRespActivo, onEditResp, onDeleteResp, onUpdEntrada, onUpdTema, onAddEntrada, onAddFoto, onDelFoto, onEditFoto, onDelEntrada, onMover, onReordenar, onDel, modoSeleccionOrden, puntosOrdenDia, onToggleSeleccionOrden }) {
+function TemaVO({ t, est, secId, voNum, numRepetit, secciones, resaltar, respLista = RESP_VO, onAddResp, onAddRespActivo, onEditResp, onDeleteResp, onUpdEntrada, onUpdTema, onAddEntrada, onAddFoto, onDelFoto, onEditFoto, onDelEntrada, onMover, onReordenar, onDel, modoSeleccionOrden, puntosOrdenDia, onToggleSeleccionOrden }) {
   const isMobile = useIsMobile();
   const [abierto, setAbierto] = useState(false);
   const [editEnt, setEditEnt] = useState(null);
@@ -7956,7 +8086,13 @@ function TemaVO({ t, est, secId, voNum, secciones, resaltar, respLista = RESP_VO
 
         {/* Línia 1 — identificador, títol i estat */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-          <span style={{ ...NUM, fontSize: 11.5, fontWeight: 700, color: '#8A8A85', flexShrink: 0, minWidth: 32 }}>{t.num}</span>
+          <span style={{ ...NUM, fontSize: 11.5, fontWeight: 700, color: numRepetit ? '#C47610' : '#8A8A85', flexShrink: 0, minWidth: 32 }}>{t.num}</span>
+          {numRepetit && (
+            <span title="Este número está repetido en otro tema del acta. Corrígelo en «Numeración, orden y sección» o con «Restaurar numeración de temas»."
+              style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', marginLeft: -5 }}>
+              <Icon name="warning" size={11} style={{ color: '#C47610' }} />
+            </span>
+          )}
           <span style={{ flex: 1, fontSize: 13.5, fontWeight: 600, color: '#141412', lineHeight: 1.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{resaltarCoincidencia(tituloDisplay, resaltar)}</span>
 
           {/* Activitat — recompte discret + punts d'estat sòlids */}

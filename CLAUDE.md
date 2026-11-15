@@ -35,6 +35,7 @@ Aquest ha estat el focus de la majoria de sessions recents. Estructura de `vo` (
 - `trabajosEnCurso[]` — secció "B"
 - `secciones[]` — les 5 seccions de temes (per defecte: Temas generales, Instalaciones, Control de calidad, LEED & BREAM, Planificación), cadascuna amb `temas[]`
 - Cada **tema** té `titulo` + `entradas[]` (seguiments cronològics). Cada entrada té `estado` (P/R/I), `resp[]` (array de responsables), `fecha` (editable), `fotos[]`, i **`nueva`** (boolean manual — decideix si surt en blanc/negreta al PDF; **ja NO es calcula automàticament comparant `actaNum`**, perquè es van important actes antigues fora d'ordre)
+- El **`num` de cada tema ("4.07") és immutable**: identifica el punt a totes les actes ja emeses. `renumerarSecciones()` renumera NOMÉS el `codigo` de les seccions i mai els temes — reescriure'ls en moure/esborrar seccions va trencar la numeració d'una obra sencera (prefixos barrejats i números repetits). Només es canvia a mà, o amb "Restaurar numeración de temas" (dins "Actas exportadas"), que recupera el `num` de cada tema des d'una versió arxivada per `id` sense perdre'n cap (`planRestaurarNums()`, test a `scripts/test-restaurar-nums.mjs`). Els números repetits es marquen amb un avís taronja a la llista de temes.
 - `hitos.{esenciales[], intermedios[]}` — secció numerada dinàmicament (sempre just després de l'última secció de temes)
 - `contrataciones[]` — mateixa numeració dinàmica
 - `clima[]` — fins a 7 dies; la data triada per l'usuari és sempre **l'últim** dia del rang (els 6 anteriors + aquest)
