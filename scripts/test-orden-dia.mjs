@@ -14,14 +14,14 @@ const vo = {};
 
 const items = [
   { temaNum: '1.01', temaTitulo: 'Documentació tècnica climatització pendent', entradas: [
-    { texto: 'Es reitera la petició, sense resposta de l\'instal·lador.' },
-    { texto: 'Tercera reiteració. El contractista indica que ho tindrà la propera setmana.' },
+    { texto: 'Es reitera la petició, sense resposta de l\'instal·lador.', fecha: '2026-09-02' },
+    { texto: 'Tercera reiteració. El contractista indica que ho tindrà la propera setmana.', fecha: '2026-10-14' },
   ] },
   { temaNum: '1.06', temaTitulo: 'Senyalització de seguretat', entradas: [
-    { texto: 'Falta senyalització de risc de caiguda a l\'obertura de forjat de planta primera.' },
+    { texto: 'Falta senyalització de risc de caiguda a l\'obertura de forjat de planta primera.', fecha: '' },
   ] },
   { temaNum: '2.03', temaTitulo: 'Instal·lació elèctrica planta primera', entradas: [
-    { texto: 'Pendent de validar l\'esquema unifilar definitiu abans d\'iniciar el muntatge dels quadres secundaris de planta primera i segona.' },
+    { texto: 'Pendent de validar l\'esquema unifilar definitiu abans d\'iniciar el muntatge dels quadres secundaris de planta primera i segona.', fecha: '2026-11-05' },
   ] },
 ];
 

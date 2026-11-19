@@ -10248,7 +10248,15 @@ async function generarOrdenDelDia(obra, vo, items) {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(0, 0, 0);
       const lines = doc.splitTextToSize(en.texto || '', CW - 5);
       const lh = 9.5 * 0.3528 + 1.1;
-      checkPage(lines.length * lh + 4);
+      const fecha = fmtFechaCorta(en.fecha);
+      const dateH = fecha ? 3.8 : 0;
+      checkPage(dateH + lines.length * lh + 4);
+      if (fecha) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(130, 130, 125);
+        doc.text(fecha, ML + 4, y);
+        y += dateH;
+      }
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(0, 0, 0);
       lines.forEach(l => { doc.text(l, ML + 4, y); y += lh; });
       y += 4;
     });
