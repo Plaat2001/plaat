@@ -6733,6 +6733,11 @@ function ModuloActaVO({ obra, onSave }) {
   useEffect(() => () => { flushVersionSave(); }, []);
 
   const vo = editingVersion ? editingVersion.data : (voLocal || migrateVO(null));
+  // Sempre apunta a la `vo` més recent, encara que encara no s'hagi repintat: evita que
+  // es perdin fotos quan se'n pengen vàries alhora (cada callback asíncron de pickFiles
+  // partia de la mateixa `vo` capturada al clic i es trepitjaven entre elles).
+  const voRef = useRef(vo);
+  voRef.current = vo;
   const [showEquipo,    setShowEquipo]    = useState(false);
   const [showHistorico, setShowHistorico] = useState(false);
   const [borrar,        setBorrar]        = useState(null);
@@ -6741,6 +6746,7 @@ function ModuloActaVO({ obra, onSave }) {
   const [confirmacion,  setConfirmacion]  = useState(null); // id sección editando nombre
 
   function guardarVO(nuevo) {
+    voRef.current = nuevo;
     if (editingVersion) {
       const actualizada = { ...editingVersion, data: nuevo };
       setEditingVersion(actualizada);
@@ -6975,9 +6981,10 @@ function ModuloActaVO({ obra, onSave }) {
   }
   function addFotoEntrada(secId, temaId, entId) {
     pickFiles('image/*', f => {
-      const actual = vo.secciones.find(s => s.id === secId)?.temas.find(t => t.id === temaId)?.entradas.find(e => e.id === entId);
+      const base = voRef.current;
+      const actual = base.secciones.find(s => s.id === secId)?.temas.find(t => t.id === temaId)?.entradas.find(e => e.id === entId);
       const fotos = [...(actual?.fotos||[]), f];
-      guardarVO({ ...vo, secciones: vo.secciones.map(s => s.id !== secId ? s : { ...s, temas: s.temas.map(t => t.id !== temaId ? t : { ...t, entradas: t.entradas.map(e => e.id !== entId ? e : { ...e, fotos }) }) }) });
+      guardarVO({ ...base, secciones: base.secciones.map(s => s.id !== secId ? s : { ...s, temas: s.temas.map(t => t.id !== temaId ? t : { ...t, entradas: t.entradas.map(e => e.id !== entId ? e : { ...e, fotos }) }) }) });
       if (editingVersion) propagarForward(v => patchEntradaVO(v, secId, temaId, entId, 'fotos', fotos));
     }, obra?.id);
   }
@@ -7053,8 +7060,11 @@ function ModuloActaVO({ obra, onSave }) {
       ubicacions: (vo.estadoObra.ubicacions||[]).filter(u => u.id!==ubId) } });
   }
   function addFotoUbicacio(ubId) {
-    pickFiles('image/*', f => guardarVO({ ...vo, estadoObra: { ...(vo.estadoObra||{}),
-      ubicacions: (vo.estadoObra.ubicacions||[]).map(u => u.id===ubId ? {...u, fotos:[...(u.fotos||[]),f]} : u) } }), obra?.id);
+    pickFiles('image/*', f => {
+      const base = voRef.current;
+      guardarVO({ ...base, estadoObra: { ...(base.estadoObra||{}),
+        ubicacions: (base.estadoObra.ubicacions||[]).map(u => u.id===ubId ? {...u, fotos:[...(u.fotos||[]),f]} : u) } });
+    }, obra?.id);
   }
   function delFotoUbicacio(ubId, fotoId) {
     guardarVO({ ...vo, estadoObra: { ...(vo.estadoObra||{}),
