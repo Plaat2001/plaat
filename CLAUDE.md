@@ -13,7 +13,7 @@ Comunicació habitual amb Jan Moreno: espanyol/català barrejat. Comentaris de c
 - **Clima**: API Open-Meteo (gratuïta, sense clau) — es va provar AEMET però es va revertir per simplicitat
 
 ### Fitxers clau
-- `src/App.jsx` — tota la lògica de la UI, els mòduls (Incidencias, Calidad, Acta VO, Notas y tareas, Inspecciones) i el generador de PDF
+- `src/App.jsx` — tota la lògica de la UI, els mòduls (Incidencias, Calidad, Acta VO, Seguimiento, Notas y tareas, Inspecciones) i el generador de PDF
 - `src/main.jsx` — capa de dades: client Supabase, `window.db.*` (CRUD), `window.storage.*` (KV legacy), cache offline amb IndexedDB, cua de mutacions pendents, auth
 - `src/supabase.js` — credencials del client
 
@@ -55,6 +55,17 @@ Aquest ha estat el focus de la majoria de sessions recents. Estructura de `vo` (
 - Botó flotant "+" (crear tema nou) i tots els modals (`Modal`, `ConfirmMini`) usen **`createPortal` a `document.body`** — necessari per evitar bugs de `position: fixed` dins de contenidors amb scroll niat en mòbil real. **Advertència**: l'entorn de previsualització d'artefactes de Claude (dins del xat) NO permet `import ... from "react-dom"` i mostrarà error — això només afecta la previsualització en aquest xat, no el desplegament real a Vercel.
 - Totes les seccions de temes es poden plegar; els temes es llisten en **ordre d'inserció** (no ordenats per estat — es va provar i es va revertir perquè feia que els punts nous no aparegueguessin al final)
 - Data per defecte en crear un tema/seguiment: **no és "avui"**, és el dia de visita configurat més recent (`obra.diasVisita`), calculat amb `dataVisitaRecent()`
+
+## Acta de Seguiment d'Obra (mòdul `ModuloSeguimiento`)
+
+Pestanya nova (entre Acta VO i Notas y tareas) per fer seguiment de temes pendents que sorgeixen en reunions (presencials o telemàtiques) — diferent de l'Acta VO. Es va basar en una eina feta per un company (estructura obra → reunions → punts) i en l'Excel que s'usava fins ara. **Substitueix una vista global antiga "Seguimiento"** (al sidebar, taula Supabase `seguimiento`, sense reunions) que no estava documentada aquí — es va retirar; els seus punts es migren automàticament per obra (`migrarSeguimientoGlobalAntiguo`, s'executa un sol cop en segon pla en carregar el tauler).
+
+- **Model de dades**: dues taules Supabase noves amb el mateix patró itemitzat que `incidencias`/`notas` (una fila per punt/reunió, mai un blob únic com `vo`): `seguimiento_puntos` i `seguimiento_reuniones` (`id`, `obra_id`, `data` jsonb, `updated_at`). SQL: `supabase/migrations/2026-11-20_seguimiento.sql` (crea les taules i còpia les polítiques RLS de `incidencias`). Camps nous a nivell d'obra: `seguimientoNextNum` (comptador) i `seguimientoTematicas`.
+- **El `id` d'un punt és un `uid()` opac (clau primària real), MAI el "P-xxx" visible** — el "P-xxx" és només `nuevoNumSeguimiento(num)`, derivat del camp `num`. Fer-los servir com el mateix camp va ser un bug real (trobat pel subagent `revisor` abans de publicar): dos punts creats gairebé alhora (dues pestanyes, o la migració solapant-se amb una creació manual) col·lisionaven a la mateixa fila de Supabase i un es sobreescrivia en silenci.
+- **Persistència**: NO passa pel debounce de 700ms de `vo`/`actualizarObra` — cada punt/reunió es desa amb diffing per referència dins `saveUnaObra` (igual que `incidencias`/`notas`: només es fa `upsertModulo` dels que han canviat). Les eliminacions són explícites (`eliminarPuntoSeg` crida `deleteModulo` directament), perquè el diff per referència mai detecta que un element ha desaparegut de l'array.
+- **Classificació automàtica de l'estat** (curso/decidido/cerrado) i **relació entre notes i punts pendents**: sense IA (l'app no té cap capacitat de sampling) — regles de text locals (`clasificarEstadoSeguimiento`) i similitud de paraules (Jaccard, `sugerirRelacionadosSeg`); sempre com a proposta descartable, mai aplicades sense confirmació de l'usuari.
+- **PDF**: `generarActaSeguimiento()`, mateix patró `doc.output('blob')` + `URL.createObjectURL` + `window.open` que la resta de generadors (no `doc.save()`, per compatibilitat amb iOS Safari). Arnès de prova: `scripts/test-pdf-seguimiento.mjs` + `scripts/_extracted-acta-seguimiento.js`.
+- Pendent conegut: si dos punts arriben a tenir el mateix `num` (carrera molt poc probable entre dispositius/pestanyes), es veuria un "P-xxx" duplicat a la UI (ja no es perd cap dada, és només cosmètic) — es podria afegir un avís com el que ja hi ha per als números de tema repetits de l'Acta VO si mai arriba a passar de debò.
 
 ## Convencions i patrons a seguir
 

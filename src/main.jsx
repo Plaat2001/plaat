@@ -173,7 +173,6 @@ async function executar(m) {
     case 'deleteObra':    { const { error } = await supabase.from('obras').delete().eq('id', m.payload.id); if (error) throw error; break }
     case 'upsertModulo':  { const { error } = await supabase.from(m.tabla).upsert(m.payload); if (error) throw error; break }
     case 'deleteModulo':  { const { error } = await supabase.from(m.tabla).delete().eq('id', m.payload.id); if (error) throw error; break }
-    case 'upsertPuntoSeg':{ const { error } = await supabase.from('seguimiento').upsert(m.payload); if (error) throw error; break }
     case 'deletePuntoSeg':{ const { error } = await supabase.from('seguimiento').delete().eq('id', m.payload.id); if (error) throw error; break }
     case 'crearObra':     { const { error } = await supabase.rpc('crear_obra_con_owner', m.payload); if (error) throw error; break }
     case 'upsertPerfil':  { const { error } = await supabase.from('perfiles').upsert(m.payload); if (error) throw error; break }
@@ -469,16 +468,6 @@ window.db = {
     })
     return r || []
   },
-  async upsertPuntoSeg(punto) {
-    const row = { id: punto.id, data: punto, updated_at: new Date().toISOString() }
-    const cacheFn = async () => {
-      const llista = (await idbGet('kv', 'seguimiento')) || []
-      const i = llista.findIndex(p => p.id === punto.id)
-      if (i >= 0) llista[i] = punto; else llista.push(punto)
-      await idbSet('kv', 'seguimiento', llista)
-    }
-    return escriure('upsertPuntoSeg', 'seguimiento', row, `upsertPuntoSeg:${punto.id}`, cacheFn)
-  },
   async deletePuntoSeg(id) {
     const cacheFn = async () => {
       const llista = (await idbGet('kv', 'seguimiento')) || []
@@ -488,12 +477,6 @@ window.db = {
   },
 
   // ─ Realtime (només amb connexió) ─────────────────────────────────────────
-  subscribeSeguimiento(onCambio) {
-    const canal = supabase.channel('seguimiento-global')
-    canal.on('postgres_changes', { event: '*', schema: 'public', table: 'seguimiento' }, () => onCambio())
-    canal.subscribe()
-    return () => supabase.removeChannel(canal)
-  },
   subscribeObra(obraId, onCambio) {
     const canal  = supabase.channel(`obra-${obraId}`)
     const tablas = ['obras', 'incidencias', 'actas_vo', 'actas_insp', 'notas', 'calidad']

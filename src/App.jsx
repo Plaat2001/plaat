@@ -1179,7 +1179,6 @@ function Sidebar({ nav, setNav, stats, user, onBackup }) {
   const navItems = [
     { id: 'alertas',      label: 'Alertas',      badge: stats.alertas, alert: stats.alertas > 0 },
     { id: 'tablero',      label: 'Tablero',       badge: stats.total, alert: false },
-    { id: 'seguimiento',  label: 'Seguimiento',   badge: 0, alert: false },
   ];
   const email = user?.email || '';
   const iniciales = email ? email.slice(0, 2).toUpperCase() : 'PL';
@@ -1239,13 +1238,11 @@ function BottomNav({ nav, setNav, stats }) {
   const ICONS = {
     alertas:     'M10 4a3 3 0 0 0-3 3c0 4-1.5 5-2 6h10c-.5-1-2-2-2-6a3 3 0 0 0-3-3Z M8.5 16a1.5 1.5 0 0 0 3 0',
     tablero:     'M3 17V8l5-3 5 3v9 M7 17v-4h2v4',
-    seguimiento: 'M4 6h12 M4 10h12 M4 14h7 M14 13l2 2 3-3',
     salir:       'M7 4H4v12h3 M10 10h7 M14 7l3 3-3 3',
   };
   const items = [
     { id: 'alertas',     label: 'Alertas',     badge: stats.alertas, alert: true },
     { id: 'tablero',     label: 'Obras',        badge: stats.total,   alert: false },
-    { id: 'seguimiento', label: 'Seguimiento',  badge: 0,             alert: false },
   ];
   function salir() { if (window.auth) window.auth.signOut(); }
   const Icono = ({ d, activo }) => (
@@ -3298,6 +3295,697 @@ function ModuloIncidencias({ obra, onSave }) {
       )}
     </div>
   );
+}
+
+// ─── MÓDULO: Acta de seguimiento de obra ──────────────────────────────────────
+// Registro de temas pendientes que surgen en reuniones de seguimiento (presenciales o
+// telemáticas), organizado por obra → reuniones → puntos. Sustituye a la antigua vista
+// global "Seguimiento" del sidebar (tabla `seguimiento`, registro plano sin reuniones):
+// esa vista se ha retirado y sus puntos se migran automáticamente a este módulo
+// (ver migrarSeguimientoGlobalAntiguo).
+
+const TEMATICAS_SEG_DEF = ['Estructuras', 'Instalaciones', 'Obra civil', 'Acabados', 'Planificación', 'Costes', 'Otros'];
+
+const ESTADOS_SEG_INFO = {
+  curso:    { label: 'En curso',  bg: '#FEF3DB', color: '#7C4A00' },
+  decidido: { label: 'Decidido',  bg: '#E9E6FB', color: '#4A3B8F' },
+  cerrado:  { label: 'Cerrado',   bg: '#E8F5E0', color: '#2D5E10' },
+};
+
+const ISO_DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
+function quitarAcentos(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+function nuevoNumSeguimiento(n) { return 'P-' + String(n).padStart(3, '0'); }
+function historialSeg(entry) { return { id: uid(), fecha: today(), momento: now(), ...entry }; }
+function vencidoSeg(p) { return p.estado !== 'cerrado' && ISO_DATE_RX.test(p.fechaLimite || '') && p.fechaLimite < today(); }
+function fmtLimiteSeg(v) { return !v ? '—' : ISO_DATE_RX.test(v) ? fmtDate(v) : v; }
+
+// Clasificación local del estado a partir del texto de la nota — reglas de redacción
+// típicas de actas de obra en castellano, sin IA (adaptadas de la herramienta que ya
+// usa un compañero para lo mismo). Es solo una propuesta inicial: el usuario puede
+// pisarla siempre con el selector de estado (y entonces queda marcada `estadoManual`).
+const RX_SEG_CURSO = [
+  /est[aá] pendiente/, /queda pendiente/, /pendiente de/, /^pendiente/, /se debe /, /se deben /,
+  /debe definirse/, /debe decidirse/, /hay que /, /habr[aá] que /, /se tiene que /, /falta /, /faltan /,
+  /por definir/, /a definir/, /sin definir/, /se solicita(?!r)/, /^reclamar/, /^revisar/, /^enviar/,
+  /^corregir/, /^actualizar/, /^incluir/, /^insistir/,
+];
+const RX_SEG_CERRADO = [
+  /se ha (enviado|realizado|ejecutado|entregado|resuelto|solucionado|firmado|recibido|aprobado|cerrado|completado|instalado|facilitado|remitido|corregido|actualizado|incorporado)/,
+  /se han (enviado|realizado|ejecutado|entregado|resuelto|recibido|aprobado|firmado|incorporado)/,
+  /ya se ha/, /ya est[aá] (hecho|ejecutado|resuelto|enviado)/,
+  /ha sido (enviado|realizado|ejecutado|entregado|resuelto|aprobado|firmado)/,
+  /queda (resuelto|solucionado|cerrado)/, /se da por (cerrado|resuelto)/,
+  /\bresuelto\b/, /\bsolucionado\b/, /\bcompletado\b/, /\bfinalizado\b/,
+];
+const RX_SEG_DECIDIDO = [
+  /se decide/, /se indica/, /se acuerda/, /se aprueba/, /se da soluci[oó]n/, /se soluciona/,
+  /se concreta/, /se define /, /se confirma/, /se mantiene/, /se opta/,
+];
+const RX_SEG_FUTURO = /[a-zñ]{3,}(?:ar[aá]|er[aá]|ir[aá]|ar[aá]n|er[aá]n|ir[aá]n)(?=[\s.,;:)]|$)/;
+
+function clasificarEstadoSeguimiento(texto) {
+  const n = quitarAcentos(texto).trim();
+  if (!n) return 'curso';
+  if (RX_SEG_CURSO.some(r => r.test(n))) return 'curso';
+  if (RX_SEG_CERRADO.some(r => r.test(n))) return 'cerrado';
+  if (RX_SEG_DECIDIDO.some(r => r.test(n)) || RX_SEG_FUTURO.test(String(texto).toLowerCase())) return 'decidido';
+  return 'curso';
+}
+
+// Sugerencias de relación con puntos pendientes por similitud de palabras (Jaccard sobre
+// tokens, sin palabras vacías) — igual que la clasificación, sin IA ni llamadas de red.
+const STOP_SEG = new Set('para como este esta estos estas entre sobre desde hasta donde cuando porque pero tambien debe deben debera seran sera hara haran realizara enviara parte todos todas cada otra otro otros otras mismo misma segun puede pueden tiene tienen hacer realizar enviar solicita solicitar indica decide queda pendiente'.split(' '));
+function tokensSeg(s) { return new Set(quitarAcentos(s).split(/[^a-z0-9ñ]+/).filter(w => w.length > 3 && !STOP_SEG.has(w))); }
+function jaccardSeg(a, b) {
+  const A = tokensSeg(a), B = tokensSeg(b);
+  if (!A.size || !B.size) return 0;
+  let inter = 0;
+  A.forEach(w => { if (B.has(w)) inter++; });
+  return inter / (A.size + B.size - inter);
+}
+function sugerirRelacionadosSeg(texto, candidatos) {
+  const estado = clasificarEstadoSeguimiento(texto);
+  const out = [];
+  candidatos.forEach(t => {
+    const sim = jaccardSeg(texto, t.texto);
+    if (sim < 0.3) return;
+    let propuesta = null;
+    if (estado === 'cerrado') propuesta = 'cerrado';
+    else if (estado === 'decidido' && t.estado === 'curso') propuesta = 'decidido';
+    if (!propuesta) return;
+    out.push({ id: uid(), puntoId: t.id, propuesta, confianza: sim });
+  });
+  return out.sort((a, b) => b.confianza - a.confianza).slice(0, 5);
+}
+
+// Actualización optimista local (el guardado real a Supabase lo hace saveUnaObra, que
+// compara por referencia y sube solo los puntos/reuniones que cambiaron — igual que
+// incidencias/notas). Las eliminaciones sí se hacen explícitas aquí porque ese diff por
+// referencia nunca detecta que un elemento ha desaparecido del array.
+function guardarPuntoSeg(obra, onSave, punto, extra = {}) {
+  const lista = obra.seguimientoPuntos.some(p => p.id === punto.id)
+    ? obra.seguimientoPuntos.map(p => p.id === punto.id ? punto : p)
+    : [...obra.seguimientoPuntos, punto];
+  onSave({ ...obra, ...extra, seguimientoPuntos: lista });
+}
+async function eliminarPuntoSeg(obra, onSave, puntoId) {
+  onSave({ ...obra, seguimientoPuntos: obra.seguimientoPuntos.filter(p => p.id !== puntoId) });
+  try { await window.db.deleteModulo('seguimiento_puntos', puntoId); }
+  catch (e) { console.error('Error eliminando punto de seguimiento:', e); }
+}
+function guardarReunionSeg(obra, onSave, reunion) {
+  const lista = obra.seguimientoReuniones.some(r => r.id === reunion.id)
+    ? obra.seguimientoReuniones.map(r => r.id === reunion.id ? reunion : r)
+    : [...obra.seguimientoReuniones, reunion];
+  onSave({ ...obra, seguimientoReuniones: lista });
+}
+
+// ── Migración: registro global antiguo "Seguimiento" (tabla `seguimiento`, sin pestaña
+// propia desde ahora) → puntos por obra de este módulo. Se ejecuta una sola vez en
+// segundo plano al cargar el tablero; si una obra ya no existe o no es accesible, sus
+// puntos antiguos se dejan sin tocar (no se borran) en vez de perderlos.
+async function migrarSeguimientoGlobalAntiguo(rows, obrasCompletas, userId) {
+  if (!window.db?.getSeguimiento) return;
+  let antiguos = [];
+  try { antiguos = await window.db.getSeguimiento(); } catch { return; }
+  if (!antiguos.length) return;
+  const porObra = {};
+  antiguos.forEach(p => { if (p.obraId) (porObra[p.obraId] = porObra[p.obraId] || []).push(p); });
+  for (const [obraId, lista] of Object.entries(porObra)) {
+    const row = rows.find(r => r.id === obraId);
+    const obraCompleta = obrasCompletas.find(o => o.id === obraId);
+    if (!row || !obraCompleta) continue;
+    let siguiente = obraCompleta.seguimientoNextNum || 1;
+    try {
+      for (const p of lista.slice().sort((a, b) => (a.num || 0) - (b.num || 0))) {
+        const estado = p.estado === 'Cerrado' ? 'cerrado' : 'curso';
+        const punto = {
+          // `id` es el identificador real (único, clave primaria en Supabase) — nunca el
+          // "P-xxx" visible, que solo es una etiqueta derivada de `num` (ver nuevoNumSeguimiento).
+          // Usar el propio "P-xxx" como id provocaba que dos puntos creados casi a la vez
+          // (dos pestañas, o esta migración solapándose con una creación manual) colisionaran
+          // en la misma fila y uno se sobrescribiera en silencio.
+          id: uid(), num: siguiente++,
+          texto: p.tema || '', tematica: p.tematica || '', responsable: p.responsable || '',
+          fechaAlta: p.fecha || today(), fechaLimite: p.fechaLimite || '', fechaResolucion: p.fechaResolucion || '',
+          estado, estadoManual: true, reunionOrigen: null, numActa: null,
+          historial: [historialSeg({ reunionId: null, tipo: 'alta', a: estado, texto: `Migrado del registro de seguimiento anterior${p.via ? ' (vía ' + p.via + ')' : ''}.` })],
+          relacionados: [], cerradoPor: null, fotos: [],
+        };
+        await window.db.upsertModulo('seguimiento_puntos', { id: punto.id, obra_id: obraId, data: punto, updated_at: now() });
+      }
+      await window.db.upsertObra({ id: obraId, user_id: userId, data: { ...row.data, seguimientoNextNum: siguiente }, updated_at: now() });
+      for (const p of lista) await window.db.deletePuntoSeg(p.id).catch(() => {});
+    } catch (e) { console.error('Error migrando seguimiento antiguo de la obra', obraId, e); }
+  }
+}
+
+function FilaPuntoSeg({ punto: p, onClick }) {
+  const info = ESTADOS_SEG_INFO[p.estado] || ESTADOS_SEG_INFO.curso;
+  return (
+    <div onClick={onClick} className="hov-row" style={{ padding: '10px 16px', borderTop: '1px solid #F0EFEA', display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: '#9B9B97', width: 46, flexShrink: 0, paddingTop: 2 }}>{nuevoNumSeguimiento(p.num)}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, color: '#16160F', lineHeight: 1.4 }}>
+          {p.texto}
+          {(p.fotos || []).length > 0 && <span style={{ marginLeft: 6, fontSize: 11, color: '#9B9B97' }}>📎 {p.fotos.length}</span>}
+        </div>
+        <div style={{ fontSize: 11.5, color: '#9B9B97', marginTop: 3, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {p.tematica && <span>{p.tematica}</span>}
+          {p.responsable && <span>{p.responsable}</span>}
+          <span style={{ color: vencidoSeg(p) ? '#B3261E' : '#9B9B97', fontWeight: vencidoSeg(p) ? 600 : 400 }}>Límite: {fmtLimiteSeg(p.fechaLimite)}</span>
+        </div>
+      </div>
+      <Pill label={info.label} bg={info.bg} color={info.color} />
+    </div>
+  );
+}
+
+function ModalNuevaReunionSeg({ obra, onCrear, onClose }) {
+  const tematicas = obra.seguimientoTematicas?.length ? obra.seguimientoTematicas : TEMATICAS_SEG_DEF;
+  const [f, setF] = useState({ fecha: today(), titulo: '', tematica: tematicas[0] || '', modalidad: 'presencial', lugar: '', asistentes: [] });
+  const upd = (k, v) => setF(prev => ({ ...prev, [k]: v }));
+  const [asisForm, setAsisForm] = useState({ empresa: '', persona: '', rol: '' });
+
+  function addAsistente() {
+    if (!asisForm.persona.trim() && !asisForm.empresa.trim()) return;
+    upd('asistentes', [...f.asistentes, asisForm]);
+    setAsisForm({ empresa: '', persona: '', rol: '' });
+  }
+  function delAsistente(i) { upd('asistentes', f.asistentes.filter((_, idx) => idx !== i)); }
+
+  function crear() {
+    if (!f.tematica.trim()) return;
+    onCrear({
+      id: 'R' + uid(), fecha: f.fecha, titulo: f.titulo.trim(), tematica: f.tematica.trim(),
+      modalidad: f.modalidad, lugar: f.lugar.trim(), asistentes: f.asistentes,
+      estado: 'abierta', creadaEn: now(),
+    });
+  }
+
+  return (
+    <Modal title="Nueva reunión de seguimiento" onClose={onClose} wide
+      footer={<><div /><Btn primary onClick={crear}>Empezar reunión</Btn></>}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <Field label="Fecha"><input type="date" value={f.fecha} onChange={e => upd('fecha', e.target.value)} /></Field>
+        <Field label="Temática">
+          <input value={f.tematica} onChange={e => upd('tematica', e.target.value)} list="tematicasSegList" />
+          <datalist id="tematicasSegList">{tematicas.map(t => <option key={t} value={t} />)}</datalist>
+        </Field>
+        <div style={{ gridColumn: '1 / -1' }}>
+          <Field label="Título (opcional)"><input value={f.titulo} onChange={e => upd('titulo', e.target.value)} placeholder="p. ej. Seguimiento instalaciones" /></Field>
+        </div>
+        <Field label="Modalidad">
+          <select value={f.modalidad} onChange={e => upd('modalidad', e.target.value)}>
+            <option value="presencial">Presencial</option>
+            <option value="video">Videollamada</option>
+          </select>
+        </Field>
+        <Field label="Lugar (si presencial)"><input value={f.lugar} onChange={e => upd('lugar', e.target.value)} disabled={f.modalidad !== 'presencial'} /></Field>
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', fontWeight: 600, marginBottom: 6 }}>Asistentes</label>
+        {f.asistentes.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
+            {f.asistentes.map((a, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, background: '#F7F6F3', borderRadius: 7, padding: '5px 10px' }}>
+                <span style={{ flex: 1 }}><b>{a.empresa}</b> {a.persona} {a.rol && <span style={{ color: '#9B9B97' }}>· {a.rol}</span>}</span>
+                <button onClick={() => delAsistente(i)} style={{ background: 'none', border: 'none', color: '#C4C3BE', fontSize: 15, cursor: 'pointer' }}>×</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 6 }}>
+          <input placeholder="Empresa" value={asisForm.empresa} onChange={e => setAsisForm(a => ({ ...a, empresa: e.target.value }))} />
+          <input placeholder="Nombre" value={asisForm.persona} onChange={e => setAsisForm(a => ({ ...a, persona: e.target.value }))} />
+          <input placeholder="Rol" value={asisForm.rol} onChange={e => setAsisForm(a => ({ ...a, rol: e.target.value }))} />
+          <Btn sm onClick={addAsistente}>+ Añadir</Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function PuntoSegModal({ obra, onSave, punto, reunionContextId, onClose, onEliminar }) {
+  const tematicas = obra.seguimientoTematicas?.length ? obra.seguimientoTematicas : TEMATICAS_SEG_DEF;
+  const [f, setF] = useState(punto);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const upd = (k, v) => setF(prev => ({ ...prev, [k]: v }));
+  const limiteEspecial = ['n/p', 'ASAP'].includes(f.fechaLimite) ? f.fechaLimite : '';
+
+  function adjuntarFoto() { pickFiles('image/*', foto => upd('fotos', [...(f.fotos || []), foto]), obra.id); }
+  function quitarFoto(i) { upd('fotos', f.fotos.filter((_, idx) => idx !== i)); }
+
+  function guardar() {
+    const cambios = [];
+    if (f.texto !== punto.texto) cambios.push('texto');
+    if (f.responsable !== punto.responsable) cambios.push('responsable');
+    if (f.fechaLimite !== punto.fechaLimite) cambios.push('fecha límite');
+    let historial = f.historial || [];
+    if (f.estado !== punto.estado) {
+      historial = [...historial, historialSeg({ reunionId: reunionContextId, tipo: 'estado', de: punto.estado, a: f.estado, texto: 'Cambio manual' })];
+    }
+    if (cambios.length) {
+      historial = [...historial, historialSeg({ reunionId: reunionContextId, tipo: 'edicion', texto: 'Editado: ' + cambios.join(', ') })];
+    }
+    const actualizado = {
+      ...f,
+      estadoManual: f.estado !== punto.estado ? true : f.estadoManual,
+      fechaResolucion: f.estado === 'cerrado' ? (f.fechaResolucion || today()) : (punto.estado === 'cerrado' ? '' : f.fechaResolucion),
+      historial,
+    };
+    guardarPuntoSeg(obra, onSave, actualizado);
+    onClose();
+  }
+
+  return (
+    <Modal title={nuevoNumSeguimiento(punto.num)} onClose={onClose} wide
+      footer={<>
+        <Btn danger onClick={() => setConfirmDel(true)}>Eliminar</Btn>
+        <div style={{ display: 'flex', gap: 8 }}><Btn ghost onClick={onClose}>Cancelar</Btn><Btn primary onClick={guardar}>Guardar</Btn></div>
+      </>}>
+      <Field label="Tema"><TA value={f.texto} onChange={e => upd('texto', e.target.value)} style={{ minHeight: 70 }} /></Field>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 10 }}>
+        <Field label="Responsable"><input value={f.responsable} onChange={e => upd('responsable', e.target.value)} /></Field>
+        <Field label="Temática">
+          <input value={f.tematica} onChange={e => upd('tematica', e.target.value)} list="tematicasSegList2" />
+          <datalist id="tematicasSegList2">{tematicas.map(t => <option key={t} value={t} />)}</datalist>
+        </Field>
+        <Field label="Estado">
+          <select value={f.estado} onChange={e => upd('estado', e.target.value)}>
+            {Object.entries(ESTADOS_SEG_INFO).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Fecha límite">
+          <input type="date" value={ISO_DATE_RX.test(f.fechaLimite || '') ? f.fechaLimite : ''} onChange={e => upd('fechaLimite', e.target.value)} disabled={!!limiteEspecial} />
+          <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+            {['n/p', 'ASAP'].map(v => (
+              <button key={v} onClick={() => upd('fechaLimite', limiteEspecial === v ? '' : v)} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, border: `1px solid ${limiteEspecial === v ? '#16160F' : '#E0DFD9'}`, background: limiteEspecial === v ? '#16160F' : 'transparent', color: limiteEspecial === v ? '#fff' : '#6B6B66', cursor: 'pointer' }}>{v}</button>
+            ))}
+          </div>
+        </Field>
+        {f.estado === 'cerrado' && (
+          <Field label="Fecha resolución"><input type="date" value={f.fechaResolucion || ''} onChange={e => upd('fechaResolucion', e.target.value)} /></Field>
+        )}
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', fontWeight: 600, marginBottom: 6 }}>Fotos</label>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {(f.fotos || []).map((foto, i) => (
+            <div key={foto.id || i} style={{ position: 'relative', width: 72, height: 54, borderRadius: 7, overflow: 'hidden', border: '1px solid #E0DFD9' }}>
+              <img src={foto.url || foto.data} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <button onClick={() => quitarFoto(i)} style={{ position: 'absolute', top: 1, right: 1, background: 'rgba(0,0,0,.65)', color: '#fff', border: 'none', borderRadius: '50%', width: 18, height: 18, fontSize: 11, cursor: 'pointer' }}>×</button>
+            </div>
+          ))}
+          <button onClick={adjuntarFoto} style={{ width: 72, height: 54, borderRadius: 7, border: '1px dashed #C5C4BE', background: '#FAFAF8', cursor: 'pointer', color: '#6B6B66', fontSize: 11 }}>+ Foto</button>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', fontWeight: 600, marginBottom: 6 }}>Trazabilidad</label>
+        <div style={{ fontSize: 11.5, color: '#9B9B97', marginBottom: 6 }}>Creado el {fmtDate(f.fechaAlta)}{f.reunionOrigen ? '' : ' (importado del registro anterior)'}.</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 160, overflowY: 'auto' }}>
+          {(f.historial || []).slice().reverse().map(h => (
+            <div key={h.id} style={{ fontSize: 11.5, color: '#6B6B66', borderBottom: '1px dashed #ECEAE4', padding: '4px 0' }}>
+              <b>{fmtDate(h.fecha)}</b> — {h.tipo === 'alta' ? 'Alta' : h.tipo === 'cierre' ? 'Cierre' : h.tipo === 'estado' ? `Cambio de estado${h.de ? ' de ' + (ESTADOS_SEG_INFO[h.de]?.label || h.de) : ''} a ${ESTADOS_SEG_INFO[h.a]?.label || h.a}` : 'Edición'}
+              {h.texto ? `: ${h.texto}` : ''}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {confirmDel && (
+        <ConfirmMini titulo="Eliminar punto" texto={`Vas a eliminar ${nuevoNumSeguimiento(punto.num)}. Esta acción no se puede deshacer.`} onSi={onEliminar} onNo={() => setConfirmDel(false)} />
+      )}
+    </Modal>
+  );
+}
+
+function VistaReunionSeg({ obra, onSave, reunion, onVolver }) {
+  const isMobile = useIsMobile();
+  const puntos = obra.seguimientoPuntos || [];
+
+  const [texto, setTexto] = useState('');
+  const [responsable, setResponsable] = useState('');
+  const [fechaLimite, setFechaLimite] = useState(() => { const d = new Date(reunion.fecha); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10); });
+  const [limiteEspecial, setLimiteEspecial] = useState('');
+  const [estadoDraft, setEstadoDraft] = useState('curso');
+  const [estadoManualDraft, setEstadoManualDraft] = useState(false);
+  const [fotosDraft, setFotosDraft] = useState([]);
+  const [sugerencias, setSugerencias] = useState([]);
+  const [filtroPendTematica, setFiltroPendTematica] = useState(true);
+  const [puntoActivoId, setPuntoActivoId] = useState(null);
+  const [confirmFinalizar, setConfirmFinalizar] = useState(false);
+  const [generandoPdf, setGenerandoPdf] = useState(false);
+
+  const propios = puntos.filter(p => p.reunionOrigen === reunion.id).sort((a, b) => (a.numActa || 0) - (b.numActa || 0));
+  const tratados = puntos.filter(p => p.reunionOrigen !== reunion.id && (p.historial || []).some(h => h.reunionId === reunion.id));
+  const pendientes = puntos.filter(p => p.estado !== 'cerrado' && p.reunionOrigen !== reunion.id && (!filtroPendTematica || p.tematica === reunion.tematica))
+    .sort((a, b) => (a.fechaAlta || '').localeCompare(b.fechaAlta || ''));
+  const responsablesSugeridos = [...new Set(puntos.map(p => p.responsable).filter(Boolean))];
+  const puntoActivo = puntos.find(p => p.id === puntoActivoId) || null;
+
+  function onCambioTexto(v) {
+    setTexto(v);
+    if (!estadoManualDraft) setEstadoDraft(v.trim() ? clasificarEstadoSeguimiento(v) : 'curso');
+  }
+
+  function guardarNota() {
+    const t = texto.trim();
+    if (!t) return;
+    const num = obra.seguimientoNextNum || 1;
+    const estado = estadoManualDraft ? estadoDraft : clasificarEstadoSeguimiento(t);
+    const punto = {
+      id: uid(), num, // id real (único) separado del "P-xxx" visible — ver nota en migrarSeguimientoGlobalAntiguo
+      texto: t, tematica: reunion.tematica, responsable: responsable.trim(),
+      fechaAlta: reunion.fecha, fechaLimite: limiteEspecial || fechaLimite,
+      fechaResolucion: estado === 'cerrado' ? reunion.fecha : '',
+      estado, estadoManual: estadoManualDraft, reunionOrigen: reunion.id, numActa: propios.length + 1,
+      historial: [historialSeg({ reunionId: reunion.id, tipo: 'alta', a: estado })],
+      relacionados: [], cerradoPor: null, fotos: fotosDraft,
+    };
+    guardarPuntoSeg(obra, onSave, punto, { seguimientoNextNum: num + 1 });
+    const candidatos = puntos.filter(x => x.estado !== 'cerrado' && x.reunionOrigen !== reunion.id);
+    setSugerencias(prev => [...sugerirRelacionadosSeg(t, candidatos), ...prev]);
+    setTexto(''); setResponsable(''); setFotosDraft([]); setEstadoDraft('curso'); setEstadoManualDraft(false); setLimiteEspecial('');
+    const d = new Date(reunion.fecha); d.setDate(d.getDate() + 7); setFechaLimite(d.toISOString().slice(0, 10));
+  }
+
+  function aceptarSugerencia(s) {
+    const t = puntos.find(p => p.id === s.puntoId);
+    if (!t) { setSugerencias(sg => sg.filter(x => x.id !== s.id)); return; }
+    const actualizado = s.propuesta === 'cerrado'
+      ? { ...t, estado: 'cerrado', fechaResolucion: reunion.fecha, historial: [...(t.historial || []), historialSeg({ reunionId: reunion.id, tipo: 'cierre', de: t.estado, a: 'cerrado', texto: 'Relacionado automáticamente por similitud de texto' })] }
+      : { ...t, estado: 'decidido', historial: [...(t.historial || []), historialSeg({ reunionId: reunion.id, tipo: 'estado', de: t.estado, a: 'decidido', texto: 'Relacionado automáticamente por similitud de texto' })] };
+    guardarPuntoSeg(obra, onSave, actualizado);
+    setSugerencias(sg => sg.filter(x => x.id !== s.id));
+  }
+
+  function cambiarEstadoPendiente(punto, nuevoEstado) {
+    if (punto.estado === nuevoEstado) return;
+    guardarPuntoSeg(obra, onSave, {
+      ...punto, estado: nuevoEstado, estadoManual: true,
+      fechaResolucion: nuevoEstado === 'cerrado' ? reunion.fecha : (punto.estado === 'cerrado' ? '' : punto.fechaResolucion),
+      historial: [...(punto.historial || []), historialSeg({ reunionId: reunion.id, tipo: 'estado', de: punto.estado, a: nuevoEstado, texto: 'Cambio manual durante la reunión' })],
+    });
+  }
+
+  function finalizar() {
+    guardarReunionSeg(obra, onSave, { ...reunion, estado: 'finalizada' });
+    setConfirmFinalizar(false);
+  }
+
+  async function generarPdf() {
+    setGenerandoPdf(true);
+    try { await generarActaSeguimiento(obra, reunion, [...propios, ...tratados]); }
+    catch (e) { console.error('Error generando PDF de seguimiento:', e); alert('No se ha podido generar el PDF.'); }
+    setGenerandoPdf(false);
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <button onClick={onVolver} style={{ background: 'none', border: 'none', color: '#6B6B66', fontSize: 13, cursor: 'pointer', padding: 0 }}>← Volver</button>
+        <div style={{ flex: 1, fontSize: 15, fontWeight: 600 }}>{reunion.titulo || reunion.tematica}</div>
+        {reunion.estado === 'finalizada' && <Pill label="Finalizada" bg="#E8F5E0" color="#2D5E10" />}
+        <Btn sm onClick={generarPdf} disabled={generandoPdf}>{generandoPdf ? 'Generando…' : 'Generar PDF'}</Btn>
+        {reunion.estado !== 'finalizada' && <Btn sm primary onClick={() => setConfirmFinalizar(true)}>Finalizar reunión</Btn>}
+      </div>
+      <div style={{ fontSize: 12, color: '#9B9B97', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <span>{fmtDate(reunion.fecha)}</span><span>{reunion.tematica}</span>
+        <span>{reunion.modalidad === 'video' ? 'Videollamada' : (reunion.lugar || 'Presencial')}</span>
+        <span>{reunion.asistentes.length} asistente{reunion.asistentes.length !== 1 ? 's' : ''}</span>
+      </div>
+
+      {reunion.estado !== 'finalizada' && (
+        <div style={{ background: '#fff', border: '2px solid #16160F', borderRadius: 12, padding: 14 }}>
+          <TA value={texto} onChange={e => onCambioTexto(e.target.value)} placeholder="Escribe el tema tratado..." style={{ minHeight: 60 }}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); guardarNota(); } }} />
+          {fotosDraft.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+              {fotosDraft.map((f, i) => (
+                <div key={i} style={{ position: 'relative', width: 54, height: 40, borderRadius: 6, overflow: 'hidden', border: '1px solid #E0DFD9' }}>
+                  <img src={f.url || f.data} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <button onClick={() => setFotosDraft(fs => fs.filter((_, idx) => idx !== i))} style={{ position: 'absolute', top: 0, right: 0, background: 'rgba(0,0,0,.6)', color: '#fff', border: 'none', width: 16, height: 16, fontSize: 10, cursor: 'pointer' }}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginTop: 10, flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 160px' }}>
+              <Field label="Responsable"><input value={responsable} onChange={e => setResponsable(e.target.value)} list="respSegList" /></Field>
+              <datalist id="respSegList">{responsablesSugeridos.map(r => <option key={r} value={r} />)}</datalist>
+            </div>
+            <div style={{ flex: '0 1 140px' }}>
+              <Field label="Fecha límite"><input type="date" value={fechaLimite} onChange={e => setFechaLimite(e.target.value)} disabled={!!limiteEspecial} /></Field>
+              <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                {['n/p', 'ASAP'].map(v => (
+                  <button key={v} onClick={() => setLimiteEspecial(x => x === v ? '' : v)} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, border: `1px solid ${limiteEspecial === v ? '#16160F' : '#E0DFD9'}`, background: limiteEspecial === v ? '#16160F' : 'transparent', color: limiteEspecial === v ? '#fff' : '#6B6B66', cursor: 'pointer' }}>{v}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: '#6B6B66', fontWeight: 600, marginBottom: 3 }}>Estado</div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {Object.entries(ESTADOS_SEG_INFO).map(([k, v]) => (
+                  <button key={k} onClick={() => { setEstadoDraft(k); setEstadoManualDraft(true); }}
+                    style={{ fontSize: 11, padding: '5px 9px', borderRadius: 7, border: `1px solid ${estadoDraft === k ? v.color : '#E0DFD9'}`, background: estadoDraft === k ? v.bg : 'transparent', color: estadoDraft === k ? v.color : '#6B6B66', fontWeight: estadoDraft === k ? 600 : 400, cursor: 'pointer' }}>
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button onClick={() => pickFiles('image/*', foto => setFotosDraft(fs => [...fs, foto]), obra.id)} title="Adjuntar foto" style={{ width: 34, height: 34, borderRadius: 8, border: '1px solid #E0DFD9', background: '#fff', cursor: 'pointer' }}><Icon name="camera" size={15} /></button>
+            <Btn primary onClick={guardarNota}>Guardar</Btn>
+          </div>
+          <div style={{ fontSize: 10.5, color: '#C5C4BE', marginTop: 6 }}>Intro guarda · Mayús+Intro salto de línea</div>
+        </div>
+      )}
+
+      {sugerencias.length > 0 && (
+        <div style={{ background: '#F0F3FF', border: '1px solid #D7DEFB', borderRadius: 10, padding: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#3B3B8F', marginBottom: 6 }}>Sugerencias — nada cambia sin tu confirmación</div>
+          {sugerencias.map(s => {
+            const t = puntos.find(p => p.id === s.puntoId);
+            if (!t) return null;
+            return (
+              <div key={s.id} style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', flexWrap: 'wrap' }}>
+                <span style={{ flex: 1 }}>¿La nota nueva {s.propuesta === 'cerrado' ? 'cierra' : 'decide'} <b>{nuevoNumSeguimiento(t.num)}</b>: "{t.texto.slice(0, 70)}{t.texto.length > 70 ? '…' : ''}"?</span>
+                <Btn sm primary onClick={() => aceptarSugerencia(s)}>Aceptar</Btn>
+                <Btn sm ghost onClick={() => setSugerencias(sg => sg.filter(x => x.id !== s.id))}>Descartar</Btn>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.4fr 1fr', gap: 14 }}>
+        <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, overflow: 'hidden' }}>
+          <div style={{ padding: '10px 16px', borderBottom: '1px solid #E8E7E1', fontSize: 13, fontWeight: 600 }}>
+            Temas tratados en esta reunión {(propios.length + tratados.length) > 0 && <span style={{ color: '#9B9B97', fontWeight: 400 }}>({propios.length} nuevos{tratados.length ? `, ${tratados.length} actualizados` : ''})</span>}
+          </div>
+          {propios.length === 0 && tratados.length === 0 ? (
+            <div style={{ padding: '20px 16px', textAlign: 'center', color: '#A5A5A0', fontSize: 13 }}>Escribe la primera nota arriba</div>
+          ) : (
+            <div>
+              {propios.map(p => <FilaPuntoSeg key={p.id} punto={p} onClick={() => setPuntoActivoId(p.id)} />)}
+              {tratados.map(p => <FilaPuntoSeg key={p.id} punto={p} onClick={() => setPuntoActivoId(p.id)} />)}
+            </div>
+          )}
+        </div>
+
+        <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, overflow: 'hidden' }}>
+          <div style={{ padding: '10px 16px', borderBottom: '1px solid #E8E7E1', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>Pendientes</div>
+            <button onClick={() => setFiltroPendTematica(v => !v)} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 20, border: '1px solid #E0DFD9', background: filtroPendTematica ? '#16160F' : 'transparent', color: filtroPendTematica ? '#fff' : '#6B6B66', cursor: 'pointer' }}>
+              {filtroPendTematica ? reunion.tematica : 'Todas'}
+            </button>
+          </div>
+          <div style={{ maxHeight: 420, overflowY: 'auto' }}>
+            {pendientes.length === 0 ? (
+              <div style={{ padding: '20px 16px', textAlign: 'center', color: '#A5A5A0', fontSize: 13 }}>Sin pendientes{filtroPendTematica ? ' de esta temática' : ''}</div>
+            ) : pendientes.map(p => (
+              <div key={p.id} style={{ padding: '9px 14px', borderTop: '1px solid #F0EFEA', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <div onClick={() => setPuntoActivoId(p.id)} style={{ flex: 1, cursor: 'pointer', minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, color: '#16160F' }}>{p.texto}</div>
+                  <div style={{ fontSize: 11, color: '#9B9B97', marginTop: 2 }}>{nuevoNumSeguimiento(p.num)} · {p.responsable || '—'} · Límite: {fmtLimiteSeg(p.fechaLimite)}</div>
+                </div>
+                <select value={p.estado} onChange={e => cambiarEstadoPendiente(p, e.target.value)} style={{ width: 'auto', fontSize: 11, padding: '3px 6px' }}>
+                  {Object.entries(ESTADOS_SEG_INFO).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {puntoActivo && (
+        <PuntoSegModal obra={obra} onSave={onSave} punto={puntoActivo} reunionContextId={reunion.id}
+          onClose={() => setPuntoActivoId(null)}
+          onEliminar={() => { eliminarPuntoSeg(obra, onSave, puntoActivo.id); setPuntoActivoId(null); }} />
+      )}
+      {confirmFinalizar && (
+        <ConfirmMini titulo="Finalizar reunión" texto="Podrás reabrirla más tarde si necesitas seguir anotando." onSi={finalizar} onNo={() => setConfirmFinalizar(false)} />
+      )}
+    </div>
+  );
+}
+
+function VistaSeguimientoObra({ obra, onSave, onAbrirReunion }) {
+  const [showNueva, setShowNueva] = useState(false);
+  const [puntoActivoId, setPuntoActivoId] = useState(null);
+  const [filtro, setFiltro] = useState({ estado: 'abiertos', tematica: '', q: '' });
+
+  const puntos = obra.seguimientoPuntos || [];
+  const reuniones = [...(obra.seguimientoReuniones || [])].sort((a, b) => (b.fecha + (b.creadaEn || '')).localeCompare(a.fecha + (a.creadaEn || '')));
+  const puntoActivo = puntos.find(p => p.id === puntoActivoId) || null;
+  const tematicas = obra.seguimientoTematicas?.length ? obra.seguimientoTematicas : TEMATICAS_SEG_DEF;
+
+  function crearReunion(reunion) {
+    guardarReunionSeg(obra, onSave, reunion);
+    setShowNueva(false);
+    onAbrirReunion(reunion.id);
+  }
+
+  const filtrados = puntos.filter(p => {
+    if (filtro.estado === 'abiertos' && p.estado === 'cerrado') return false;
+    if (filtro.estado !== 'abiertos' && filtro.estado && p.estado !== filtro.estado) return false;
+    if (filtro.tematica && p.tematica !== filtro.tematica) return false;
+    if (filtro.q) {
+      const q = quitarAcentos(filtro.q);
+      if (!quitarAcentos(p.texto + ' ' + (p.responsable || '') + ' ' + nuevoNumSeguimiento(p.num)).includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) => (b.fechaAlta || '').localeCompare(a.fechaAlta || ''));
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #E8E7E1', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>Reuniones de seguimiento</div>
+          <Btn primary sm onClick={() => setShowNueva(true)}>+ Nueva reunión</Btn>
+        </div>
+        {reuniones.length === 0 ? (
+          <div style={{ padding: '28px 16px', textAlign: 'center', color: '#A5A5A0', fontSize: 13 }}>Todavía no hay reuniones registradas</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {reuniones.map(r => {
+              const n = puntos.filter(p => p.reunionOrigen === r.id).length;
+              return (
+                <div key={r.id} onClick={() => onAbrirReunion(r.id)} className="hov-row" style={{ padding: '11px 16px', borderTop: '1px solid #F0EFEA', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                  <div style={{ fontSize: 12.5, color: '#6B6B66', width: 80, flexShrink: 0 }}>{fmtDate(r.fecha)}</div>
+                  <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 500, color: '#16160F', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.titulo || r.tematica || 'Reunión de seguimiento'}</span>
+                    {r.estado === 'abierta' && <Pill label="Abierta" bg="#FEF3DB" color="#7C4A00" />}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#9B9B97', flexShrink: 0 }}>{n} punto{n !== 1 ? 's' : ''}</div>
+                  <Icon name="chevronRight" size={14} style={{ color: '#C5C4BE' }} />
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #E8E7E1', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginRight: 'auto' }}>Registro de puntos</div>
+          <select value={filtro.estado} onChange={e => setFiltro(f => ({ ...f, estado: e.target.value }))} style={{ width: 'auto', fontSize: 12, padding: '5px 8px' }}>
+            <option value="abiertos">No cerrados</option>
+            <option value="">Todos los estados</option>
+            {Object.entries(ESTADOS_SEG_INFO).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
+          <select value={filtro.tematica} onChange={e => setFiltro(f => ({ ...f, tematica: e.target.value }))} style={{ width: 'auto', fontSize: 12, padding: '5px 8px' }}>
+            <option value="">Todas las temáticas</option>
+            {tematicas.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <input type="search" placeholder="Buscar..." value={filtro.q} onChange={e => setFiltro(f => ({ ...f, q: e.target.value }))} style={{ width: 160, fontSize: 12, padding: '5px 8px' }} />
+        </div>
+        {filtrados.length === 0 ? (
+          <div style={{ padding: '28px 16px', textAlign: 'center', color: '#A5A5A0', fontSize: 13 }}>
+            {puntos.length ? 'Ningún punto coincide con los filtros' : 'Los puntos que anotes en las reuniones se acumularán aquí'}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {filtrados.map(p => <FilaPuntoSeg key={p.id} punto={p} onClick={() => setPuntoActivoId(p.id)} />)}
+          </div>
+        )}
+      </div>
+
+      {showNueva && <ModalNuevaReunionSeg obra={obra} onCrear={crearReunion} onClose={() => setShowNueva(false)} />}
+      {puntoActivo && (
+        <PuntoSegModal obra={obra} onSave={onSave} punto={puntoActivo} reunionContextId={null}
+          onClose={() => setPuntoActivoId(null)}
+          onEliminar={() => { eliminarPuntoSeg(obra, onSave, puntoActivo.id); setPuntoActivoId(null); }} />
+      )}
+    </div>
+  );
+}
+
+function ModuloSeguimiento({ obra, onSave }) {
+  const [reunionActivaId, setReunionActivaId] = useState(null);
+  const reunionActiva = (obra.seguimientoReuniones || []).find(r => r.id === reunionActivaId) || null;
+  if (reunionActiva) return <VistaReunionSeg obra={obra} onSave={onSave} reunion={reunionActiva} onVolver={() => setReunionActivaId(null)} />;
+  return <VistaSeguimientoObra obra={obra} onSave={onSave} onAbrirReunion={setReunionActivaId} />;
+}
+
+// PDF del acta de seguimiento de una reunión — carga jsPDF dinámicamente igual que el
+// resto de generadores de la app (ver generarActaVO_v2).
+async function generarActaSeguimiento(obra, reunion, puntos) {
+  if (!window.jspdf) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      s.onload = resolve; s.onerror = () => reject(new Error('No se pudo cargar jsPDF'));
+      document.head.appendChild(s);
+    });
+  }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const M = 15, W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
+  let y = M;
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+  doc.text(obra.nombre || '', M, y); y += 6;
+  if (obra.emplazamiento) { doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.text(obra.emplazamiento, M, y); y += 5; }
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+  doc.text('ACTA DE SEGUIMIENTO', M, y); y += 6;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+  doc.text(`${fmtDate(reunion.fecha)} · ${reunion.titulo || reunion.tematica} · ${reunion.modalidad === 'video' ? 'Videollamada' : (reunion.lugar || 'Presencial')}`, M, y);
+  y += 7;
+
+  if (reunion.asistentes?.length) {
+    doc.setFont('helvetica', 'bold'); doc.text('Asistentes:', M, y); y += 5;
+    doc.setFont('helvetica', 'normal');
+    reunion.asistentes.forEach(a => {
+      doc.text(`· ${[a.empresa, a.persona, a.rol].filter(Boolean).join(' — ')}`, M + 2, y);
+      y += 4.5;
+    });
+    y += 3;
+  }
+
+  doc.setFont('helvetica', 'bold'); doc.text('Temas tratados:', M, y); y += 6;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+  puntos.forEach(p => {
+    if (y > H - M - 20) { doc.addPage(); y = M; }
+    doc.setFont('helvetica', 'bold'); doc.text(`${nuevoNumSeguimiento(p.num)} — ${ESTADOS_SEG_INFO[p.estado]?.label || p.estado}`, M, y); y += 4.5;
+    doc.setFont('helvetica', 'normal');
+    const lineas = doc.splitTextToSize(p.texto, W - 2 * M);
+    dibuixarLiniesJustificades(doc, lineas, M, y, 4.3, W - 2 * M);
+    y += lineas.length * 4.3 + 1;
+    doc.setFontSize(8); doc.setTextColor(110);
+    doc.text(`Responsable: ${p.responsable || '—'} · Fecha: ${fmtDate(p.fechaAlta)} · Límite: ${fmtLimiteSeg(p.fechaLimite)}${p.fechaResolucion ? ' · Resuelto: ' + fmtDate(p.fechaResolucion) : ''}`, M, y);
+    doc.setTextColor(0); doc.setFontSize(9);
+    y += 7;
+  });
+
+  // iOS Safari no permite descargas programáticas — abrir en nueva pestaña, igual que el
+  // resto de generadores de PDF de la app (ver generarActaVO_v2).
+  const pdfBlob = doc.output('blob');
+  const url = URL.createObjectURL(pdfBlob);
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
 }
 
 // ─── MÓDULO: Notas y tareas ───────────────────────────────────────────────────
@@ -10297,383 +10985,6 @@ async function generarOrdenDelDia(obra, vo, items) {
   setTimeout(() => URL.revokeObjectURL(url), 600000);
 }
 
-// ─── MÓDULO: Seguimiento global de obra ──────────────────────────────────────
-const TEMATICAS = ['ESTRUCTURAS','INSTALACIONES','OBRA CIVIL','ACABADOS','COSTES OBRA','PLANIFICACIÓN','OTROS'];
-const VIAS = ['VT','VO','MAIL','LL','p'];
-const ESTADOS_SEG = ['En curso','Cerrado','Pendiente'];
-
-const SEG_KEY = 'plaat_seguimiento_v1';
-
-function VistaSeguimiento({ obras, isMobile }) {
-  const [puntos,      setPuntos]      = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [showForm,    setShowForm]    = useState(false);
-  const [editando,    setEditando]    = useState(null);
-  const [filtroObra,  setFiltroObra]  = useState('todas');
-  const [filtroEst,   setFiltroEst]   = useState('todos');
-  const [exportando,  setExportando]  = useState(false);
-  const [confirmacion,setConfirmacion]= useState(null);
-
-  // Cargar desde Supabase con migración desde storage antiguo
-  useEffect(() => {
-    (async () => {
-      try {
-        if (window.db?.getSeguimiento) {
-          const lista = await window.db.getSeguimiento();
-          if (lista.length) { setPuntos(lista); setLoading(false); return; }
-          // Migración: leer storage antiguo y subir
-          const r = await window.storage?.get(SEG_KEY, true).catch(() => null);
-          if (r?.value) {
-            const vieja = JSON.parse(r.value);
-            for (const p of vieja) await window.db.upsertPuntoSeg(p).catch(() => {});
-            setPuntos(vieja);
-          }
-        } else {
-          const r = await window.storage?.get(SEG_KEY, true);
-          if (r?.value) setPuntos(JSON.parse(r.value));
-        }
-      } catch(e) { console.error('Seguimiento load:', e); }
-      setLoading(false);
-    })();
-  }, []);
-
-  // Realtime: actualizar cuando otro usuario guarda
-  useEffect(() => {
-    if (!window.db?.subscribeSeguimiento) return;
-    const unsub = window.db.subscribeSeguimiento(async () => {
-      try {
-        const lista = await window.db.getSeguimiento();
-        setPuntos(lista);
-      } catch(e) {}
-    });
-    return unsub;
-  }, []);
-
-  async function guardar(lista) {
-    setPuntos(lista);
-    try {
-      if (window.db?.upsertPuntoSeg) {
-        for (const p of lista) await window.db.upsertPuntoSeg(p);
-      } else {
-        await window.storage?.set(SEG_KEY, JSON.stringify(lista), true);
-      }
-    } catch(e) { console.error('Seguimiento save:', e); }
-  }
-
-  function nextNum(obraId) {
-    const deEstaObra = puntos.filter(p => p.obraId === obraId);
-    return deEstaObra.length + 1;
-  }
-
-  async function guardarPunto(punto) {
-    const existe = puntos.some(p => p.id === punto.id);
-    const lista = existe ? puntos.map(p => p.id === punto.id ? punto : p) : [...puntos, punto];
-    await guardar(lista);
-    setShowForm(false); setEditando(null);
-  }
-
-  async function eliminarPunto(id) {
-    const lista = puntos.filter(p => p.id !== id);
-    setPuntos(lista);
-    try {
-      if (window.db?.deletePuntoSeg) await window.db.deletePuntoSeg(id);
-      else await window.storage?.set(SEG_KEY, JSON.stringify(lista), true);
-    } catch(e) { console.error('Seguimiento delete:', e); }
-    setConfirmacion(null);
-  }
-
-  // Exportar a Excel con SheetJS
-  async function exportarExcel() {
-    setExportando(true);
-    try {
-      // Cargar SheetJS si no está
-      if (!window.XLSX) {
-        await new Promise((res, rej) => {
-          const s = document.createElement('script');
-          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-          s.onload = res; s.onerror = rej;
-          document.head.appendChild(s);
-        });
-      }
-      const { utils, writeFile } = window.XLSX;
-
-      // Cabeceras sin columnas vacías
-      const cab = ['NUM','TEMAS TRATADOS','Responsable','Fecha','Fecha límite resolución','Fecha resolución','Estado','TEMÁTICA','VIA'];
-      const filas = [cab];
-
-      const puntosExp = filtroObra !== 'todas' ? puntos.filter(p => p.obraId === filtroObra) : puntos;
-      puntosExp.forEach(p => {
-        const fmtD = iso => iso ? new Date(iso).toLocaleDateString('es-ES') : '';
-        filas.push([
-          p.num, p.tema,
-          p.responsable, fmtD(p.fecha), p.fechaLimite || '', fmtD(p.fechaResolucion),
-          p.estado, p.tematica, p.via
-        ]);
-      });
-
-      const ws = utils.aoa_to_sheet(filas);
-      ws['!cols'] = [
-        {wch:6},{wch:80},{wch:20},{wch:12},{wch:22},{wch:20},{wch:12},{wch:18},{wch:8}
-      ];
-      const wb = utils.book_new();
-      utils.book_append_sheet(wb, ws, 'Seguimiento');
-      const fecha = new Date().toLocaleDateString('es-ES').replace(/\//g,'-');
-      writeFile(wb, `Seguimiento_PLAAT_${fecha}.xlsx`);
-    } catch(e) { alert('Error exportando: ' + e.message); }
-    setExportando(false);
-  }
-
-  const obrasFiltro = filtroObra !== 'todas' ? puntos.filter(p => p.obraId === filtroObra) : puntos;
-  const puntosFiltrados = filtroEst !== 'todos' ? obrasFiltro.filter(p => p.estado === filtroEst) : obrasFiltro;
-
-  const fmtD = iso => iso ? new Date(iso).toLocaleDateString('es-ES', {day:'2-digit',month:'2-digit',year:'2-digit'}) : '—';
-
-  const ESTADO_COLORS = {
-    'En curso':  { bg: '#FEF3DB', color: '#7C4A00' },
-    'Cerrado':   { bg: '#E8F5E0', color: '#2D5E10' },
-    'Pendiente': { bg: '#EEEDE7', color: '#52524E' },
-  };
-
-  if (showForm || editando) {
-    return isMobile ? (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#F7F6F3' }}>
-        <FormSeguimiento
-          punto={editando}
-          obras={obras}
-          nextNum={nextNum}
-          onGuardar={guardarPunto}
-          onCerrar={() => { setShowForm(false); setEditando(null); }}
-          isMobile={isMobile}
-        />
-      </div>
-    ) : (
-      <FormSeguimiento
-        punto={editando}
-        obras={obras}
-        nextNum={nextNum}
-        onGuardar={guardarPunto}
-        onCerrar={() => { setShowForm(false); setEditando(null); }}
-        isMobile={isMobile}
-      />
-    );
-  }
-
-  return (
-    <div style={{ display:'flex', flexDirection:'column', height:'100%', overflow:'hidden' }}>
-      {/* Banner */}
-      <div className="dash-banner" style={{ borderBottom:'1px solid #ECEAE4', padding: isMobile ? '18px 16px' : '22px 22px', paddingTop: isMobile ? 'calc(18px + env(safe-area-inset-top))' : '22px', flexShrink:0 }}>
-        <div className="arch-grid" />
-        <div className="dash-banner-ring db-r1" />
-        <div className="dash-beam" />
-        <div className="dash-title" style={{ position:'relative', zIndex:2, display:'flex', alignItems:'center', gap:12 }}>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize: isMobile?18:20, fontWeight:700, color:'#F2F1ED', display:'flex', alignItems:'baseline', gap:7 }}>
-              Seguimiento <span style={{ fontSize:13, color:'#8AA88A' }}>.</span>
-            </div>
-            <div style={{ fontSize:12, color:'rgba(255,255,255,0.5)', marginTop:3 }}>{puntos.length} punto{puntos.length!==1?'s':''} registrado{puntos.length!==1?'s':''}</div>
-          </div>
-          <button onClick={exportarExcel} disabled={exportando} className="tap" style={{ padding:'7px 14px', borderRadius:9, border:'1px solid rgba(255,255,255,0.2)', background:'rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.8)', fontSize:12, fontWeight:500, cursor:'pointer' }}>
-            {exportando ? '...' : '↓ Excel'}
-          </button>
-          <button onClick={() => setShowForm(true)} className="tap shimmer-btn" style={{ padding:'8px 16px', borderRadius:11, border:'none', background:'#5A7D5A', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer' }}>
-            + Nuevo punto
-          </button>
-        </div>
-      </div>
-
-      {/* Filtros */}
-      <div style={{ padding: isMobile?'10px 16px':'12px 22px', borderBottom:'1px solid #ECEAE4', display:'flex', gap:8, flexWrap:'wrap', flexShrink:0, background:'#fff' }}>
-        <select value={filtroObra} onChange={e => setFiltroObra(e.target.value)} style={{ fontSize:12, padding:'5px 10px', borderRadius:20, width:'auto' }}>
-          <option value="todas">Todas las obras</option>
-          {obras.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}
-        </select>
-        <select value={filtroEst} onChange={e => setFiltroEst(e.target.value)} style={{ fontSize:12, padding:'5px 10px', borderRadius:20, width:'auto' }}>
-          <option value="todos">Todos los estados</option>
-          {ESTADOS_SEG.map(e => <option key={e}>{e}</option>)}
-        </select>
-      </div>
-
-      {/* Tabla / Lista */}
-      <div style={{ flex:1, overflowY:'auto', padding: isMobile?'12px 16px':'14px 22px' }}>
-        {loading && <div style={{ textAlign:'center', padding:40, color:'#A5A5A0', fontSize:13 }}>Cargando...</div>}
-        {!loading && puntosFiltrados.length === 0 && (
-          <div style={{ textAlign:'center', padding:'60px 20px' }}>
-            <Icon name="clipboard" size={34} style={{ color: '#C5C4BE', marginBottom: 14 }} />
-            <div style={{ fontSize:15, fontWeight:500, color:'#16160F', marginBottom:8 }}>Sin puntos de seguimiento</div>
-            <div style={{ fontSize:13, color:'#9B9B97', marginBottom:20 }}>Registra el primer punto de acción de una reunión</div>
-            <button onClick={() => setShowForm(true)} style={{ padding:'9px 20px', borderRadius:11, border:'none', background:'#5A7D5A', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer' }}>+ Nuevo punto</button>
-          </div>
-        )}
-        {!loading && puntosFiltrados.length > 0 && (
-          isMobile ? (
-            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-              {puntosFiltrados.map(p => {
-                const obraNombre = obras.find(o => o.id === p.obraId)?.nombre || '—';
-                const ec = ESTADO_COLORS[p.estado] || ESTADO_COLORS['Pendiente'];
-                return (
-                  <div key={p.id} className="hov-card" style={{ background:'#fff', borderRadius:14, boxShadow:'0 1px 2px rgba(0,0,0,0.04), 0 3px 12px rgba(0,0,0,0.04)', padding:'13px 15px', cursor:'pointer' }}
-                    onClick={() => setEditando(p)}>
-                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-                      <span style={{ width:28, height:28, borderRadius:8, background:'#1A1A17', color:'#F2F1ED', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, flexShrink:0 }}>{p.num}</span>
-                      <span style={{ fontSize:11, padding:'2px 8px', borderRadius:20, background:ec.bg, color:ec.color, fontWeight:600 }}>{p.estado}</span>
-                      <span style={{ fontSize:11, color:'#9B9B97', marginLeft:'auto' }}>{p.tematica}</span>
-                    </div>
-                    <div style={{ fontSize:13, fontWeight:500, color:'#16160F', lineHeight:1.4, marginBottom:5 }}>{p.tema}</div>
-                    <div style={{ fontSize:11, color:'#9B9B97', display:'flex', gap:10 }}>
-                      <span>{obraNombre}</span>
-                      <span>Resp: {p.responsable}</span>
-                      <span>Límite: {fmtD(p.fechaLimite)}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div style={{ background:'#fff', borderRadius:14, boxShadow:'0 1px 2px rgba(0,0,0,0.04), 0 3px 12px rgba(0,0,0,0.04)', overflow:'hidden' }}>
-              <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12.5 }}>
-                <thead>
-                  <tr style={{ background:'#F7F6F3', borderBottom:'1px solid #ECEAE4' }}>
-                    {['Nº','Obra','Tema','Responsable','Fecha','Límite','Resolución','Estado','Temática','Via',''].map(h => (
-                      <th key={h} style={{ padding:'9px 12px', textAlign:'left', fontWeight:600, color:'#52524E', fontSize:11, letterSpacing:'0.04em', whiteSpace:'nowrap' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {puntosFiltrados.map((p, i) => {
-                    const obraNombre = obras.find(o => o.id === p.obraId)?.nombre || '—';
-                    const ec = ESTADO_COLORS[p.estado] || ESTADO_COLORS['Pendiente'];
-                    return (
-                      <tr key={p.id} style={{ borderBottom:'1px solid #F0EFEA', background: i%2===0?'#fff':'#FAFAF8' }}>
-                        <td style={{ padding:'8px 12px', fontWeight:700, color:'#16160F' }}>{p.num}</td>
-                        <td style={{ padding:'8px 12px', color:'#6B6B66', maxWidth:120, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{obraNombre}</td>
-                        <td style={{ padding:'8px 12px', maxWidth:260, color:'#16160F' }}>{p.tema}</td>
-                        <td style={{ padding:'8px 12px', whiteSpace:'nowrap' }}>{p.responsable}</td>
-                        <td style={{ padding:'8px 12px', whiteSpace:'nowrap', color:'#6B6B66' }}>{fmtD(p.fecha)}</td>
-                        <td style={{ padding:'8px 12px', whiteSpace:'nowrap', color:'#6B6B66' }}>{fmtD(p.fechaLimite)}</td>
-                        <td style={{ padding:'8px 12px', whiteSpace:'nowrap', color:'#6B6B66' }}>{fmtD(p.fechaResolucion)}</td>
-                        <td style={{ padding:'8px 12px' }}><span style={{ fontSize:11, padding:'2px 9px', borderRadius:20, background:ec.bg, color:ec.color, fontWeight:600, whiteSpace:'nowrap' }}>{p.estado}</span></td>
-                        <td style={{ padding:'8px 12px', color:'#6B6B66', whiteSpace:'nowrap' }}>{p.tematica}</td>
-                        <td style={{ padding:'8px 12px', color:'#6B6B66' }}>{p.via}</td>
-                        <td style={{ padding:'8px 12px' }}>
-                          <div style={{ display:'flex', gap:6 }}>
-                            <button onClick={() => setEditando(p)} style={{ background:'none', border:'1px solid #E6E4DD', borderRadius:7, padding:'3px 9px', cursor:'pointer', fontSize:11, color:'#52524E' }}>Editar</button>
-                            <button onClick={() => setConfirmacion({ titulo:'Eliminar punto', texto:`Vas a eliminar el punto ${p.num}: "${p.tema?.slice(0,40)}..."`, onSi: () => eliminarPunto(p.id) })} style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C3BE', fontSize:17, lineHeight:1 }}>×</button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )
-        )}
-      </div>
-      {confirmacion && <ConfirmMini titulo={confirmacion.titulo} texto={confirmacion.texto} onSi={confirmacion.onSi} onNo={() => setConfirmacion(null)} />}
-    </div>
-  );
-}
-
-function FormSeguimiento({ punto, obras, nextNum, onGuardar, onCerrar, isMobile }) {
-  const obraDefecto = obras[0]?.id || '';
-  const [f, setF] = useState(() => punto || {
-    id: uid(), obraId: obraDefecto, num: '', tema: '',
-    responsable: '', fecha: today(), fechaLimite: '', fechaResolucion: '',
-    estado: 'En curso', tematica: 'OTROS', via: 'VT',
-  });
-  const [tema, setTema] = useDraftState(`puntoSeguimientoTema:${punto?.id || 'nou'}`, f.tema);
-  const upd = (k,v) => setF(prev => ({ ...prev, [k]: v }));
-
-  useEffect(() => {
-    if (!punto) upd('num', nextNum(f.obraId));
-  }, [f.obraId]);
-
-  const canSave = tema?.trim();
-
-  return (
-    <div style={{ display:'flex', flexDirection:'column', height:'100%', background:'#F7F6F3', borderRadius: isMobile?0:16, overflow:'hidden' }}>
-      {/* Cabecera */}
-      <div style={{ background:'#1A1A17', padding: isMobile?'16px 16px':'16px 20px', paddingTop: isMobile?'calc(16px + env(safe-area-inset-top))':'16px', display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
-        <button onClick={onCerrar} style={{ background:'none', border:'none', color:'rgba(255,255,255,0.6)', fontSize:18, cursor:'pointer', padding:'0 4px', lineHeight:1 }}>←</button>
-        <div style={{ flex:1 }}>
-          <div style={{ fontSize:15, fontWeight:700, color:'#F2F1ED' }}>{punto ? 'Editar punto' : 'Nuevo punto'}</div>
-          <div style={{ fontSize:11, color:'rgba(255,255,255,0.4)', marginTop:1 }}>Seguimiento de obra</div>
-        </div>
-        <button onClick={() => { if (!canSave) return; onGuardar({ ...f, tema }); esborrarEsborrany(`puntoSeguimientoTema:${punto?.id || 'nou'}`); }} style={{ padding:'9px 20px', borderRadius:11, border:'none', background: canSave?'#5A7D5A':'#3A3A38', color:'#fff', fontSize:14, fontWeight:700, cursor: canSave?'pointer':'not-allowed', opacity: canSave?1:0.5 }}>
-          Guardar
-        </button>
-      </div>
-
-      {/* Cuerpo — orden optimizado para móvil */}
-      <div style={{ flex:1, overflowY:'auto', padding: isMobile?'16px':'20px 22px', display:'flex', flexDirection:'column', gap:14 }}>
-
-        {/* TEMA — lo más importante, primero y grande */}
-        <Field label="Tema tratado *">
-          <TA value={tema} onChange={e => setTema(e.target.value)}
-            placeholder="Describe el punto de acción o tema tratado..."
-            style={{ minHeight: isMobile?120:100, fontSize: isMobile?15:14 }} autoFocus />
-        </Field>
-
-        {/* Obra + Responsable — lo más frecuente */}
-        <div style={{ display:'grid', gridTemplateColumns: isMobile?'1fr':'1fr 1fr', gap:12 }}>
-          <Field label="Obra">
-            <select value={f.obraId} onChange={e => upd('obraId', e.target.value)} style={{ fontSize: isMobile?15:14 }}>
-              {obras.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}
-            </select>
-          </Field>
-          <Field label="Responsable">
-            <input value={f.responsable} onChange={e => upd('responsable', e.target.value)}
-              placeholder="Empresa o persona" style={{ fontSize: isMobile?15:14 }} />
-          </Field>
-        </div>
-
-        {/* Estado + Temática + Vía */}
-        <div style={{ display:'grid', gridTemplateColumns: isMobile?'1fr 1fr':'1fr 1fr 1fr', gap:12 }}>
-          <Field label="Estado">
-            <select value={f.estado} onChange={e => upd('estado', e.target.value)} style={{ fontSize: isMobile?15:14 }}>
-              {ESTADOS_SEG.map(e => <option key={e}>{e}</option>)}
-            </select>
-          </Field>
-          <Field label="Temática">
-            <select value={f.tematica} onChange={e => upd('tematica', e.target.value)} style={{ fontSize: isMobile?15:14 }}>
-              {TEMATICAS.map(t => <option key={t}>{t}</option>)}
-            </select>
-          </Field>
-          <Field label="Vía">
-            <select value={f.via} onChange={e => upd('via', e.target.value)} style={{ fontSize: isMobile?15:14 }}>
-              {VIAS.map(v => <option key={v}>{v}</option>)}
-            </select>
-          </Field>
-        </div>
-
-        {/* Fechas — menos urgentes, al final */}
-        <div style={{ display:'grid', gridTemplateColumns: isMobile?'1fr 1fr':'repeat(3,1fr)', gap:12 }}>
-          <Field label="Fecha reunión">
-            <input type="date" value={f.fecha} onChange={e => upd('fecha', e.target.value)} style={{ fontSize: isMobile?15:14 }} />
-          </Field>
-          <Field label="Fecha límite (texto)">
-            <input value={f.fechaLimite} onChange={e => upd('fechaLimite', e.target.value)}
-              placeholder="ASAP / dd/mm/aa / FO..." style={{ fontSize: isMobile?15:14 }} />
-          </Field>
-          <Field label="Fecha resolución">
-            <input type="date" value={f.fechaResolucion} onChange={e => upd('fechaResolucion', e.target.value)} style={{ fontSize: isMobile?15:14 }} />
-          </Field>
-        </div>
-
-        {/* Nº — al final, autonumérico */}
-        <Field label="Nº de punto">
-          <input type="number" min="1" value={f.num} onChange={e => upd('num', parseInt(e.target.value||'1',10))} style={{ fontSize: isMobile?15:14 }} />
-        </Field>
-      </div>
-
-      {/* Pie fijo en móvil */}
-      <div style={{ borderTop:'1px solid #ECEAE4', padding: isMobile?'12px 16px calc(12px + env(safe-area-inset-bottom))':'14px 20px', display:'flex', gap:10, flexShrink:0, background:'#fff' }}>
-        <Btn onClick={onCerrar} full>Cancelar</Btn>
-        <Btn primary full onClick={() => canSave && onGuardar(f)} disabled={!canSave}>Guardar punto</Btn>
-      </div>
-    </div>
-  );
-}
 
 function DetalleObra({ obra, onBack, onSave, onFlush, isMobile, user, tabInicial }) {
   const [tab, setTab]               = useState(tabInicial || 'inspecciones');
@@ -10699,6 +11010,7 @@ function DetalleObra({ obra, onBack, onSave, onFlush, isMobile, user, tabInicial
     { id: 'incidencias',  label: 'Incidencias',    short: 'Incid.'  },
     { id: 'calidad',      label: 'Calidad',         short: 'Calidad' },
     { id: 'actavo',       label: 'Acta VO',         short: 'Acta VO' },
+    { id: 'seguimiento',  label: 'Seguimiento',     short: 'Seg.'    },
     { id: 'anotaciones',  label: 'Notas y tareas',  short: 'Notas'   },
   ];
 
@@ -10781,6 +11093,7 @@ function DetalleObra({ obra, onBack, onSave, onFlush, isMobile, user, tabInicial
           {tab === 'incidencias'  && <ModuloIncidencias  obra={obra} onSave={onSave} />}
           {tab === 'calidad'      && <ModuloCalidad obra={obra} onSave={onSave} />}
           {tab === 'actavo'       && <ModuloActaVO obra={obra} onSave={onSave} />}
+          {tab === 'seguimiento'  && <ModuloSeguimiento obra={obra} onSave={onSave} />}
           {tab === 'anotaciones'  && <ModuloApuntes obra={obra} onSave={onSave} />}
         </div>
       </div>
@@ -11192,6 +11505,8 @@ export default function App() {
         climaLat: o.climaLat, climaLon: o.climaLon,
         geoLat: o.geoLat, geoLon: o.geoLon,
         logoClienteB64: o.logoClienteB64 || '',
+        seguimientoNextNum: o.seguimientoNextNum || 1,
+        seguimientoTematicas: o.seguimientoTematicas || TEMATICAS_SEG_DEF,
       },
       updated_at: now(),
     };
@@ -11214,12 +11529,16 @@ export default function App() {
       climaLat: d.climaLat, climaLon: d.climaLon,
       geoLat: d.geoLat, geoLon: d.geoLon,
       logoClienteB64: d.logoClienteB64 || '',
+      seguimientoNextNum: d.seguimientoNextNum || 1,
+      seguimientoTematicas: d.seguimientoTematicas || TEMATICAS_SEG_DEF,
       incidencias: (modulos?.incidencias || []).map(r => r.data),
       actaVO: modulos?.actas_vo?.[0]?.data || null,
       actasInsp: (modulos?.actas_insp || []).map(r => r.data),
       apuntes: (modulos?.notas || []).map(r => r.data),
       materiales: modulos?.calidad?.[0]?.data?.materiales || [],
       seguimientoCQ: modulos?.calidad?.[0]?.data?.seguimientoCQ || [],
+      seguimientoPuntos:    (modulos?.seguimiento_puntos    || []).map(r => r.data),
+      seguimientoReuniones: (modulos?.seguimiento_reuniones || []).map(r => r.data),
     };
   }
 
@@ -11267,12 +11586,17 @@ export default function App() {
       // FASE 2: TODOS los módulos de TODAS las obras en 6 consultas totales
       // (antes: 6 consultas POR obra → con 10 obras eran 60 idas y vueltas)
       const ids = rows.map(r => r.id);
-      const [incsAll, vosAll, inspsAll, notasAll, calAll, roles] = await Promise.all([
+      const [incsAll, vosAll, inspsAll, notasAll, calAll, segPuntosAll, segReunionesAll, roles] = await Promise.all([
         window.db.getModulosBatch('incidencias', ids),
         window.db.getModulosBatch('actas_vo',    ids),
         window.db.getModulosBatch('actas_insp',  ids),
         window.db.getModulosBatch('notas',       ids),
         window.db.getModulosBatch('calidad',     ids),
+        // .catch(): mientras no se haya ejecutado la migración SQL que crea estas dos
+        // tablas (supabase/migrations/2026-11-20_seguimiento.sql), que fallen no debe
+        // tirar abajo la carga de TODAS las obras — se degrada a "sin seguimiento todavía".
+        window.db.getModulosBatch('seguimiento_puntos',    ids).catch(() => ({})),
+        window.db.getModulosBatch('seguimiento_reuniones', ids).catch(() => ({})),
         window.db.getRolesUsuario(userId),
       ]);
       const obrasCompletas = rows.map(row => ({
@@ -11282,11 +11606,14 @@ export default function App() {
           actas_insp:  inspsAll[row.id] || [],
           notas:       notasAll[row.id] || [],
           calidad:     calAll[row.id]   || [],
+          seguimiento_puntos:    segPuntosAll[row.id]    || [],
+          seguimiento_reuniones: segReunionesAll[row.id] || [],
         }),
         _rol: roles[row.id] || 'deo',
       }));
       setObras(obrasCompletas);
       setTimeout(() => migrarFotosAntiguas(obrasCompletas), 2000);
+      setTimeout(() => migrarSeguimientoGlobalAntiguo(rows, obrasCompletas, userId), 2500);
     } catch (e) { console.error('Error cargando obras:', e); setLoading(false); }
   }
 
@@ -11449,6 +11776,35 @@ export default function App() {
         await window.db.upsertModulo('notas', { id: nota.id, obra_id: obra.id, data: nota, updated_at: now() });
       }
 
+      // Seguimiento (puntos): solo los que cambiaron
+      const segPuntos = obra.seguimientoPuntos || [];
+      const segPuntosAnteriores = prev.seguimientoPuntos || [];
+      const segPuntosCambiados = segPuntos.filter(p => {
+        const old = segPuntosAnteriores.find(x => x.id === p.id);
+        return !old || old !== p;
+      });
+      // try/catch propio: si las tablas `seguimiento_puntos`/`seguimiento_reuniones`
+      // todavía no existen (migración SQL pendiente), que no se pueda guardar seguimiento
+      // no debe impedir que se guarden el resto de cambios de la obra en este mismo ciclo.
+      try {
+        for (const p of segPuntosCambiados) {
+          await window.db.upsertModulo('seguimiento_puntos', { id: p.id, obra_id: obra.id, data: p, updated_at: now() });
+        }
+      } catch (e) { console.error('Error guardando puntos de seguimiento:', e); }
+
+      // Seguimiento (reuniones): solo las que cambiaron
+      const segReuniones = obra.seguimientoReuniones || [];
+      const segReunionesAnteriores = prev.seguimientoReuniones || [];
+      const segReunionesCambiadas = segReuniones.filter(r => {
+        const old = segReunionesAnteriores.find(x => x.id === r.id);
+        return !old || old !== r;
+      });
+      try {
+        for (const r of segReunionesCambiadas) {
+          await window.db.upsertModulo('seguimiento_reuniones', { id: r.id, obra_id: obra.id, data: r, updated_at: now() });
+        }
+      } catch (e) { console.error('Error guardando reuniones de seguimiento:', e); }
+
       // Calidad: solo si cambió
       const calCambio = obra.materiales !== prev.materiales || obra.seguimientoCQ !== prev.seguimientoCQ;
       if (calCambio && (obra.materiales !== undefined || obra.seguimientoCQ !== undefined)) {
@@ -11471,6 +11827,7 @@ export default function App() {
       numActaSeq: 0, estado: 'proyecto',
       disciplinas: [], lotes: [], incidencias: [], apuntes: [],
       materiales: [], seguimientoCQ: [], actasInsp: [],
+      seguimientoNextNum: 1, seguimientoTematicas: TEMATICAS_SEG_DEF, seguimientoPuntos: [], seguimientoReuniones: [],
       creadaEn: now(), _rol: 'owner',
     };
     const lista = [obra, ...obras];
@@ -11568,15 +11925,17 @@ export default function App() {
     const unsub = window.db.subscribeListaObras(async () => {
       const rows = await window.db.getObras();
       const obrasCompletas = await Promise.all(rows.map(async row => {
-        const [incs, vos, insps, notas, cal] = await Promise.all([
+        const [incs, vos, insps, notas, cal, segPuntos, segReuniones] = await Promise.all([
           window.db.getModulo('incidencias', row.id),
           window.db.getModulo('actas_vo', row.id),
           window.db.getModulo('actas_insp', row.id),
           window.db.getModulo('notas', row.id),
           window.db.getModulo('calidad', row.id),
+          window.db.getModulo('seguimiento_puntos', row.id).catch(() => []),
+          window.db.getModulo('seguimiento_reuniones', row.id).catch(() => []),
         ]);
         const rol = await window.db.getRolUsuario(row.id, userId);
-        return { ...rowToObra(row, { incidencias: incs, actas_vo: vos, actas_insp: insps, notas, calidad: cal }), _rol: rol };
+        return { ...rowToObra(row, { incidencias: incs, actas_vo: vos, actas_insp: insps, notas, calidad: cal, seguimiento_puntos: segPuntos, seguimiento_reuniones: segReuniones }), _rol: rol };
       }));
       setObras(obrasCompletas);
     });
@@ -11748,7 +12107,6 @@ export default function App() {
 
           <UpdateBanner /><XarxaBanner />
       {nav === 'alertas'      && <VistaAlertas obras={obras} onIrObra={o => setObraActiva(o)} isMobile={isMobile} />}
-          {nav === 'seguimiento'  && <VistaSeguimiento obras={obras} isMobile={isMobile} />}
           {nav === 'tablero'   && (
             <>
               {/* Banner con fondo arquitectónico animado */}
