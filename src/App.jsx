@@ -3401,6 +3401,10 @@ function ModuloApuntes({ obra, onSave }) {
     };
     onSave({ ...obra, apuntes: [item, ...apuntesBase] });
     setForm({ tipo: 'tarea', categoria: 'Otros', fechaLimite: '' });
+    // Cal netejar també l'estat en memòria, no només l'esborrany de localStorage: el
+    // RichTextBox es tornarà a muntar en obrir el formulari altra vegada i agafarà
+    // aquest valor com a inicial — si no, hi reapareix el text de l'apunt anterior.
+    setTexto('');
     clearTexto();
     setShowForm(false);
   }
@@ -3413,8 +3417,8 @@ function ModuloApuntes({ obra, onSave }) {
     onSave({ ...obra, apuntes: apuntesBase.filter(a => a.id !== id) });
     try { await window.db.deleteModulo('notas', id); } catch(e) { console.error('Error borrando nota:', e); }
   }
-  function editarTexto(id, texto) {
-    onSave({ ...obra, apuntes: apuntesBase.map(a => a.id === id ? { ...a, texto, formato: 'html' } : a) });
+  function editarApunte(id, cambios) {
+    onSave({ ...obra, apuntes: apuntesBase.map(a => a.id === id ? { ...a, ...cambios } : a) });
   }
   function addComentario(id, texto) {
     if (!texto.trim()) return;
@@ -3539,7 +3543,7 @@ function ModuloApuntes({ obra, onSave }) {
           {mostrados.map(item => (
             <ApunteItem key={item.id} item={item} vencida={isVencida(item)}
               onToggleHecha={() => toggleHecha(item.id)}
-              onEditarTexto={txt => editarTexto(item.id, txt)}
+              onEditar={cambios => editarApunte(item.id, cambios)}
               onAddComentario={txt => addComentario(item.id, txt)}
               onConfirmar={setConfirmacion}
               onDelComentario={comId => delComentario(item.id, comId)}
@@ -3553,12 +3557,25 @@ function ModuloApuntes({ obra, onSave }) {
 }
 
 // Tarjeta de tarea/nota con edición de texto y comentarios de seguimiento
-function ApunteItem({ item, vencida, onToggleHecha, onEditarTexto, onAddComentario, onConfirmar, onDelComentario, onEliminar }) {
+function ApunteItem({ item, vencida, onToggleHecha, onEditar, onAddComentario, onConfirmar, onDelComentario, onEliminar }) {
   const [abierto, setAbierto] = useState(false);
   const [editando, setEditando] = useState(false);
   const [txt, setTxt, clearTxt] = useDraftState(`apunteEdit:${item.id}`, item.formato === 'html' ? item.texto : textoPlaAHtml(item.texto));
+  const [categoriaEd, setCategoriaEd] = useState(item.categoria);
+  const [fechaLimiteEd, setFechaLimiteEd] = useState(item.fechaLimite || '');
   const [coment, setComent, clearComent] = useDraftState(`apunteComent:${item.id}`, '');
   const comentarios = item.comentarios || [];
+
+  function empezarEdicion() {
+    setCategoriaEd(item.categoria);
+    setFechaLimiteEd(item.fechaLimite || '');
+    setEditando(true);
+  }
+  function guardarEdicion() {
+    onEditar({ texto: sanitizarHtmlRic(txt), formato: 'html', categoria: categoriaEd, ...(item.tipo === 'tarea' ? { fechaLimite: fechaLimiteEd } : {}) });
+    clearTxt();
+    setEditando(false);
+  }
 
   return (
     <div style={{ background: '#fff', border: `1px solid ${vencida ? '#F4ABAB' : '#E8E7E1'}`, borderLeft: vencida ? '3px solid #E24B4A' : '1px solid #E8E7E1', borderRadius: 10, padding: '10px 13px' }}>
@@ -3576,8 +3593,16 @@ function ApunteItem({ item, vencida, onToggleHecha, onEditarTexto, onAddComentar
           {editando ? (
             <div style={{ marginBottom: 6 }}>
               <RichTextBox autoFocus html={txt} onChange={setTxt} />
+              <div style={{ display: 'flex', gap: 8, margin: '8px 0' }}>
+                <select value={categoriaEd} onChange={e => setCategoriaEd(e.target.value)} style={{ fontSize: 12 }}>
+                  {CATEGORIAS_APT.map(c => <option key={c}>{c}</option>)}
+                </select>
+                {item.tipo === 'tarea' && (
+                  <input type="date" value={fechaLimiteEd} onChange={e => setFechaLimiteEd(e.target.value)} style={{ fontSize: 12 }} />
+                )}
+              </div>
               <div style={{ display: 'flex', gap: 6 }}>
-                <Btn sm primary disabled={esHtmlBuit(txt)} onClick={() => { onEditarTexto(sanitizarHtmlRic(txt)); clearTxt(); setEditando(false); }}>Guardar</Btn>
+                <Btn sm primary disabled={esHtmlBuit(txt)} onClick={guardarEdicion}>Guardar</Btn>
                 <Btn sm onClick={() => { setTxt(item.formato === 'html' ? item.texto : textoPlaAHtml(item.texto)); setEditando(false); }}>✕</Btn>
               </div>
             </div>
@@ -3586,7 +3611,7 @@ function ApunteItem({ item, vencida, onToggleHecha, onEditarTexto, onAddComentar
               <div style={{ flex: 1, fontSize: 13, color: item.hecha ? '#A5A5A0' : '#18180F', textDecoration: item.hecha ? 'line-through' : 'none', lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>
                 {item.formato === 'html' ? <span dangerouslySetInnerHTML={{ __html: sanitizarHtmlRic(item.texto) }} /> : item.texto}
               </div>
-              <button onClick={() => setEditando(true)} title="Editar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C4C3BE', padding: '0 2px', flexShrink: 0, marginTop: 1, display: 'inline-flex' }}>✏️</button>
+              <button onClick={empezarEdicion} title="Editar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C4C3BE', padding: '0 2px', flexShrink: 0, marginTop: 1, display: 'inline-flex' }}>✏️</button>
             </div>
           )}
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
