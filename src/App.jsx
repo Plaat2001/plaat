@@ -4032,6 +4032,20 @@ function textoPlaAHtml(text) {
   div.textContent = text || '';
   return div.innerHTML;
 }
+// Algunes notes antigues (anteriors a l'editor ric, p. ex. pegades des d'un correu) es van
+// desar amb `formato` buit però amb etiquetes HTML real dins del text pla — es detecten
+// perquè no es mostrin les etiquetes en brut ("<div>...</div>") a l'usuari
+const TAGS_DETECCIO_HTML = /<\/?(div|br|span|p|b|i|u|strong|em|a|font)\b[^>]*>/i;
+function apunteEsHtml(item) {
+  return item.formato === 'html' || TAGS_DETECCIO_HTML.test(item.texto || '');
+}
+// Treu les etiquetes per mostrar un resum d'una sola línia (p. ex. a la vista d'Alertas)
+function textoApuntePla(item) {
+  if (!apunteEsHtml(item)) return item.texto || '';
+  const div = document.createElement('div');
+  div.innerHTML = item.texto || '';
+  return (div.textContent || '').replace(/\s+/g, ' ').trim();
+}
 
 // Editor de text ric real (com un Word, no marques de text): barra B/I/S que aplica
 // negrita/cursiva/subrayado de veritat sobre la selecció mitjançant execCommand, i una
@@ -4248,7 +4262,7 @@ function ModuloApuntes({ obra, onSave }) {
 function ApunteItem({ item, vencida, onToggleHecha, onEditar, onAddComentario, onConfirmar, onDelComentario, onEliminar }) {
   const [abierto, setAbierto] = useState(false);
   const [editando, setEditando] = useState(false);
-  const [txt, setTxt, clearTxt] = useDraftState(`apunteEdit:${item.id}`, item.formato === 'html' ? item.texto : textoPlaAHtml(item.texto));
+  const [txt, setTxt, clearTxt] = useDraftState(`apunteEdit:${item.id}`, apunteEsHtml(item) ? item.texto : textoPlaAHtml(item.texto));
   const [categoriaEd, setCategoriaEd] = useState(item.categoria);
   const [fechaLimiteEd, setFechaLimiteEd] = useState(item.fechaLimite || '');
   const [coment, setComent, clearComent] = useDraftState(`apunteComent:${item.id}`, '');
@@ -4291,13 +4305,13 @@ function ApunteItem({ item, vencida, onToggleHecha, onEditar, onAddComentario, o
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <Btn sm primary disabled={esHtmlBuit(txt)} onClick={guardarEdicion}>Guardar</Btn>
-                <Btn sm onClick={() => { setTxt(item.formato === 'html' ? item.texto : textoPlaAHtml(item.texto)); setEditando(false); }}>✕</Btn>
+                <Btn sm onClick={() => { setTxt(apunteEsHtml(item) ? item.texto : textoPlaAHtml(item.texto)); setEditando(false); }}>✕</Btn>
               </div>
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 5 }}>
               <div style={{ flex: 1, fontSize: 13, color: item.hecha ? '#A5A5A0' : '#18180F', textDecoration: item.hecha ? 'line-through' : 'none', lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>
-                {item.formato === 'html' ? <span dangerouslySetInnerHTML={{ __html: sanitizarHtmlRic(item.texto) }} /> : item.texto}
+                {apunteEsHtml(item) ? <span dangerouslySetInnerHTML={{ __html: sanitizarHtmlRic(item.texto) }} /> : item.texto}
               </div>
               <button onClick={empezarEdicion} title="Editar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C4C3BE', padding: '0 2px', flexShrink: 0, marginTop: 1, display: 'inline-flex' }}>✏️</button>
             </div>
@@ -7033,7 +7047,7 @@ function VistaAlertas({ obras, onIrObra, isMobile }) {
             <SeccionHeader titulo="Tareas vencidas" count={tareasVencidas.length} color="#8A1F1F" />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {tareasVencidas.map(({ obra, tarea, dias }) => (
-                <Fila key={tarea.id} obra={obra} titulo={tarea.texto}
+                <Fila key={tarea.id} obra={obra} titulo={textoApuntePla(tarea)}
                   etiqueta={dias === 0 ? 'Vence hoy' : `Hace ${dias}d`} etColor="#8A1F1F" etBg="#FDECEC" accent="#E24B4A" />
               ))}
             </div>
@@ -7046,7 +7060,7 @@ function VistaAlertas({ obras, onIrObra, isMobile }) {
             <SeccionHeader titulo="Tareas próximas a vencer" count={tareasProximas.length} color="#7C4A00" />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {tareasProximas.map(({ obra, tarea, dias }) => (
-                <Fila key={tarea.id} obra={obra} titulo={tarea.texto}
+                <Fila key={tarea.id} obra={obra} titulo={textoApuntePla(tarea)}
                   etiqueta={dias === 0 ? 'Vence hoy' : dias === 1 ? 'Mañana' : `En ${dias} días`} etColor="#7C4A00" etBg="#FEF3DB" accent="#D48A0C" />
               ))}
             </div>
