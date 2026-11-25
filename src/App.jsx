@@ -3538,50 +3538,83 @@ async function exportarSeguimientoExcel(obra) {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Plaat Arquitectura Técnica';
   wb.created = new Date();
-  const ws = wb.addWorksheet('Seguimiento', { views: [{ state: 'frozen', ySplit: 5 }] });
+  const ws = wb.addWorksheet('Seguimiento', { views: [{ state: 'frozen', ySplit: 10 }] });
+  const NEGRO = 'FF1A1A1A', GRIS_CAJETIN = 'FF595959', BLANCO = 'FFFFFFFF';
 
-  ws.mergeCells('A1:J1');
+  ws.mergeCells('A1:I1');
   ws.getCell('A1').value = obra.nombre || 'Obra';
   ws.getCell('A1').font = { bold: true, size: 14 };
-  ws.mergeCells('A2:J2');
+  ws.mergeCells('A2:I2');
   ws.getCell('A2').value = [obra.emplazamiento, obra.propiedad || obra.cliente].filter(Boolean).join(' · ');
   ws.getCell('A2').font = { color: { argb: 'FF6B6B66' }, size: 10 };
-  ws.mergeCells('A3:J3');
+  ws.mergeCells('A3:I3');
   const abiertos = puntos.filter(p => p.estado !== 'cerrado').length;
   ws.getCell('A3').value = `Registro de seguimiento exportado el ${fmtDate(today())} — ${puntos.length} puntos (${abiertos} abiertos, ${puntos.length - abiertos} cerrados)`;
   ws.getCell('A3').font = { italic: true, color: { argb: 'FF9B9B97' }, size: 9.5 };
 
+  // Cajetín igual al del Excel manual que se usaba antes de este módulo (banda "SEGUIMIENTO DE
+  // TEMAS" + fila DO / PM-DEO / CONTRATISTA + banda "LISTADO DE TEMAS"), para que el fichero
+  // exportado sea reconocible por quien ya conocía esa plantilla — ver consulta de Marta Colomo
+  // (25 nov 2026): "el formato y cabecera no coincide con el Excel original al exportarlo".
+  ws.mergeCells('A5:I5');
+  ws.getCell('A5').value = 'SEGUIMIENTO DE TEMAS';
+  ws.getCell('A5').font = { bold: true, size: 12, color: { argb: BLANCO } };
+  ws.getCell('A5').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NEGRO } };
+  ws.getCell('A5').alignment = { vertical: 'middle' };
+
+  ws.mergeCells('A6:B6'); ws.mergeCells('C6:E6'); ws.mergeCells('F6:I6');
+  ws.mergeCells('A7:B7'); ws.mergeCells('C7:E7'); ws.mergeCells('F7:I7');
+  [['A6', 'DO:'], ['C6', 'PM / DEO:'], ['F6', 'CONTRATISTA']].forEach(([ref, label]) => {
+    const cell = ws.getCell(ref);
+    cell.value = label;
+    cell.font = { bold: true, size: 9.5, color: { argb: BLANCO } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GRIS_CAJETIN } };
+  });
+  [['A7', obra.direccionObra || ''], ['C7', 'PLAAT'], ['F7', obra.constructora || '']].forEach(([ref, val]) => {
+    ws.getCell(ref).value = val;
+    ws.getCell(ref).font = { size: 10 };
+  });
+
+  ws.mergeCells('A9:I9');
+  ws.getCell('A9').value = 'LISTADO DE TEMAS';
+  ws.getCell('A9').font = { bold: true, size: 11, color: { argb: BLANCO } };
+  ws.getCell('A9').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NEGRO } };
+  ws.getCell('A9').alignment = { vertical: 'middle' };
+
+  // Mismas columnas que la plantilla original (Num/Descripción/Responsable/Disciplina/3 fechas/
+  // Estado/Observaciones) — el "motivo" propio de la app (captura rápida sin título) y el log de
+  // `comentarios` se vuelcan juntos en Observaciones para no perder información aunque el Excel
+  // original no tuviera una columna separada para eso.
   const columnas = [
-    { name: 'Num', width: 10 }, { name: 'Título', width: 26 }, { name: 'Motivo', width: 46 },
-    { name: 'Responsable', width: 16 }, { name: 'Temática', width: 16 },
-    { name: 'Fecha apertura', width: 13 }, { name: 'Fecha límite', width: 13 }, { name: 'Fecha cierre', width: 13 },
-    { name: 'Estado', width: 13 }, { name: 'Observaciones', width: 46 },
+    { name: 'Num', width: 10 }, { name: 'Descripción', width: 34 },
+    { name: 'Responsable', width: 16 }, { name: 'Disciplina', width: 16 },
+    { name: 'Fecha apertura', width: 13 }, { name: 'Fecha límite de respuesta', width: 16 }, { name: 'Fecha cierre', width: 13 },
+    { name: 'Estado', width: 13 }, { name: 'Observaciones', width: 50 },
   ];
   columnas.forEach((c, i) => { ws.getColumn(i + 1).width = c.width; });
 
   const filas = puntos.map(p => [
-    nuevoNumSeguimiento(p.num), p.titulo || '', p.texto || '', p.responsable || '', p.tematica || '',
+    nuevoNumSeguimiento(p.num), tituloPuntoSeg(p), p.responsable || '', p.tematica || '',
     fmtDate(p.fechaAlta), fmtLimiteSeg(p.fechaLimite), p.fechaResolucion ? fmtDate(p.fechaResolucion) : '',
     ESTADOS_SEG_INFO[p.estado]?.label || p.estado,
-    (p.comentarios || []).map(c => `${fmtShort(c.creadaEn)}: ${c.texto}`).join(' · '),
+    [p.texto, ...(p.comentarios || []).map(c => `${fmtShort(c.creadaEn)}: ${c.texto}`)].filter(Boolean).join(' · '),
   ]);
   ws.addTable({
-    name: 'Seguimiento', ref: 'A5', headerRow: true, totalsRow: false,
+    name: 'Seguimiento', ref: 'A10', headerRow: true, totalsRow: false,
     style: { theme: 'TableStyleMedium2', showRowStripes: true },
     columns: columnas.map(c => ({ name: c.name, filterButton: true })),
-    rows: filas.length ? filas : [['', '', '', '', '', '', '', '', '', '']],
+    rows: filas.length ? filas : [['', '', '', '', '', '', '', '', '']],
   });
 
   puntos.forEach((p, i) => {
-    const row = ws.getRow(6 + i);
+    const row = ws.getRow(11 + i);
     row.getCell(2).font = { bold: true };
     row.getCell(2).alignment = { wrapText: true, vertical: 'top' };
-    row.getCell(3).alignment = { wrapText: true, vertical: 'top' };
-    row.getCell(10).alignment = { wrapText: true, vertical: 'top' };
-    [6, 7, 8, 9].forEach(c => { row.getCell(c).alignment = { horizontal: 'center', vertical: 'top' }; });
+    row.getCell(9).alignment = { wrapText: true, vertical: 'top' };
+    [5, 6, 7, 8].forEach(c => { row.getCell(c).alignment = { horizontal: 'center', vertical: 'top' }; });
     const info = ESTADOS_SEG_INFO[p.estado];
-    if (info) row.getCell(9).font = { bold: true, color: { argb: 'FF' + info.color.replace('#', '') } };
-    if (vencidoSeg(p)) row.getCell(7).font = { bold: true, color: { argb: 'FFB3261E' } };
+    if (info) row.getCell(8).font = { bold: true, color: { argb: 'FF' + info.color.replace('#', '') } };
+    if (vencidoSeg(p)) row.getCell(6).font = { bold: true, color: { argb: 'FFB3261E' } };
   });
 
   const buf = await wb.xlsx.writeBuffer();
@@ -3637,14 +3670,17 @@ function excelFechaISO(v) {
 }
 
 // Lee el Excel "manual" de seguimiento de temas que se usaba obra a obra antes de este módulo
-// (p. ej. las hojas de Ferrovial: Num / Descripción / Disciplina / Responsable / Motivo /
-// Fecha apertura / Fecha límite de respuesta / Fecha cierre / Estado / Observaciones). La
-// cabecera se busca dinámicamente (columna "Num." + alguna columna "Estado" en la misma fila)
-// porque las filas de preámbulo (promoción, promotor, DO...) varían de obra a obra.
-// Nota: en la plantilla real el contenido de "Disciplina" suele ser quién interviene (DO,
-// FERROVIAL, GCT...) y el de "Responsable" suele ser la temática (ESTRUCTURA, INSTALACIONES...)
-// — al revés de lo que dicen los títulos — así que se importan por lo que contienen, no por
-// el nombre literal de la columna: Disciplina → responsable, Responsable → temática.
+// (p. ej. las hojas tipo Ferrovial: Num / Descripción / Responsable / Disciplina / Fecha
+// apertura / Fecha límite de respuesta / Fecha cierre / Estado / Observaciones). La cabecera
+// se busca dinámicamente (columna "Num." + alguna columna "Estado" en la misma fila) porque
+// las filas de preámbulo (promoción, promotor, DO...) varían de obra a obra, y las demás
+// columnas se localizan por su texto (no por posición fija) para no asumir un orden de
+// columnas concreto — ver nota en parseExcelSeguimientoManual.
+// Responsable/Disciplina se leen literales (Responsable → responsable, Disciplina → temática):
+// una versión anterior asumía el contenido invertido respecto al título de la columna para
+// una plantilla concreta, pero la consulta real de Marta Colomo (25 nov 2026, Excel de
+// otra obra) confirmó sobre datos reales que el contenido SÍ se corresponde con el título
+// literal de cada columna (p. ej. "Responsable"=WIT/EIPE, "Disciplina"=Licencia/Compañías).
 function parseExcelSeguimientoManual(uint8) {
   const wb = XLSX.read(uint8, { type: 'array' });
   const ws = wb.Sheets[wb.SheetNames[0]];
@@ -3654,26 +3690,62 @@ function parseExcelSeguimientoManual(uint8) {
     return col0 === 'num' && r.some(c => quitarAcentos(c ?? '').includes('estado'));
   });
   if (headerIdx < 0) throw new Error('No se encontró la fila de cabecera (se busca una columna "Num." y otra "Estado").');
+  const header = rows[headerIdx];
+  // Columnas localizadas por el texto de la cabecera (no por posición fija): la plantilla
+  // manual varía ligeramente de obra a obra (con o sin columna "Motivo", "Fecha límite" vs
+  // "Fecha límite de respuesta"...) y asumir un orden fijo de columnas fue justo el bug real
+  // reportado por Marta Colomo (25 nov 2026): al dar por hecho una columna "Motivo" que la
+  // plantilla real no tiene, todo lo que venía después (fechas, estado, observaciones) se leía
+  // de la celda de al lado — fechas sin sentido, "motivo" con un número de serie de Excel en
+  // vez de texto, y las observaciones reales perdidas.
+  const col = (...variantes) => header.findIndex(c => {
+    const n = quitarAcentos(c ?? '').toLowerCase().trim();
+    return variantes.some(v => n === v || n.startsWith(v));
+  });
+  const iDescripcion = col('descripcion', 'titulo');
+  const iResponsable = col('responsable');
+  const iDisciplina = col('disciplina');
+  const iTematica = col('tematica');
+  const iMotivo = col('motivo');
+  const iApertura = col('fecha apertura');
+  const iLimite = col('fecha limite');
+  const iCierre = col('fecha cierre');
+  const iEstado = col('estado');
+  const iObservaciones = col('observaciones');
+  // Si no se localiza ni "Descripción"/"Título" ni "Observaciones", probablemente la cabecera
+  // tiene un formato distinto al previsto (y no solo le falta una columna opcional) — mejor
+  // avisar aquí que importar puntos en blanco sin que nadie se dé cuenta.
+  if (iDescripcion < 0 && iObservaciones < 0) {
+    throw new Error('No se han reconocido las columnas de contenido (ni "Descripción"/"Título" ni "Observaciones"). Revisa que la cabecera de la plantilla no haya cambiado.');
+  }
+  const get = (r, i) => (i < 0 ? null : r[i]);
 
   return rows.slice(headerIdx + 1)
     .filter(r => r[0] != null && String(r[0]).trim() !== '')
     .map(r => {
-      const [, descripcion, colDisciplina, colResponsable, motivo, fApertura, fLimite, fCierre, estadoRaw, observaciones] = r;
+      // "Temática" (si existe, p. ej. reimportando un Excel ya exportado por la propia app)
+      // tiene prioridad sobre "Disciplina" para la temática; ambos mapeos son literales.
+      const responsable = (get(r, iResponsable) ?? '').toString().trim();
+      const tematica = normalizarTematicaImport(get(r, iTematica >= 0 ? iTematica : iDisciplina));
+      const estadoRaw = get(r, iEstado);
       const estadoN = quitarAcentos(estadoRaw ?? '');
       const estado = estadoN.includes('resuel') || estadoN.includes('cerrad') ? 'cerrado' : 'curso';
-      const fechaAlta = excelFechaISO(fApertura) || today();
-      const fechaLimite = excelFechaISO(fLimite);
-      const fechaResolucion = excelFechaISO(fCierre) || (estado === 'cerrado' ? (fechaLimite || fechaAlta) : '');
+      const fechaAlta = excelFechaISO(get(r, iApertura)) || today();
+      const fechaLimite = excelFechaISO(get(r, iLimite));
+      const fechaResolucion = excelFechaISO(get(r, iCierre)) || (estado === 'cerrado' ? (fechaLimite || fechaAlta) : '');
       return {
-        // Si el Excel no trae "Motivo", se deja vacío en vez de repetir la Descripción: ya
-        // sale como título, y layoutPuntoSeg()/dibujarContenidoPuntoSeg() (PDF) y la fila del
-        // registro mostrarían la misma frase dos veces si también se copiara aquí.
-        titulo: (descripcion ?? '').toString().trim(),
-        texto: (motivo ?? '').toString().trim(),
-        responsable: (colDisciplina ?? '').toString().trim(),
-        tematica: normalizarTematicaImport(colResponsable),
+        // numExcel: el "Num" de la fila del Excel, para que el P-xxx asignado al importar
+        // coincida con el que ya conocen los contratistas (ver puntosDesdeImportSeg).
+        numExcel: Number(r[0]) || null,
+        // Si el Excel no trae "Motivo" (la plantilla manual habitual no tiene esa columna), se
+        // deja vacío en vez de repetir la Descripción: ya sale como título, y
+        // layoutPuntoSeg()/dibujarContenidoPuntoSeg() (PDF) y la fila del registro mostrarían
+        // la misma frase dos veces si también se copiara aquí.
+        titulo: (get(r, iDescripcion) ?? '').toString().trim(),
+        texto: (get(r, iMotivo) ?? '').toString().trim(),
+        responsable, tematica,
         fechaAlta, fechaLimite, fechaResolucion, estado,
-        observaciones: (observaciones ?? '').toString().trim(),
+        observaciones: (get(r, iObservaciones) ?? '').toString().trim(),
       };
     });
 }
@@ -3705,15 +3777,23 @@ function importarExcelSeguimientoManual(cb) {
 }
 
 // Construye los puntos de seguimiento definitivos a partir de las filas en bruto del Excel
-// importado, asignando num correlativos a partir del contador de la obra (igual que si se
-// crearan uno a uno desde la UI, nunca se reutilizan num ya emitidos).
+// importado. El "Num" de la fila del Excel se usa directamente como num del punto siempre que
+// sea un entero parseable — para que el P-xxx de la app coincida con el que ya conocen los
+// contratistas por el Excel manual (demanda real: consulta de Marta Colomo, 25 nov 2026,
+// "se pone una numeración que no coincide con el Excel"); el contador de la obra solo entra
+// como fallback en filas sin un Num utilizable. No reutilizar accidentalmente un num ya
+// existente no es crítico — num no es la PK (ver nota sobre `id` más arriba), como mucho se
+// vería un "P-xxx" repetido (mismo caso ya documentado para la numeración de temas de Acta VO).
 function puntosDesdeImportSeg(obra, filas) {
   let num = obra.seguimientoNextNum || 1;
   return filas.map(f => {
+    const usaNumExcel = Number.isFinite(f.numExcel) && f.numExcel > 0;
+    const n = usaNumExcel ? f.numExcel : num;
+    if (!usaNumExcel) num++;
     const punto = {
       // Si no hay motivo pero sí título, se deja texto vacío (no se duplica la descripción) —
       // solo se usa un texto de relleno cuando ni siquiera hay título.
-      id: uid(), num, titulo: f.titulo, texto: f.texto || (f.titulo ? '' : '(sin descripción)'),
+      id: uid(), num: n, titulo: f.titulo, texto: f.texto || (f.titulo ? '' : '(sin descripción)'),
       tematica: f.tematica, responsable: f.responsable, fase: 'obra',
       fechaAlta: f.fechaAlta, fechaLimite: f.fechaLimite, fechaResolucion: f.fechaResolucion,
       estado: f.estado, estadoManual: true, reunionOrigen: null, numActa: null,
@@ -3721,7 +3801,6 @@ function puntosDesdeImportSeg(obra, filas) {
       relacionados: [], cerradoPor: null, fotos: [],
       comentarios: f.observaciones ? [{ id: uid(), texto: f.observaciones, creadaEn: now() }] : [],
     };
-    num++;
     return punto;
   });
 }
@@ -3802,7 +3881,7 @@ function tituloPuntoSeg(p) {
   return t.slice(0, corte > 0 ? corte : 80) + '…';
 }
 
-function FilaPuntoSeg({ punto: p, onClick, seleccionable, seleccionado, onToggleSel }) {
+function FilaPuntoSeg({ punto: p, onClick, seleccionable, seleccionado, onToggleSel, numRepetido }) {
   const info = ESTADOS_SEG_INFO[p.estado] || ESTADOS_SEG_INFO.curso;
   return (
     <div className="hov-row" style={{ padding: '10px 16px', borderTop: '1px solid #F0EFEA', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
@@ -3811,7 +3890,10 @@ function FilaPuntoSeg({ punto: p, onClick, seleccionable, seleccionado, onToggle
           style={{ width: 16, height: 16, marginTop: 3, flexShrink: 0, cursor: 'pointer' }} />
       )}
       <div onClick={onClick} style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
-        <div style={{ fontSize: 11.5, fontWeight: 700, color: '#9B9B97', width: 46, flexShrink: 0, paddingTop: 2 }}>{nuevoNumSeguimiento(p.num)}</div>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: numRepetido ? '#C47610' : '#9B9B97', width: 46, flexShrink: 0, paddingTop: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+          {nuevoNumSeguimiento(p.num)}
+          {numRepetido && <span title="Este número coincide con otro punto del registro (no se ha perdido ningún dato: num no es el identificador real, solo el P-xxx visible)."><Icon name="warning" size={10} style={{ color: '#C47610' }} /></span>}
+        </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, color: '#16160F', lineHeight: 1.4 }}>
             {tituloPuntoSeg(p)}
@@ -4256,9 +4338,17 @@ function ModalAjustesSeg({ obra, onSave, onClose }) {
 
 // Confirmación previa a volcar en el registro los puntos leídos de un Excel manual — nunca se
 // aplican directamente al leer el archivo, para poder revisar antes cuántos y cuáles son.
-function ModalImportarSeg({ filas, nombre, onCancelar, onConfirmar }) {
+function ModalImportarSeg({ filas, nombre, obra, onCancelar, onConfirmar }) {
   const abiertos = filas.filter(f => f.estado !== 'cerrado').length;
   const cerrados = filas.length - abiertos;
+  // Aviso de colisión de num: el "Num" del Excel se usa tal cual (puntosDesdeImportSeg), así
+  // que si la obra ya tiene puntos creados antes de importar su histórico, es habitual que
+  // ambas numeraciones empiecen por 1 y choquen de forma sistemática (no es una carrera rara).
+  // No se pierde ningún dato (num no es la PK), pero se avisa para que no sorprenda un P-xxx
+  // repetido en el registro — mismo criterio que el aviso ya existente para los num de tema
+  // repetidos en Acta VO (ver numRepetido en FilaPuntoSeg).
+  const numsExistentes = new Set((obra?.seguimientoPuntos || []).map(p => p.num));
+  const colisiones = filas.filter(f => Number.isFinite(f.numExcel) && f.numExcel > 0 && numsExistentes.has(f.numExcel)).length;
   return (
     <Modal title="Importar Excel de seguimiento" onClose={onCancelar} wide
       footer={<><Btn ghost onClick={onCancelar}>Cancelar</Btn><Btn primary onClick={onConfirmar}>Importar {filas.length} puntos</Btn></>}>
@@ -4266,14 +4356,25 @@ function ModalImportarSeg({ filas, nombre, onCancelar, onConfirmar }) {
         <b>{nombre}</b> — se han reconocido <b>{filas.length}</b> puntos ({abiertos} abiertos, {cerrados} cerrados).
         Se añadirán al registro actual de esta obra; no se borra ni modifica nada existente.
       </div>
+      {colisiones > 0 && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: '#FEF3DB', border: '1px solid #F5DFA8', borderRadius: 8, padding: '8px 10px', marginBottom: 10, fontSize: 12.5, color: '#7C4A00' }}>
+          <Icon name="warning" size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span><b>{colisiones}</b> punto{colisiones !== 1 ? 's' : ''} del Excel trae{colisiones !== 1 ? 'n' : ''} un "Num" que ya existe en el registro de esta obra.
+          Se importarán igual (no se pierde ningún dato), pero el P-xxx se verá repetido hasta que se corrija a mano.</span>
+        </div>
+      )}
       <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid #E8E7E1', borderRadius: 8 }}>
-        {filas.map((f, i) => (
-          <div key={i} style={{ padding: '7px 10px', borderTop: i ? '1px solid #F0EFEA' : 'none', display: 'flex', gap: 8, alignItems: 'baseline' }}>
-            <Pill label={ESTADOS_SEG_INFO[f.estado]?.label || f.estado} bg={ESTADOS_SEG_INFO[f.estado]?.bg} color={ESTADOS_SEG_INFO[f.estado]?.color} />
-            <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.titulo || f.texto}</span>
-            <span style={{ fontSize: 11, color: '#9B9B97', flexShrink: 0, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.tematica || '—'} · {f.responsable || '—'}</span>
-          </div>
-        ))}
+        {filas.map((f, i) => {
+          const choca = Number.isFinite(f.numExcel) && f.numExcel > 0 && numsExistentes.has(f.numExcel);
+          return (
+            <div key={i} style={{ padding: '7px 10px', borderTop: i ? '1px solid #F0EFEA' : 'none', display: 'flex', gap: 8, alignItems: 'baseline' }}>
+              {f.numExcel ? <span title={choca ? `Num ${f.numExcel} ya existe en el registro` : undefined} style={{ fontSize: 11, fontWeight: 700, color: choca ? '#C47610' : '#9B9B97', flexShrink: 0, width: 30 }}>{nuevoNumSeguimiento(f.numExcel)}</span> : null}
+              <Pill label={ESTADOS_SEG_INFO[f.estado]?.label || f.estado} bg={ESTADOS_SEG_INFO[f.estado]?.bg} color={ESTADOS_SEG_INFO[f.estado]?.color} />
+              <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.titulo || f.texto}</span>
+              <span style={{ fontSize: 11, color: '#9B9B97', flexShrink: 0, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.tematica || '—'} · {f.responsable || '—'}</span>
+            </div>
+          );
+        })}
       </div>
     </Modal>
   );
@@ -4792,6 +4893,15 @@ function VistaSeguimientoObra({ obra, onSave, onAbrirReunion }) {
   const puntos = obra.seguimientoPuntos || [];
   const reuniones = [...(obra.seguimientoReuniones || [])].sort((a, b) => (b.fecha + (b.creadaEn || '')).localeCompare(a.fecha + (a.creadaEn || '')));
   const puntoActivo = puntos.find(p => p.id === puntoActivoId) || null;
+  // num no es la PK (ver nota sobre `id` más arriba), pero un P-xxx repetido confunde al
+  // leerlo — sobre todo ahora que importar un Excel puede traer un "Num" que ya existía en el
+  // registro (num del Excel preservado tal cual, ver puntosDesdeImportSeg). Mismo aviso visual
+  // que el ya usado para los num de tema repetidos en Acta VO.
+  const numsRepetidos = (() => {
+    const vistos = new Set(), repetidos = new Set();
+    puntos.forEach(p => { if (vistos.has(p.num)) repetidos.add(p.num); else vistos.add(p.num); });
+    return repetidos;
+  })();
   // Unión con las temáticas que de verdad tienen puntos (p. ej. tras una importación con
   // temáticas no contempladas en la configuración), para que el filtro nunca oculte un valor
   // que sí existe en el registro.
@@ -4812,7 +4922,11 @@ function VistaSeguimientoObra({ obra, onSave, onAbrirReunion }) {
       if (!quitarAcentos(p.texto + ' ' + (p.responsable || '') + ' ' + nuevoNumSeguimiento(p.num)).includes(q)) return false;
     }
     return true;
-  }).sort((a, b) => (b.fechaAlta || '').localeCompare(a.fechaAlta || ''));
+  // Mismo orden (num ascendente) que exportarSeguimientoExcel()/generarPdfRegistroSeg(), para
+  // que el registro en pantalla coincida con el Excel importado — antes se ordenaba por fecha
+  // de alta descendente, que no tiene por qué seguir el orden de filas del Excel original
+  // (consulta de Marta Colomo, 25 nov 2026: "se pone un orden que no coincide con el Excel").
+  }).sort((a, b) => (a.num || 0) - (b.num || 0));
 
   const vencidosTotal = puntos.filter(vencidoSeg).length;
 
@@ -4919,6 +5033,7 @@ function VistaSeguimientoObra({ obra, onSave, onAbrirReunion }) {
             </label>
             {filtrados.map(p => (
               <FilaPuntoSeg key={p.id} punto={p} onClick={() => setPuntoActivoId(p.id)}
+                numRepetido={numsRepetidos.has(p.num)}
                 seleccionable seleccionado={seleccionados.has(p.id)} onToggleSel={() => toggleSel(p.id)} />
             ))}
           </div>
@@ -4934,7 +5049,7 @@ function VistaSeguimientoObra({ obra, onSave, onAbrirReunion }) {
       {showNuevoPunto && <NuevoPuntoModal obra={obra} onSave={onSave} onClose={() => setShowNuevoPunto(false)} />}
       {showAjustes && <ModalAjustesSeg obra={obra} onSave={onSave} onClose={() => setShowAjustes(false)} />}
       {importPendiente && (
-        <ModalImportarSeg filas={importPendiente.filas} nombre={importPendiente.nombre}
+        <ModalImportarSeg filas={importPendiente.filas} nombre={importPendiente.nombre} obra={obra}
           onCancelar={() => setImportPendiente(null)}
           onConfirmar={() => {
             const nuevos = puntosDesdeImportSeg(obra, importPendiente.filas);
@@ -4942,8 +5057,14 @@ function VistaSeguimientoObra({ obra, onSave, onAbrirReunion }) {
             // para que salgan también al crear una reunión nueva y no solo en el filtro del registro.
             const porFaseActual = tematicasSegPorFase(obra);
             const tematicasNuevas = [...new Set(nuevos.map(p => p.tematica).filter(Boolean))].filter(t => !porFaseActual.obra.includes(t));
+            // El contador avanza hasta por encima del num más alto que haya quedado en uso (el
+            // de la obra o el importado del Excel), no simplemente "+ nuevos.length" — ahora que
+            // puntosDesdeImportSeg() puede asignar directamente el Num del Excel (que puede ser
+            // mayor que el contador actual), sumar solo la cantidad de filas ya no basta para
+            // evitar que el siguiente punto creado a mano choque con uno recién importado.
+            const siguienteNum = Math.max((obra.seguimientoNextNum || 1) - 1, ...nuevos.map(p => p.num || 0)) + 1;
             onSave({
-              ...obra, seguimientoPuntos: [...puntos, ...nuevos], seguimientoNextNum: (obra.seguimientoNextNum || 1) + nuevos.length,
+              ...obra, seguimientoPuntos: [...puntos, ...nuevos], seguimientoNextNum: siguienteNum,
               ...(tematicasNuevas.length ? { seguimientoTematicasPorFase: { ...porFaseActual, obra: [...porFaseActual.obra, ...tematicasNuevas] } } : {}),
             });
             setImportPendiente(null);
