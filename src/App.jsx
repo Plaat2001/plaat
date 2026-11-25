@@ -3539,6 +3539,130 @@ function exportarSeguimientoExcel(obra) {
   else window.open(url, '_blank');
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
+
+// Normaliza una temática en bruto del Excel manual a la grafía ya usada en la app cuando
+// coincide con una conocida (p. ej. "ESTRUCTURA" → "Estructuras") — importa para que el punto
+// encaje con el filtro de temática y con `reunion.tematica` (comparación exacta de texto en
+// `anexoPuntosSeg`, `pendientes`, `candidatosRepasoSeg`...). Lo que no se reconoce se deja en
+// formato Título en vez de forzarlo a "Otros", para no perder la información original.
+const TEMATICAS_IMPORT_CANON = {
+  ESTRUCTURA: 'Estructuras', ESTRUCTURAS: 'Estructuras',
+  INSTALACION: 'Instalaciones', INSTALACIONES: 'Instalaciones',
+  'OBRA CIVIL': 'Obra civil',
+  ACABADO: 'Acabados', ACABADOS: 'Acabados',
+  PLANIFICACION: 'Planificación',
+  COSTE: 'Costes', COSTES: 'Costes',
+  OTRO: 'Otros', OTROS: 'Otros',
+};
+function normalizarTematicaImport(raw) {
+  const s = (raw ?? '').toString().trim();
+  if (!s) return '';
+  const key = quitarAcentos(s).toUpperCase();
+  if (TEMATICAS_IMPORT_CANON[key]) return TEMATICAS_IMPORT_CANON[key];
+  return s.toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase());
+}
+
+// Convierte una fecha de Excel (número de serie del sistema 1900 de una celda con formato de
+// fecha real, o texto DD/MM/AAAA de hojas más antiguas) a ISO 'YYYY-MM-DD'.
+function excelFechaISO(v) {
+  if (v == null || v === '') return '';
+  if (typeof v === 'number') {
+    const ms = Math.floor(v - 25569) * 86400000;
+    return new Date(ms).toISOString().slice(0, 10);
+  }
+  const s = String(v).trim();
+  if (ISO_DATE_RX.test(s)) return s;
+  const m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  if (!m) return '';
+  let [, d, mo, y] = m;
+  if (y.length === 2) y = '20' + y;
+  return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+}
+
+// Lee el Excel "manual" de seguimiento de temas que se usaba obra a obra antes de este módulo
+// (p. ej. las hojas de Ferrovial: Num / Descripción / Disciplina / Responsable / Motivo /
+// Fecha apertura / Fecha límite de respuesta / Fecha cierre / Estado / Observaciones). La
+// cabecera se busca dinámicamente (columna "Num." + alguna columna "Estado" en la misma fila)
+// porque las filas de preámbulo (promoción, promotor, DO...) varían de obra a obra.
+// Nota: en la plantilla real el contenido de "Disciplina" suele ser quién interviene (DO,
+// FERROVIAL, GCT...) y el de "Responsable" suele ser la temática (ESTRUCTURA, INSTALACIONES...)
+// — al revés de lo que dicen los títulos — así que se importan por lo que contienen, no por
+// el nombre literal de la columna: Disciplina → responsable, Responsable → temática.
+function parseExcelSeguimientoManual(uint8) {
+  const wb = XLSX.read(uint8, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+  const headerIdx = rows.findIndex(r => {
+    const col0 = quitarAcentos(r?.[0] ?? '').replace(/\./g, '').trim();
+    return col0 === 'num' && r.some(c => quitarAcentos(c ?? '').includes('estado'));
+  });
+  if (headerIdx < 0) throw new Error('No se encontró la fila de cabecera (se busca una columna "Num." y otra "Estado").');
+
+  return rows.slice(headerIdx + 1)
+    .filter(r => r[0] != null && String(r[0]).trim() !== '')
+    .map(r => {
+      const [, descripcion, colDisciplina, colResponsable, motivo, fApertura, fLimite, fCierre, estadoRaw, observaciones] = r;
+      const estadoN = quitarAcentos(estadoRaw ?? '');
+      const estado = estadoN.includes('resuel') || estadoN.includes('cerrad') ? 'cerrado' : 'curso';
+      const fechaAlta = excelFechaISO(fApertura) || today();
+      const fechaLimite = excelFechaISO(fLimite);
+      const fechaResolucion = excelFechaISO(fCierre) || (estado === 'cerrado' ? (fechaLimite || fechaAlta) : '');
+      return {
+        titulo: (descripcion ?? '').toString().trim(),
+        texto: ((motivo ?? '').toString().trim()) || (descripcion ?? '').toString().trim(),
+        responsable: (colDisciplina ?? '').toString().trim(),
+        tematica: normalizarTematicaImport(colResponsable),
+        fechaAlta, fechaLimite, fechaResolucion, estado,
+        observaciones: (observaciones ?? '').toString().trim(),
+      };
+    });
+}
+
+// Abre selector de archivo y lee el Excel manual de seguimiento como arrayBuffer
+function importarExcelSeguimientoManual(cb) {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.xlsx,.xls';
+  inp.style.position = 'fixed'; inp.style.left = '-9999px';
+  document.body.appendChild(inp);
+  inp.onchange = e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = ev => {
+      try {
+        const data = new Uint8Array(ev.target.result);
+        const filas = parseExcelSeguimientoManual(data);
+        if (filas.length === 0) alert('No se encontraron puntos en el Excel. ¿Es la plantilla de seguimiento de temas?');
+        else cb(filas, f.name);
+      } catch (err) {
+        alert('No se pudo leer el Excel: ' + err.message);
+      }
+      setTimeout(() => { if (inp.parentNode) document.body.removeChild(inp); }, 100);
+    };
+    r.readAsArrayBuffer(f);
+  };
+  inp.click();
+}
+
+// Construye los puntos de seguimiento definitivos a partir de las filas en bruto del Excel
+// importado, asignando num correlativos a partir del contador de la obra (igual que si se
+// crearan uno a uno desde la UI, nunca se reutilizan num ya emitidos).
+function puntosDesdeImportSeg(obra, filas) {
+  let num = obra.seguimientoNextNum || 1;
+  return filas.map(f => {
+    const punto = {
+      id: uid(), num, titulo: f.titulo, texto: f.texto || f.titulo || '(sin descripción)',
+      tematica: f.tematica, responsable: f.responsable, fase: 'obra',
+      fechaAlta: f.fechaAlta, fechaLimite: f.fechaLimite, fechaResolucion: f.fechaResolucion,
+      estado: f.estado, estadoManual: true, reunionOrigen: null, numActa: null,
+      historial: [historialSeg({ reunionId: null, tipo: 'alta', a: f.estado, texto: 'Importado desde Excel' })],
+      relacionados: [], cerradoPor: null, fotos: [],
+      comentarios: f.observaciones ? [{ id: uid(), texto: f.observaciones, creadaEn: now() }] : [],
+    };
+    num++;
+    return punto;
+  });
+}
 function guardarReunionSeg(obra, onSave, reunion) {
   const lista = obra.seguimientoReuniones.some(r => r.id === reunion.id)
     ? obra.seguimientoReuniones.map(r => r.id === reunion.id ? reunion : r)
@@ -3919,6 +4043,11 @@ function PuntoSegModal({ obra, onSave, punto, reunionContextId, onClose, onElimi
             {Object.entries(ESTADOS_SEG_INFO).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
         </Field>
+        {/* Editable aparte de "Fecha límite": sobre todo útil tras importar un Excel, donde la
+            fecha de alta viene de una celda histórica (o de un valor por defecto si faltaba). */}
+        <Field label="Fecha de alta">
+          <input type="date" value={ISO_DATE_RX.test(f.fechaAlta || '') ? f.fechaAlta : ''} onChange={e => upd('fechaAlta', e.target.value)} />
+        </Field>
         <Field label="Fecha límite">
           <input type="date" value={ISO_DATE_RX.test(f.fechaLimite || '') ? f.fechaLimite : ''} onChange={e => upd('fechaLimite', e.target.value)} disabled={!!limiteEspecial} />
           <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
@@ -4058,6 +4187,31 @@ function ModalAjustesSeg({ obra, onSave, onClose }) {
           ))}
         </div>
         <div style={{ marginTop: 8 }}><Btn sm onClick={addDir}>+ Añadir interviniente</Btn></div>
+      </div>
+    </Modal>
+  );
+}
+
+// Confirmación previa a volcar en el registro los puntos leídos de un Excel manual — nunca se
+// aplican directamente al leer el archivo, para poder revisar antes cuántos y cuáles son.
+function ModalImportarSeg({ filas, nombre, onCancelar, onConfirmar }) {
+  const abiertos = filas.filter(f => f.estado !== 'cerrado').length;
+  const cerrados = filas.length - abiertos;
+  return (
+    <Modal title="Importar Excel de seguimiento" onClose={onCancelar} wide
+      footer={<><Btn ghost onClick={onCancelar}>Cancelar</Btn><Btn primary onClick={onConfirmar}>Importar {filas.length} puntos</Btn></>}>
+      <div style={{ fontSize: 13, color: '#52524E', marginBottom: 10, lineHeight: 1.5 }}>
+        <b>{nombre}</b> — se han reconocido <b>{filas.length}</b> puntos ({abiertos} abiertos, {cerrados} cerrados).
+        Se añadirán al registro actual de esta obra; no se borra ni modifica nada existente.
+      </div>
+      <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid #E8E7E1', borderRadius: 8 }}>
+        {filas.map((f, i) => (
+          <div key={i} style={{ padding: '7px 10px', borderTop: i ? '1px solid #F0EFEA' : 'none', display: 'flex', gap: 8, alignItems: 'baseline' }}>
+            <Pill label={ESTADOS_SEG_INFO[f.estado]?.label || f.estado} bg={ESTADOS_SEG_INFO[f.estado]?.bg} color={ESTADOS_SEG_INFO[f.estado]?.color} />
+            <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.titulo || f.texto}</span>
+            <span style={{ fontSize: 11, color: '#9B9B97', flexShrink: 0, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.tematica || '—'} · {f.responsable || '—'}</span>
+          </div>
+        ))}
       </div>
     </Modal>
   );
@@ -4533,6 +4687,7 @@ function VistaSeguimientoObra({ obra, onSave, onAbrirReunion }) {
   const [filtro, setFiltro] = useState({ estado: 'abiertos', tematica: '', q: '' });
   const [seleccionados, setSeleccionados] = useState(() => new Set());
   const [estadoBulk, setEstadoBulk] = useState('cerrado');
+  const [importPendiente, setImportPendiente] = useState(null); // { filas, nombre } a confirmar
 
   function toggleSel(id) {
     setSeleccionados(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -4546,7 +4701,10 @@ function VistaSeguimientoObra({ obra, onSave, onAbrirReunion }) {
   const puntos = obra.seguimientoPuntos || [];
   const reuniones = [...(obra.seguimientoReuniones || [])].sort((a, b) => (b.fecha + (b.creadaEn || '')).localeCompare(a.fecha + (a.creadaEn || '')));
   const puntoActivo = puntos.find(p => p.id === puntoActivoId) || null;
-  const tematicas = tematicasSegTodasFases(obra);
+  // Unión con las temáticas que de verdad tienen puntos (p. ej. tras una importación con
+  // temáticas no contempladas en la configuración), para que el filtro nunca oculte un valor
+  // que sí existe en el registro.
+  const tematicas = [...new Set([...tematicasSegTodasFases(obra), ...puntos.map(p => p.tematica).filter(Boolean)])];
 
   function crearReunion(reunion) {
     guardarReunionSeg(obra, onSave, reunion);
@@ -4639,6 +4797,7 @@ function VistaSeguimientoObra({ obra, onSave, onAbrirReunion }) {
             {tematicas.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
           <input type="search" placeholder="Buscar..." value={filtro.q} onChange={e => setFiltro(f => ({ ...f, q: e.target.value }))} style={{ width: 160, fontSize: 12, padding: '5px 8px' }} />
+          <Btn sm onClick={() => importarExcelSeguimientoManual((filas, nombre) => setImportPendiente({ filas, nombre }))}>Importar Excel</Btn>
           <Btn sm onClick={() => exportarSeguimientoExcel(obra)}>Exportar Excel</Btn>
           <Btn sm primary onClick={() => setShowNuevoPunto(true)}>+ Nuevo punto</Btn>
         </div>
@@ -4669,6 +4828,22 @@ function VistaSeguimientoObra({ obra, onSave, onAbrirReunion }) {
       {showNueva && <ModalNuevaReunionSeg obra={obra} onSave={onSave} onCrear={crearReunion} onClose={() => setShowNueva(false)} />}
       {showNuevoPunto && <NuevoPuntoModal obra={obra} onSave={onSave} onClose={() => setShowNuevoPunto(false)} />}
       {showAjustes && <ModalAjustesSeg obra={obra} onSave={onSave} onClose={() => setShowAjustes(false)} />}
+      {importPendiente && (
+        <ModalImportarSeg filas={importPendiente.filas} nombre={importPendiente.nombre}
+          onCancelar={() => setImportPendiente(null)}
+          onConfirmar={() => {
+            const nuevos = puntosDesdeImportSeg(obra, importPendiente.filas);
+            // Las temáticas importadas que no estén ya configuradas para la fase "obra" se añaden,
+            // para que salgan también al crear una reunión nueva y no solo en el filtro del registro.
+            const porFaseActual = tematicasSegPorFase(obra);
+            const tematicasNuevas = [...new Set(nuevos.map(p => p.tematica).filter(Boolean))].filter(t => !porFaseActual.obra.includes(t));
+            onSave({
+              ...obra, seguimientoPuntos: [...puntos, ...nuevos], seguimientoNextNum: (obra.seguimientoNextNum || 1) + nuevos.length,
+              ...(tematicasNuevas.length ? { seguimientoTematicasPorFase: { ...porFaseActual, obra: [...porFaseActual.obra, ...tematicasNuevas] } } : {}),
+            });
+            setImportPendiente(null);
+          }} />
+      )}
       {puntoActivo && (
         <PuntoSegModal obra={obra} onSave={onSave} punto={puntoActivo} reunionContextId={null}
           onClose={() => setPuntoActivoId(null)}
