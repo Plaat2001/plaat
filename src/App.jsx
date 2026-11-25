@@ -3460,6 +3460,15 @@ function cambiarEstadoBulkSeg(obra, onSave, ids, nuevoEstado) {
   });
   onSave({ ...obra, seguimientoPuntos: lista });
 }
+// Eliminación en bloque desde el registro (selección múltiple) — igual criterio que
+// cambiarEstadoBulkSeg (un único onSave con el array ya filtrado) más un deleteModulo por
+// punto: las eliminaciones son explícitas porque el diffing por referencia de saveUnaObra
+// nunca detecta que un elemento ha desaparecido del array (ver eliminarPuntoSeg).
+async function eliminarPuntosBulkSeg(obra, onSave, ids) {
+  const idsSet = new Set(ids);
+  onSave({ ...obra, seguimientoPuntos: obra.seguimientoPuntos.filter(p => !idsSet.has(p.id)) });
+  await Promise.all(ids.map(id => window.db.deleteModulo('seguimiento_puntos', id).catch(e => console.error('Error eliminando punto de seguimiento:', e))));
+}
 // Aplica una o varias propuestas de "repaso de finalización" (candidatos detectados por
 // similitud contra el historial) en un único onSave — si se hiciera una llamada de guardado
 // por propuesta, cada una leería `obra.seguimientoPuntos` ya desactualizado por la anterior
@@ -3509,25 +3518,73 @@ function candidatosRepasoSeg(puntos, excluirIds) {
   });
   return candidatos;
 }
-// Exporta el registro de puntos a un Excel real, con las mismas columnas que el Excel que
-// Jan usaba antes de tener este módulo en la app (xlsx ya es dependencia de producción,
-// se usa también para importar granulometría/CQ).
-function exportarSeguimientoExcel(obra) {
+// Exporta el registro de puntos a un Excel real tipo tabla (filtros por columna + cabecera
+// fija + bandas de color, igual que la plantilla manual que usaba Jan antes de este módulo,
+// que también era una Tabla de Excel) y con el Estado coloreado y las filas fuera de plazo
+// resaltadas en rojo — la plantilla original tenía pensado ese mismo coloreado por formato
+// condicional, pero la regla estaba rota (apuntaba a una celda ya borrada, #REF!) y nunca
+// llegaba a pintar nada; aquí se aplica el color directamente, así que siempre funciona.
+// Usa exceljs (no XLSX/SheetJS, que en su edición gratuita no escribe estilos) solo para
+// generar el archivo de salida; la importación sigue leyendo con XLSX más arriba. Se carga con
+// import() dinámico porque exceljs pesa casi 1MB — como bundlearlo de forma estática incluso
+// rompía el build (el chunk principal superaba el límite de 2MB de precache de Workbox). El
+// import() dinámico por sí solo NO basta para que sea perezoso de verdad: Workbox precachea
+// igualmente cualquier chunk generado, sin mirar si el punto de entrada llega a pedirlo — por
+// eso además hace falta excluirlo a mano en vite.config.js (`workbox.globIgnores`), si no se
+// descargaría en la instalación de la PWA igual que si fuera estático.
+async function exportarSeguimientoExcel(obra) {
+  const { default: ExcelJS } = await import('exceljs');
   const puntos = [...(obra.seguimientoPuntos || [])].sort((a, b) => (a.num || 0) - (b.num || 0));
-  const filas = [
-    ['Num', 'Título', 'Motivo', 'Responsable', 'Temática', 'Fecha apertura', 'Fecha límite', 'Fecha cierre', 'Estado', 'Observaciones'],
-    ...puntos.map(p => [
-      nuevoNumSeguimiento(p.num), p.titulo || '', p.texto || '', p.responsable || '', p.tematica || '',
-      fmtDate(p.fechaAlta), fmtLimiteSeg(p.fechaLimite), p.fechaResolucion ? fmtDate(p.fechaResolucion) : '',
-      ESTADOS_SEG_INFO[p.estado]?.label || p.estado,
-      (p.comentarios || []).map(c => `${fmtShort(c.creadaEn)}: ${c.texto}`).join(' · '),
-    ]),
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Plaat Arquitectura Técnica';
+  wb.created = new Date();
+  const ws = wb.addWorksheet('Seguimiento', { views: [{ state: 'frozen', ySplit: 5 }] });
+
+  ws.mergeCells('A1:J1');
+  ws.getCell('A1').value = obra.nombre || 'Obra';
+  ws.getCell('A1').font = { bold: true, size: 14 };
+  ws.mergeCells('A2:J2');
+  ws.getCell('A2').value = [obra.emplazamiento, obra.propiedad || obra.cliente].filter(Boolean).join(' · ');
+  ws.getCell('A2').font = { color: { argb: 'FF6B6B66' }, size: 10 };
+  ws.mergeCells('A3:J3');
+  const abiertos = puntos.filter(p => p.estado !== 'cerrado').length;
+  ws.getCell('A3').value = `Registro de seguimiento exportado el ${fmtDate(today())} — ${puntos.length} puntos (${abiertos} abiertos, ${puntos.length - abiertos} cerrados)`;
+  ws.getCell('A3').font = { italic: true, color: { argb: 'FF9B9B97' }, size: 9.5 };
+
+  const columnas = [
+    { name: 'Num', width: 10 }, { name: 'Título', width: 26 }, { name: 'Motivo', width: 46 },
+    { name: 'Responsable', width: 16 }, { name: 'Temática', width: 16 },
+    { name: 'Fecha apertura', width: 13 }, { name: 'Fecha límite', width: 13 }, { name: 'Fecha cierre', width: 13 },
+    { name: 'Estado', width: 13 }, { name: 'Observaciones', width: 46 },
   ];
-  const ws = XLSX.utils.aoa_to_sheet(filas);
-  ws['!cols'] = [{ wch: 8 }, { wch: 28 }, { wch: 50 }, { wch: 18 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 40 }];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Seguimiento');
-  const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+  columnas.forEach((c, i) => { ws.getColumn(i + 1).width = c.width; });
+
+  const filas = puntos.map(p => [
+    nuevoNumSeguimiento(p.num), p.titulo || '', p.texto || '', p.responsable || '', p.tematica || '',
+    fmtDate(p.fechaAlta), fmtLimiteSeg(p.fechaLimite), p.fechaResolucion ? fmtDate(p.fechaResolucion) : '',
+    ESTADOS_SEG_INFO[p.estado]?.label || p.estado,
+    (p.comentarios || []).map(c => `${fmtShort(c.creadaEn)}: ${c.texto}`).join(' · '),
+  ]);
+  ws.addTable({
+    name: 'Seguimiento', ref: 'A5', headerRow: true, totalsRow: false,
+    style: { theme: 'TableStyleMedium2', showRowStripes: true },
+    columns: columnas.map(c => ({ name: c.name, filterButton: true })),
+    rows: filas.length ? filas : [['', '', '', '', '', '', '', '', '', '']],
+  });
+
+  puntos.forEach((p, i) => {
+    const row = ws.getRow(6 + i);
+    row.getCell(2).font = { bold: true };
+    row.getCell(2).alignment = { wrapText: true, vertical: 'top' };
+    row.getCell(3).alignment = { wrapText: true, vertical: 'top' };
+    row.getCell(10).alignment = { wrapText: true, vertical: 'top' };
+    [6, 7, 8, 9].forEach(c => { row.getCell(c).alignment = { horizontal: 'center', vertical: 'top' }; });
+    const info = ESTADOS_SEG_INFO[p.estado];
+    if (info) row.getCell(9).font = { bold: true, color: { argb: 'FF' + info.color.replace('#', '') } };
+    if (vencidoSeg(p)) row.getCell(7).font = { bold: true, color: { argb: 'FFB3261E' } };
+  });
+
+  const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const url = URL.createObjectURL(blob);
   const nomObra = (obra.nombre || 'Obra').replace(/[^a-zA-Z0-9À-ÿ\s\-_]/g, '').trim().replace(/\s+/g, '_');
@@ -3608,8 +3665,11 @@ function parseExcelSeguimientoManual(uint8) {
       const fechaLimite = excelFechaISO(fLimite);
       const fechaResolucion = excelFechaISO(fCierre) || (estado === 'cerrado' ? (fechaLimite || fechaAlta) : '');
       return {
+        // Si el Excel no trae "Motivo", se deja vacío en vez de repetir la Descripción: ya
+        // sale como título, y layoutPuntoSeg()/dibujarContenidoPuntoSeg() (PDF) y la fila del
+        // registro mostrarían la misma frase dos veces si también se copiara aquí.
         titulo: (descripcion ?? '').toString().trim(),
-        texto: ((motivo ?? '').toString().trim()) || (descripcion ?? '').toString().trim(),
+        texto: (motivo ?? '').toString().trim(),
         responsable: (colDisciplina ?? '').toString().trim(),
         tematica: normalizarTematicaImport(colResponsable),
         fechaAlta, fechaLimite, fechaResolucion, estado,
@@ -3651,7 +3711,9 @@ function puntosDesdeImportSeg(obra, filas) {
   let num = obra.seguimientoNextNum || 1;
   return filas.map(f => {
     const punto = {
-      id: uid(), num, titulo: f.titulo, texto: f.texto || f.titulo || '(sin descripción)',
+      // Si no hay motivo pero sí título, se deja texto vacío (no se duplica la descripción) —
+      // solo se usa un texto de relleno cuando ni siquiera hay título.
+      id: uid(), num, titulo: f.titulo, texto: f.texto || (f.titulo ? '' : '(sin descripción)'),
       tematica: f.tematica, responsable: f.responsable, fase: 'obra',
       fechaAlta: f.fechaAlta, fechaLimite: f.fechaLimite, fechaResolucion: f.fechaResolucion,
       estado: f.estado, estadoManual: true, reunionOrigen: null, numActa: null,
@@ -4688,6 +4750,22 @@ function VistaSeguimientoObra({ obra, onSave, onAbrirReunion }) {
   const [seleccionados, setSeleccionados] = useState(() => new Set());
   const [estadoBulk, setEstadoBulk] = useState('cerrado');
   const [importPendiente, setImportPendiente] = useState(null); // { filas, nombre } a confirmar
+  const [confirmDelBulk, setConfirmDelBulk] = useState(false);
+  const [exportando, setExportando] = useState(false);
+  const [generandoPdfRegistro, setGenerandoPdfRegistro] = useState(false);
+
+  async function onExportarExcel() {
+    setExportando(true);
+    try { await exportarSeguimientoExcel(obra); }
+    catch (e) { console.error('Error exportando Excel de seguimiento:', e); alert('No se ha podido generar el Excel.'); }
+    setExportando(false);
+  }
+  async function onGenerarPdfRegistro() {
+    setGenerandoPdfRegistro(true);
+    try { await generarPdfRegistroSeg(obra, [...(obra.seguimientoPuntos || [])].sort((a, b) => (a.num || 0) - (b.num || 0))); }
+    catch (e) { console.error('Error generando PDF del registro de seguimiento:', e); alert('No se ha podido generar el PDF.'); }
+    setGenerandoPdfRegistro(false);
+  }
 
   function toggleSel(id) {
     setSeleccionados(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -4695,6 +4773,19 @@ function VistaSeguimientoObra({ obra, onSave, onAbrirReunion }) {
   function aplicarBulk() {
     if (!seleccionados.size) return;
     cambiarEstadoBulkSeg(obra, onSave, [...seleccionados], estadoBulk);
+    setSeleccionados(new Set());
+  }
+  function eliminarBulk() {
+    eliminarPuntosBulkSeg(obra, onSave, [...seleccionados]);
+    setSeleccionados(new Set());
+    setConfirmDelBulk(false);
+  }
+  // Cambiar el filtro limpia la selección: si no, "seleccionados" podía arrastrar ids que ya
+  // no se ven en la lista actual (se seleccionaban "No cerrados", se cambiaba a "Cerrados" y
+  // se sumaban más sin darse cuenta) — con el nuevo borrado en bloque, irreversible, ese arrastre
+  // ya no es tolerable como lo era con el cambio de estado en bloque.
+  function cambiarFiltro(patch) {
+    setFiltro(f => ({ ...f, ...patch }));
     setSeleccionados(new Set());
   }
 
@@ -4787,18 +4878,19 @@ function VistaSeguimientoObra({ obra, onSave, onAbrirReunion }) {
       <div style={{ background: '#fff', border: '1px solid #E8E7E1', borderRadius: 12, overflow: 'hidden' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid #E8E7E1', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <div style={{ fontSize: 14, fontWeight: 600, marginRight: 'auto' }}>Registro de puntos</div>
-          <select value={filtro.estado} onChange={e => setFiltro(f => ({ ...f, estado: e.target.value }))} style={{ width: 'auto', fontSize: 12, padding: '5px 8px' }}>
+          <select value={filtro.estado} onChange={e => cambiarFiltro({ estado: e.target.value })} style={{ width: 'auto', fontSize: 12, padding: '5px 8px' }}>
             <option value="abiertos">No cerrados</option>
             <option value="">Todos los estados</option>
             {Object.entries(ESTADOS_SEG_INFO).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
-          <select value={filtro.tematica} onChange={e => setFiltro(f => ({ ...f, tematica: e.target.value }))} style={{ width: 'auto', fontSize: 12, padding: '5px 8px' }}>
+          <select value={filtro.tematica} onChange={e => cambiarFiltro({ tematica: e.target.value })} style={{ width: 'auto', fontSize: 12, padding: '5px 8px' }}>
             <option value="">Todas las temáticas</option>
             {tematicas.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
-          <input type="search" placeholder="Buscar..." value={filtro.q} onChange={e => setFiltro(f => ({ ...f, q: e.target.value }))} style={{ width: 160, fontSize: 12, padding: '5px 8px' }} />
+          <input type="search" placeholder="Buscar..." value={filtro.q} onChange={e => cambiarFiltro({ q: e.target.value })} style={{ width: 160, fontSize: 12, padding: '5px 8px' }} />
           <Btn sm onClick={() => importarExcelSeguimientoManual((filas, nombre) => setImportPendiente({ filas, nombre }))}>Importar Excel</Btn>
-          <Btn sm onClick={() => exportarSeguimientoExcel(obra)}>Exportar Excel</Btn>
+          <Btn sm onClick={onExportarExcel} disabled={exportando}>{exportando ? 'Generando…' : 'Exportar Excel'}</Btn>
+          <Btn sm onClick={onGenerarPdfRegistro} disabled={generandoPdfRegistro}>{generandoPdfRegistro ? 'Generando…' : 'Generar PDF'}</Btn>
           <Btn sm primary onClick={() => setShowNuevoPunto(true)}>+ Nuevo punto</Btn>
         </div>
         {seleccionados.size > 0 && (
@@ -4808,6 +4900,7 @@ function VistaSeguimientoObra({ obra, onSave, onAbrirReunion }) {
               {Object.entries(ESTADOS_SEG_INFO).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
             <Btn sm primary onClick={aplicarBulk}>Aplicar</Btn>
+            <Btn sm danger onClick={() => setConfirmDelBulk(true)}>Eliminar</Btn>
             <Btn sm ghost onClick={() => setSeleccionados(new Set())}>Cancelar</Btn>
           </div>
         )}
@@ -4817,6 +4910,13 @@ function VistaSeguimientoObra({ obra, onSave, onAbrirReunion }) {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderBottom: '1px solid #F0EFEA', fontSize: 11.5, color: '#9B9B97', cursor: 'pointer' }}>
+              <input type="checkbox"
+                checked={filtrados.length > 0 && filtrados.every(p => seleccionados.has(p.id))}
+                ref={el => { if (el) el.indeterminate = filtrados.some(p => seleccionados.has(p.id)) && !filtrados.every(p => seleccionados.has(p.id)); }}
+                onChange={e => setSeleccionados(e.target.checked ? new Set(filtrados.map(p => p.id)) : new Set())} />
+              Seleccionar los {filtrados.length} de la lista
+            </label>
             {filtrados.map(p => (
               <FilaPuntoSeg key={p.id} punto={p} onClick={() => setPuntoActivoId(p.id)}
                 seleccionable seleccionado={seleccionados.has(p.id)} onToggleSel={() => toggleSel(p.id)} />
@@ -4824,6 +4924,11 @@ function VistaSeguimientoObra({ obra, onSave, onAbrirReunion }) {
           </div>
         )}
       </div>
+      {confirmDelBulk && (
+        <ConfirmMini titulo="Eliminar puntos seleccionados"
+          texto={`Vas a eliminar ${seleccionados.size} punto${seleccionados.size !== 1 ? 's' : ''} de seguimiento. Esta acción no se puede deshacer.`}
+          onSi={eliminarBulk} onNo={() => setConfirmDelBulk(false)} />
+      )}
 
       {showNueva && <ModalNuevaReunionSeg obra={obra} onSave={onSave} onCrear={crearReunion} onClose={() => setShowNueva(false)} />}
       {showNuevoPunto && <NuevoPuntoModal obra={obra} onSave={onSave} onClose={() => setShowNuevoPunto(false)} />}
@@ -5075,6 +5180,116 @@ async function generarActaSeguimiento(obra, reunion, puntos, anexo = []) {
 
   // iOS Safari no permite descargas programáticas — abrir en nueva pestaña, igual que el
   // resto de generadores de PDF de la app (ver generarActaVO_v2).
+  const pdfBlob = doc.output('blob');
+  const url = URL.createObjectURL(pdfBlob);
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
+}
+
+// PDF del registro completo de puntos de una obra (equivalente en PDF al "Exportar Excel" de
+// VistaSeguimientoObra, no ligado a una reunión concreta) — mismo patrón de carga de jsPDF +
+// autoTable por CDN y mismo cajetín de cabecera que generarActaSeguimiento, reutilizando
+// layoutPuntoSeg/dibujarContenidoPuntoSeg para el contenido de cada punto. A diferencia de la
+// tabla por reunión, la cabecera se repite en cada página ('everyPage') porque aquí sí se
+// esperan listados largos (puede haber cientos de puntos, p. ej. tras importar un Excel).
+async function generarPdfRegistroSeg(obra, puntos) {
+  if (!window.jspdf) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      s.onload = resolve; s.onerror = () => reject(new Error('No se pudo cargar jsPDF'));
+      document.head.appendChild(s);
+    });
+  }
+  if (!window.jspdf.jsPDF.API.autoTable) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js';
+      s.onload = resolve; s.onerror = () => reject(new Error('No se pudo cargar jsPDF-AutoTable'));
+      document.head.appendChild(s);
+    });
+  }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const M = 15, W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
+  const CW = W - 2 * M;
+  const MB = { left: M, right: M, top: M, bottom: 18 };
+  let y = M;
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+  doc.text(obra.nombre || '', M, y + 4);
+  if (obra.emplazamiento) { doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.text(obra.emplazamiento.toUpperCase(), M, y + 8); }
+  const promotor = (obra.propiedad || obra.cliente || '').toUpperCase();
+  if (promotor) { doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.text(promotor, M, y + 11.5); }
+
+  const logoH = 11, logoW = logoH * (515 / 152);
+  const xLogoPlaat = W - M - logoW;
+  try { doc.addImage(PLAAT_LOGO_B64, 'PNG', xLogoPlaat, y + 3.5, logoW, logoH); }
+  catch (e) { doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.text('Plaat.', W - M, y + 11, { align: 'right' }); }
+  if (obra.logoClienteB64) {
+    try {
+      const propsCli = doc.getImageProperties(obra.logoClienteB64);
+      const boxW = 26, gap = 6;
+      let w2 = boxW, h2 = boxW * (propsCli.height / propsCli.width);
+      if (h2 > logoH) { h2 = logoH; w2 = logoH * (propsCli.width / propsCli.height); }
+      doc.addImage(obra.logoClienteB64, 'PNG', xLogoPlaat - gap - w2, y + 3.5 + (logoH - h2) / 2, w2, h2);
+    } catch (e) { /* logo guardado ilegible: se omite sin romper el resto del PDF */ }
+  }
+  y += 16;
+
+  const abiertos = puntos.filter(p => p.estado !== 'cerrado').length;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(0);
+  doc.text('REGISTRO DE SEGUIMIENTO', M, y + 2);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(90);
+  doc.text(`Exportado el ${fmtDate(today())} — ${puntos.length} puntos (${abiertos} abiertos, ${puntos.length - abiertos} cerrados)`, M, y + 6.5);
+  doc.setTextColor(0);
+  y += 11;
+
+  const colNum = 13, colResp = 19, colTematica = 18, colFecha = 14, colLim = 15, colEst = 15;
+  const colText = CW - colNum - colResp - colTematica - colFecha - colLim - colEst;
+  const layouts = {};
+  doc.autoTable({
+    startY: y, margin: MB, theme: 'grid', tableWidth: CW, showHead: 'everyPage', rowPageBreak: 'avoid',
+    styles: { font: 'helvetica', fontSize: 7.2, cellPadding: 1.2, lineColor: [0, 0, 0], lineWidth: 0.2, textColor: 0, valign: 'top', halign: 'center' },
+    headStyles: { fillColor: [191, 191, 191], textColor: 0, fontStyle: 'bold', fontSize: 6.5, valign: 'middle', halign: 'center' },
+    columnStyles: { 0: { cellWidth: colNum }, 1: { cellWidth: colText, halign: 'left' }, 2: { cellWidth: colResp }, 3: { cellWidth: colTematica }, 4: { cellWidth: colFecha }, 5: { cellWidth: colLim }, 6: { cellWidth: colEst } },
+    head: [['NUM', 'TEMA', 'Responsable', 'Temática', 'Fecha\napertura', 'Fecha\nlímite', 'Estado']],
+    body: puntos.length
+      ? puntos.map(p => [nuevoNumSeguimiento(p.num), '', p.responsable || '', p.tematica || '', fmtDate(p.fechaAlta), fmtLimiteSeg(p.fechaLimite), ESTADOS_SEG_INFO[p.estado]?.label || ''])
+      : [['', { content: 'Sin puntos registrados', styles: { halign: 'left' } }, '', '', '', '', '']],
+    didParseCell: d => {
+      if (d.section !== 'body' || !puntos.length) return;
+      const p = puntos[d.row.index]; if (!p) return;
+      if (d.column.index === 1) {
+        const layout = layoutPuntoSeg(doc, p, colText);
+        layouts[d.row.index] = layout;
+        d.cell.text = [];
+        d.cell.styles.minCellHeight = layout.alturaTotal;
+      }
+      if (d.column.index === 5 && vencidoSeg(p)) { d.cell.styles.fontStyle = 'bold'; d.cell.styles.textColor = [179, 38, 30]; }
+      if (d.column.index === 6) {
+        const info = ESTADOS_SEG_INFO[p.estado];
+        if (info) { d.cell.styles.fillColor = hexToRgb(info.bg); d.cell.styles.textColor = hexToRgb(info.color); }
+      }
+    },
+    didDrawCell: d => {
+      if (d.section !== 'body' || d.column.index !== 1 || !puntos.length) return;
+      const layout = layouts[d.row.index]; if (!layout) return;
+      dibujarContenidoPuntoSeg(doc, layout, d.cell.x + 1.2, d.cell.y + 1, colText);
+    },
+  });
+
+  const totalPaginas = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPaginas; i++) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(0);
+    doc.text('Plaat Arquitectura Técnica', M + 2, H - 9);
+    doc.text('Barcelona-Madrid', W / 2, H - 9, { align: 'center' });
+    doc.text(`Página ${i} de ${totalPaginas}`, W - M - 2, H - 11, { align: 'right' });
+    doc.text('www.plaat.es', W - M - 2, H - 8, { align: 'right' });
+    try { doc.link(W - M - 2 - doc.getTextWidth('www.plaat.es'), H - 10.5, doc.getTextWidth('www.plaat.es'), 3, { url: 'https://www.plaat.es' }); } catch (e) {}
+  }
+
   const pdfBlob = doc.output('blob');
   const url = URL.createObjectURL(pdfBlob);
   window.open(url, '_blank');

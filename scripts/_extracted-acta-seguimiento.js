@@ -6,8 +6,10 @@ const fmtDate = iso => iso ? new Date(iso).toLocaleDateString('es-ES', { day: '2
 const fmtShort = iso => iso ? new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }) : '—';
 
 const ISO_DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
+const today = () => new Date().toISOString().slice(0, 10);
 function fmtLimiteSeg(v) { return !v ? '—' : ISO_DATE_RX.test(v) ? fmtDate(v) : v; }
 function nuevoNumSeguimiento(n) { return 'P-' + String(n).padStart(3, '0'); }
+function vencidoSeg(p) { return p.estado !== 'cerrado' && ISO_DATE_RX.test(p.fechaLimite || '') && p.fechaLimite < today(); }
 function tituloPuntoSeg(p) {
   if (p.titulo) return p.titulo;
   const t = p.texto || '';
@@ -240,6 +242,94 @@ export async function generarActaSeguimiento(obra, reunion, puntos, anexo = []) 
   tablaPuntos(doc.lastAutoTable.finalY + 5, propios, p => String(p.numActa ?? ''));
   if (tratados.length) tablaPuntos(tituloSeccion('SEGUIMIENTO DE PUNTOS ANTERIORES ACTUALIZADOS EN ESTA REUNIÓN'), tratados, p => nuevoNumSeguimiento(p.num));
   if (anexo.length) tablaPuntos(tituloSeccion(`ANEXO. PUNTOS PENDIENTES DE REUNIONES ANTERIORES: ${(reunion.tematica || '').toUpperCase()}`), anexo, p => nuevoNumSeguimiento(p.num));
+
+  const totalPaginas = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPaginas; i++) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(0);
+    doc.text('Plaat Arquitectura Técnica', M + 2, H - 9);
+    doc.text('Barcelona-Madrid', W / 2, H - 9, { align: 'center' });
+    doc.text(`Página ${i} de ${totalPaginas}`, W - M - 2, H - 11, { align: 'right' });
+    doc.text('www.plaat.es', W - M - 2, H - 8, { align: 'right' });
+    try { doc.link(W - M - 2 - doc.getTextWidth('www.plaat.es'), H - 10.5, doc.getTextWidth('www.plaat.es'), 3, { url: 'https://www.plaat.es' }); } catch (e) {}
+  }
+
+  const pdfBlob = doc.output('blob');
+  const url = URL.createObjectURL(pdfBlob);
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
+}
+
+export async function generarPdfRegistroSeg(obra, puntos) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const M = 15, W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
+  const CW = W - 2 * M;
+  const MB = { left: M, right: M, top: M, bottom: 18 };
+  let y = M;
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+  doc.text(obra.nombre || '', M, y + 4);
+  if (obra.emplazamiento) { doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.text(obra.emplazamiento.toUpperCase(), M, y + 8); }
+  const promotor = (obra.propiedad || obra.cliente || '').toUpperCase();
+  if (promotor) { doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.text(promotor, M, y + 11.5); }
+
+  const logoH = 11, logoW = logoH * (515 / 152);
+  const xLogoPlaat = W - M - logoW;
+  try { doc.addImage(PLAAT_LOGO_B64, 'PNG', xLogoPlaat, y + 3.5, logoW, logoH); }
+  catch (e) { doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.text('Plaat.', W - M, y + 11, { align: 'right' }); }
+  if (obra.logoClienteB64) {
+    try {
+      const propsCli = doc.getImageProperties(obra.logoClienteB64);
+      const boxW = 26, gap = 6;
+      let w2 = boxW, h2 = boxW * (propsCli.height / propsCli.width);
+      if (h2 > logoH) { h2 = logoH; w2 = logoH * (propsCli.width / propsCli.height); }
+      doc.addImage(obra.logoClienteB64, 'PNG', xLogoPlaat - gap - w2, y + 3.5 + (logoH - h2) / 2, w2, h2);
+    } catch (e) {}
+  }
+  y += 16;
+
+  const abiertos = puntos.filter(p => p.estado !== 'cerrado').length;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(0);
+  doc.text('REGISTRO DE SEGUIMIENTO', M, y + 2);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(90);
+  doc.text(`Exportado el ${fmtDate(today())} — ${puntos.length} puntos (${abiertos} abiertos, ${puntos.length - abiertos} cerrados)`, M, y + 6.5);
+  doc.setTextColor(0);
+  y += 11;
+
+  const colNum = 13, colResp = 19, colTematica = 18, colFecha = 14, colLim = 15, colEst = 15;
+  const colText = CW - colNum - colResp - colTematica - colFecha - colLim - colEst;
+  const layouts = {};
+  doc.autoTable({
+    startY: y, margin: MB, theme: 'grid', tableWidth: CW, showHead: 'everyPage', rowPageBreak: 'avoid',
+    styles: { font: 'helvetica', fontSize: 7.2, cellPadding: 1.2, lineColor: [0, 0, 0], lineWidth: 0.2, textColor: 0, valign: 'top', halign: 'center' },
+    headStyles: { fillColor: [191, 191, 191], textColor: 0, fontStyle: 'bold', fontSize: 6.5, valign: 'middle', halign: 'center' },
+    columnStyles: { 0: { cellWidth: colNum }, 1: { cellWidth: colText, halign: 'left' }, 2: { cellWidth: colResp }, 3: { cellWidth: colTematica }, 4: { cellWidth: colFecha }, 5: { cellWidth: colLim }, 6: { cellWidth: colEst } },
+    head: [['NUM', 'TEMA', 'Responsable', 'Temática', 'Fecha\napertura', 'Fecha\nlímite', 'Estado']],
+    body: puntos.length
+      ? puntos.map(p => [nuevoNumSeguimiento(p.num), '', p.responsable || '', p.tematica || '', fmtDate(p.fechaAlta), fmtLimiteSeg(p.fechaLimite), ESTADOS_SEG_INFO[p.estado]?.label || ''])
+      : [['', { content: 'Sin puntos registrados', styles: { halign: 'left' } }, '', '', '', '', '']],
+    didParseCell: d => {
+      if (d.section !== 'body' || !puntos.length) return;
+      const p = puntos[d.row.index]; if (!p) return;
+      if (d.column.index === 1) {
+        const layout = layoutPuntoSeg(doc, p, colText);
+        layouts[d.row.index] = layout;
+        d.cell.text = [];
+        d.cell.styles.minCellHeight = layout.alturaTotal;
+      }
+      if (d.column.index === 5 && vencidoSeg(p)) { d.cell.styles.fontStyle = 'bold'; d.cell.styles.textColor = [179, 38, 30]; }
+      if (d.column.index === 6) {
+        const info = ESTADOS_SEG_INFO[p.estado];
+        if (info) { d.cell.styles.fillColor = hexToRgb(info.bg); d.cell.styles.textColor = hexToRgb(info.color); }
+      }
+    },
+    didDrawCell: d => {
+      if (d.section !== 'body' || d.column.index !== 1 || !puntos.length) return;
+      const layout = layouts[d.row.index]; if (!layout) return;
+      dibujarContenidoPuntoSeg(doc, layout, d.cell.x + 1.2, d.cell.y + 1, colText);
+    },
+  });
 
   const totalPaginas = doc.getNumberOfPages();
   for (let i = 1; i <= totalPaginas; i++) {
