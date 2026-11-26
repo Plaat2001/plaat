@@ -9050,6 +9050,20 @@ function ModuloActaVO({ obra, onSave }) {
     idxGlobals.forEach((globalIdx, i) => { eq[globalIdx] = miembros[i]; });
     guardarVO({ ...vo, equipo: eq });
   }
+  function moveGrupo(nombreGrupo, dir) {
+    // Movem el bloc sencer de rols d'aquest grup (mantenint-ne l'ordre intern) respecte al
+    // grup veí, sense tocar l'ordre dels rols dins de cada grup.
+    const eq = vo.equipo || [];
+    const grupsOrdre = [];
+    const vist = new Set();
+    eq.forEach(r => { const g = r.grupo || ''; if (!vist.has(g)) { vist.add(g); grupsOrdre.push(g); } });
+    const idx = grupsOrdre.indexOf(nombreGrupo);
+    const nuevaPos = idx + dir;
+    if (idx < 0 || nuevaPos < 0 || nuevaPos >= grupsOrdre.length) return;
+    [grupsOrdre[idx], grupsOrdre[nuevaPos]] = [grupsOrdre[nuevaPos], grupsOrdre[idx]];
+    const nouEquip = grupsOrdre.flatMap(g => eq.filter(r => (r.grupo||'') === g));
+    guardarVO({ ...vo, equipo: nouEquip });
+  }
 
   // Secciones
   // El codi de cada secció ha de reflectir sempre la seva posició real (1, 2, 3...) perquè
@@ -9771,6 +9785,10 @@ function ModuloActaVO({ obra, onSave }) {
                           style={{ flex: 1, fontSize: 10, fontWeight: 700, color: '#6B6B66', textTransform: 'uppercase', letterSpacing: '0.08em', background: 'transparent', border: 'none', padding: 0, boxShadow: 'none' }}
                           placeholder="Nombre del grupo"
                         />
+                        <button onClick={() => moveGrupo(g, -1)} disabled={gi === 0} title="Mover grupo arriba"
+                          style={{ background: 'none', border: 'none', cursor: gi === 0 ? 'default' : 'pointer', color: gi === 0 ? '#D4D3CE' : '#A5A5A0', fontSize: 13, lineHeight: 1, padding: '0 2px' }}>↑</button>
+                        <button onClick={() => moveGrupo(g, 1)} disabled={gi === grups.length - 1} title="Mover grupo abajo"
+                          style={{ background: 'none', border: 'none', cursor: gi === grups.length - 1 ? 'default' : 'pointer', color: gi === grups.length - 1 ? '#D4D3CE' : '#A5A5A0', fontSize: 13, lineHeight: 1, padding: '0 2px' }}>↓</button>
                         <button
                           onClick={() => {
                             // Afegir un nou rol buit al MATEIX grup
